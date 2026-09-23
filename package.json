@@ -1,0 +1,107 @@
+{
+  "name": "dsh-omkb",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness 蓝牙 HID 小键盘（omkb）插件：宿主端用 node-hid 读取 omkb 设备（name=omkb & manufacturer=OM），浏览器端轮询桥接切换语音输入。",
+  "type": "module",
+  "dependencies": {
+    "node-hid": "^3.4.0"
+  },
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "react": "^18.2.0",
+    "@deepseek-ai/dsh-client-runtime": "*",
+    "@deepseek-ai/dsh-client-ui-slots": "*",
+    "@deepseek-ai/dsh-client-ui-settings": "*",
+    "@deepseek-ai/dsh-client-locale": "*",
+    "@deepseek-ai/dsh-client-ui-conversation": "*"
+  },
+  "scripts": {
+    "build:client": "node src/client_build.js",
+    "build:core": "node src/core_build.js",
+    "build": "npm run build:core && npm run build:client",
+    "verify:settings": "node test/verify_settings.js",
+    "verify:exit": "node test/verify_exit_guard.js",
+    "verify:agents": "node test/verify_agents.js",
+    "verify:led": "node test/verify_led_error.js",
+    "verify:joy": "node test/verify_joystick.js",
+    "verify:knob": "node test/verify_knob.js",
+    "verify:sidebar": "node test/verify_sidebar_action.js",
+    "verify:idle": "node test/verify_idle.js",
+    "verify:monitor": "node test/verify_monitor.js",
+    "verify:navicon": "node test/verify_nav_icon.js",
+    "verify:keycaps": "node test/verify_keycaps.js",
+    "verify:actions": "node test/verify_actions.js",
+    "verify": "npm run lint && npm run verify:settings && npm run verify:exit && npm run verify:agents && npm run verify:led && npm run verify:joy && npm run verify:knob && npm run verify:layout && npm run verify:press && npm run verify:keypad && npm run verify:keycaps && npm run verify:actions && npm run verify:sidebar && npm run verify:idle && npm run verify:monitor && npm run verify:navicon && npm run verify:guide && npm run verify:device",
+    "verify:guide": "node test/verify_guide.js",
+    "probe": "node test/ui_probe.mjs",
+    "probe:foot": "node test/ui_probe.mjs test/probes/foot.mjs",
+    "probe:gap": "node test/ui_probe.mjs test/probes/foot-gap.mjs",
+    "probe:gear": "node test/ui_probe.mjs test/probes/gear-hover.mjs",
+    "probe:hover": "node test/ui_probe.mjs test/probes/foot-hover.mjs --hover 140,726 --clip 0,690,300,70 --scale 4 --shot /tmp/omkb-foot-hover.png",
+    "probe:toast": "node test/ui_probe.mjs test/probes/toast.mjs --shot /tmp/omkb-save-toast.png",
+    "probe:desc": "node test/ui_probe.mjs test/probes/settings-desc.mjs",
+    "probe:knob": "node test/ui_probe.mjs test/probes/knob.mjs",
+    "probe:knobnav": "node test/ui_probe.mjs test/probes/knob-nav.mjs",
+    "probe:steps": "node test/ui_probe.mjs test/probes/reasoning-steps.mjs",
+    "probe:keys": "node test/ui_probe.mjs test/probes/keys.mjs",
+    "probe:navicon": "node test/ui_probe.mjs test/probes/nav-icon.mjs",
+    "probe:reasoning": "node test/ui_probe.mjs test/probes/reasoning-menu.mjs",
+    "probe:levels": "node test/ui_probe.mjs test/probes/reasoning-levels.mjs",
+    "lint": "node --check lib/index.js && node --check src/core/index.js && node --check lib/client.js",
+    "probe:voice": "node test/ui_probe.mjs test/probes/voice-guard.mjs",
+    "watch:device": "node test/omkb_watch.mjs",
+    "probe:ring": "node test/ui_probe.mjs test/probes/reasoning-ring.mjs",
+    "probe:ringshot": "node test/ui_probe.mjs test/probes/reasoning-ring-shot.mjs --shot /tmp/omkb-ring.png --clip 912,510,272,180 --scale 3",
+    "verify:layout": "node test/verify_layout.js",
+    "verify:press": "node test/verify_press.js",
+    "verify:keypad": "node test/verify_keypad.js",
+    "probe:micui": "node test/ui_probe.mjs test/probes/mic-split-ui.mjs",
+    "probe:keycaps": "node test/ui_probe.mjs test/probes/keycaps.mjs",
+    "probe:brightness": "node test/ui_probe.mjs test/probes/brightness-drag.mjs",
+    "probe:micshot": "node test/ui_probe.mjs test/probes/mic-split-shot.mjs --shot /tmp/omkb-mic-split.png --clip 505,360,494,140 --scale 2 --then test/probes/mic-split-shot.mjs",
+    "probe:hold": "node test/ui_probe.mjs test/probes/hold.mjs",
+    "probe:shape": "node test/ui_probe.mjs test/probes/layout-shape.mjs",
+    "probe:corner-shape": "node test/ui_probe.mjs test/probes/corner-shape.mjs",
+    "probe:layoutshot": "node test/ui_probe.mjs test/probes/layout-shot.mjs --shot /tmp/omkb-layout.png",
+    "probe:guide": "node test/ui_probe.mjs test/probes/guide.mjs --shot /tmp/omkb-guide.png",
+    "probe:device": "node test/ui_probe.mjs test/probes/device.mjs",
+    "verify:device": "node test/verify_device.js",
+    "probe:offline": "node test/ui_probe.mjs test/probes/offline.mjs"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "hid",
+    "ble",
+    "omkb"
+  ],
+  "license": "MIT"
+}

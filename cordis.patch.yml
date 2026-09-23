@@ -1,0 +1,4 @@
+# dsh-omkb 的 bundle patch：把宿主插件插入插件树。
+- insert:
+    - id: dsh-omkb
+      name: 'dsh-omkb'

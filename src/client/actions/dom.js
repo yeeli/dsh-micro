@@ -1,0 +1,396 @@
+// dsh-omkb · client/src/actions/dom.js
+// 【DSH 界面结构的唯一一份理解】—— 判据、定位、高亮、滚动、键盘兜底，全在这里。
+//
+// 为什么单独一个文件：DSH 的界面结构（哪个节点算「输入区」、谁能聚焦、消息列表在哪个滚动容器里）
+// 是一批**互相依赖的启发式**，改动时几乎总是连着改（比如「输入区导航」与「对话滚动」共用同一套
+// 「聊天区在哪」的判断）。散在门面类里会和「动作怎么编排」混在一起，两边都读不顺。
+// 这里只有**纯函数**：进 DOM、出元素或布尔值，不认识 sessions / ctx / 我们的门面。
+//
+// 三件容易被下一个人好心改坏的事，写在这儿：
+//   ① **文本输入框永远不在导航候选里**（isTextEntry）：composer 的输入框恰是候选表第一位，
+//      不剔掉就是「旋钮第一转把焦点吸进输入框」。
+//   ② **语音控件也要剔掉**（isVoiceControl）：旋钮停上去再按下 = 开语音，那是误触。
+//   ③ **找不到容器就返回空**，绝不回退到整个页面（`focusCollect`）：否则旋钮会满页跑
+//      （侧边栏、顶部工具栏全都进候选表）。
+//
+// 这些纯函数同时喂：门面（./index.js 的导航/滚动）、仅推理（./reasoning.js 的画环）、
+// 以及 entry.js 挂到 `__dshOmkb.knobTools` 给控制台与真机探针用 —— 一份判据，四处共用。
+
+/** 元素是否「真的看得见、能点」——所有定位函数的第一步过滤。 */
+export const nodeVisible = (el) => {
+  if (!el || typeof el.getBoundingClientRect !== 'function') return false
+  if (el.disabled === true || el.getAttribute('aria-disabled') === 'true') return false
+  const rect = el.getBoundingClientRect()
+  if (rect.width < 4 || rect.height < 4) return false
+  try {
+    const cs = window.getComputedStyle(el)
+    if (cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity) === 0) return false
+  } catch (e) {}
+  return true
+}
+
+/** `aria-label` + `title` 拼在一起做关键词匹配（别只认一个：两处都可能带文案）。 */
+export const labelOf = (el) => {
+  try {
+    return `${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`.trim()
+  } catch (e) { return '' }
+}
+
+/** 单个可读标签（`aria-label` 优先，退到 `title`）——从里面解析机器可读的值时用它。 */
+export const ariaOf = (el) => {
+  try { return String(el.getAttribute('aria-label') || el.getAttribute('title') || '') } catch (e) { return '' }
+}
+
+// 非文本型的 input（这些不是「输入框」，而是控件，导航要留着）。
+const NON_TEXT_INPUT_TYPES = ['checkbox', 'radio', 'range', 'color', 'file', 'button', 'submit', 'reset', 'image']
+
+/**
+ * 是不是「文本输入框」—— 旋钮导航必须跳过。
+ * 用户报的 bug：转旋钮会把焦点聚到 composer 输入框。根因就是候选选择器里带着
+ * `textarea` / `[contenteditable="true"]` / 文本型 `input`，而输入框恰好是候选表里的
+ * 第一个元素 → 第一转就停在它上面（按下还会 el.focus() 把光标塞进去）。
+ * 判据只看标签与 contenteditable 属性，不看类名 —— DSH 换皮/换实现都还成立。
+ * @returns {boolean} true = 文本输入控件（导航候选里要剔除）
+ */
+export const isTextEntry = (el) => {
+  if (!el || typeof el.tagName !== 'string') return false
+  const tag = el.tagName.toLowerCase()
+  if (tag === 'textarea') return true
+  try { if (el.isContentEditable === true) return true } catch (e) {}
+  try { if (el.getAttribute('contenteditable') === 'true') return true } catch (e) {}
+  if (tag === 'input') {
+    let type = 'text'
+    try { type = String(el.getAttribute('type') || 'text').toLowerCase() } catch (e) {}
+    return !NON_TEXT_INPUT_TYPES.includes(type)
+  }
+  return false
+}
+
+/** 可聚焦控件的候选选择器（导航与弹窗内控件统计共用）。 */
+const KNOB_SELECTOR = [
+  'button',
+  '[role="button"]',
+  'a[href]',
+  'input:not([type="hidden"])',
+  'textarea',
+  'select',
+  '[contenteditable="true"]',
+  '[tabindex]:not([tabindex="-1"])',
+  '[data-action]',
+  '[data-testid]',
+  '[aria-haspopup]',
+  '[aria-label]',
+  '[title]'
+].join(',')
+
+/** 语音控件：按下会开语音，不该被旋钮误触（导航候选里剔除）。 */
+const isVoiceControl = (el) => {
+  const cls = typeof el.className === 'string' ? el.className : ''
+  if (/\bdsvi-btn\b/.test(cls)) return true
+  if (/\bdshv_input\b/.test(cls)) return true
+  if (/(voice|mic|record|listen)/i.test(cls)) return true
+  let label = ''
+  try { label = (el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent || '') } catch (e) {}
+  return /(语音|麦克风|voice|microphone|mic|录制)/i.test(label)
+}
+
+// 输入区/编辑器 DOM 启发式：匹配 DSH composer 相关 class。
+const composerRootPattern = /(composer|conversation-input|message-input|chat-input|composer-toolbar|input-editor|editor-toolbar|input-toolbar|input-bar)/i
+// 一个容器要算作"输入区"，其内部必须含有真实输入字段（编辑器/文本域/麦克风按钮）。
+const hasInputField = (el) => {
+  try { return el.querySelector('textarea, [contenteditable="true"], .dsvi-btn') !== null } catch (e) { return false }
+}
+
+// 定位对话输入/作曲区容器：优先 DSH 数据属性，其次 composer class 启发式（取最内层可见者）。
+export const findInputRoot = () => {
+  if (typeof document === 'undefined') return null
+  for (const sel of ['[data-composer-seat]', '[data-composer-card]']) {
+    let el = null
+    try { el = document.querySelector(sel) } catch (e) { el = null }
+    if (el && nodeVisible(el) && hasInputField(el)) return el
+  }
+  let best = null
+  let nodes = []
+  try { nodes = Array.from(document.querySelectorAll('div, main, section, form')) } catch (e) { return best }
+  for (const el of nodes) {
+    if (el === document.body || el === document.documentElement) continue
+    let cls = ''
+    try {
+      if (typeof el.className === 'string') cls = el.className
+      else if (el.classList && el.classList.value) cls = el.classList.value
+    } catch (e) { continue }
+    if (!composerRootPattern.test(cls)) continue
+    if (!nodeVisible(el) || !hasInputField(el)) continue
+    if (!best) { best = el; continue }
+    if (best.contains(el)) best = el // 取更内层
+  }
+  return best
+}
+
+// 对话/会话主区域 class 与 data 属性：包含消息列表 + 输入区的整块聊天面板。
+const chatRootPattern = /(chat|conversation|thread|session|message-list|message_list|chat-view|conversation-main)/i
+
+// 定位"整个聊天区域"：从输入区容器向上扩展到最外层仍属于聊天面板的祖先，
+// 使旋钮能选中消息列表与输入区在内的整块对话内容（仍不进入侧栏/顶部）。
+export const findChatRoot = () => {
+  if (typeof document === 'undefined') return null
+  const input = findInputRoot()
+  const dataSels = ['[data-chat-root]', '[data-conversation-root]', '[data-thread-root]', '[data-chat-seat]', '[data-conversation-seat]']
+  for (const sel of dataSels) {
+    let el = null
+    try { el = document.querySelector(sel) } catch (e) { el = null }
+    if (el && nodeVisible(el)) return el
+  }
+  // 向上遍历输入区祖先，取最大的仍带聊天标识的容器
+  if (input) {
+    let cursor = input
+    let chat = null
+    while (cursor && cursor !== document.body && cursor !== document.documentElement) {
+      let cls = ''
+      try {
+        if (typeof cursor.className === 'string') cls = cursor.className
+        else if (cursor.classList && cursor.classList.value) cls = cursor.classList.value
+      } catch (e) {}
+      if (chatRootPattern.test(cls)) chat = cursor
+      cursor = cursor.parentElement
+    }
+    if (chat) return chat
+  }
+  // 无聊天标识：退回输入区自身（保留"不进全页"的底线）
+  return input
+}
+
+// 检测当前是否打开了弹窗/浮层（下拉菜单、命令面板、弹窗等）。
+// 有则返回最内层可见的那个，供导航优先聚焦；否则返回 null。
+export const findActivePopup = () => {
+  if (typeof document === 'undefined') return null
+  const POP_ROLE = ['dialog', 'alertdialog', 'menu', 'listbox', 'popover', 'tooltip', 'combobox']
+  const POP_SEL = [
+    '[role="dialog"]',
+    '[role="alertdialog"]',
+    '[role="menu"]',
+    '[role="listbox"]',
+    '[role="popover"]',
+    '[role="tooltip"]',
+    '[aria-expanded="true"]',
+    '[data-popover]',
+    '[data-menu]',
+    '[data-dropdown]',
+    '[data-dialog]',
+    '.popover',
+    '.dropdown',
+    '.tooltip',
+    '.modal',
+    '.dialog',
+    '.ds-modal',
+    '.dsh-dialog',
+    '[data-root="popper"]'
+  ].join(',')
+  const isPopupEl = (el) => {
+    try {
+      const role = el.getAttribute && (el.getAttribute('role') || '')
+      if (POP_ROLE.includes(role)) return true
+    } catch (e) {}
+    let cls = ''
+    try {
+      if (typeof el.className === 'string') cls = el.className
+      else if (el.classList && el.classList.value) cls = el.classList.value
+    } catch (e) {}
+    return /(popover|dropdown|tooltip|modal|popper|command-palette|context-menu)/i.test(cls)
+  }
+  // 收集所有可见的弹窗候选，取离输入区/聊天区最近（最内层）的一个
+  let nodes = []
+  try { nodes = Array.from(document.querySelectorAll(POP_SEL)) } catch (e) { nodes = [] }
+  let candidates = nodes.filter((el) => nodeVisible(el) && isPopupEl(el))
+  if (!candidates.length) return null
+  // 去重：若某弹窗包含另一弹窗，只保留最内层
+  candidates = candidates.filter((el) => !candidates.some((o) => o !== el && o.contains(el)))
+  // 在多个平级弹窗里，偏好含可聚焦控件较多的
+  candidates.sort((a, b) => b.querySelectorAll(KNOB_SELECTOR).length - a.querySelectorAll(KNOB_SELECTOR).length)
+  return candidates[0]
+}
+
+// 在聊天主区域内收集可聚焦控件；若当前有弹窗/菜单打开则聚焦弹窗内部。
+// 找不到容器时返回 []，绝不回退到整个页面。
+// 两道过滤：语音控件（按下会开语音，不该被旋钮误触）、文本输入框（会把焦点吸进去）。
+// 导出给探针/自检直接量 —— 「输入框有没有被排除」这条判据只许有一份。
+export const focusCollect = () => {
+  if (typeof document === 'undefined') return []
+  const popup = findActivePopup()
+  const root = popup || findChatRoot()
+  if (!root) return []
+  let nodes = []
+  try { nodes = Array.from(root.querySelectorAll(KNOB_SELECTOR)) } catch (e) { return [] }
+  return nodes.filter((el) => nodeVisible(el) && !isVoiceControl(el) && !isTextEntry(el))
+}
+
+// ---- 自绘高亮（「环」）：navigate 与 reasoning 两种模式共用，所以两处视觉天然一致 ----
+
+export const clearHighlight = () => {
+  try {
+    const prev = document.querySelector('[data-omkb-knob]')
+    if (prev) {
+      prev.removeAttribute('data-omkb-knob')
+      if (prev.__omkbPrevOutline !== undefined) { prev.style.outline = prev.__omkbPrevOutline; delete prev.__omkbPrevOutline }
+      if (prev.__omkbPrevShadow !== undefined) { prev.style.boxShadow = prev.__omkbPrevShadow; delete prev.__omkbPrevShadow }
+    }
+  } catch (e) {}
+}
+
+export const highlight = (el) => {
+  clearHighlight()
+  if (!el) return
+  el.setAttribute('data-omkb-knob', '1')
+  // 主高亮用内描边（inset box-shadow）：永远在元素内部，不会被弹窗滚动容器裁剪或被旁元素遮挡
+  el.__omkbPrevShadow = el.style.boxShadow
+  el.style.boxShadow = 'inset 0 0 0 2px #304FFE'
+  // outline 仅在能完整显示时辅助（向内，避免被容器边界裁到只剩部分边）
+  el.__omkbPrevOutline = el.style.outline
+  el.style.outline = '1px solid #304FFE'
+  el.style.outlineOffset = '-1px'
+  try { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }) } catch (e) {}
+}
+
+// ---- 对话滚动：滚动目标 = 当前会话的消息列表 ----
+// 以前只按「全页可滚距离最大」挑容器，会挑错人：侧栏会话列表、别的面板自己的滚动区都可能比
+// 消息列表更高。现在先按结构定位会话区（findChatRoot，与「输入区导航」同一套判据），在里面挑
+// 可滚距离最大的容器；会话区里没有可滚容器（例如消息还很少）才退回全页。
+let scrollCache = null
+
+const pickScrollable = (root) => {
+  if (!root || typeof root.querySelectorAll !== 'function') return null
+  let nodes = []
+  try { nodes = Array.from(root.querySelectorAll('div, main, section, ul, ol, article')) } catch (e) { return null }
+  let best = null
+  let bestDiff = 0
+  for (const el of nodes) {
+    const diff = el.scrollHeight - el.clientHeight
+    if (diff < 40 || diff <= bestDiff) continue
+    let oy = ''
+    try { oy = window.getComputedStyle(el).overflowY } catch (e) {}
+    if (oy !== 'auto' && oy !== 'scroll' && oy !== 'overlay') continue
+    best = el
+    bestDiff = diff
+  }
+  return best
+}
+
+/** 当前会话区的滚动容器（带缓存）。导出给入口/探针复用量同一套判据，别在探针里再写一份。 */
+export const findScrollContainer = () => {
+  if (typeof document === 'undefined') return null
+  if (scrollCache && document.contains(scrollCache)) return scrollCache
+  scrollCache = pickScrollable(findChatRoot()) || pickScrollable(document)
+  return scrollCache
+}
+
+/** 一步的滚动量：按容器高度自适应（大窗口里 140px 显得像没动）。 */
+export const scrollStepSize = (clientHeight) => Math.max(90, Math.round((clientHeight || 600) * 0.22))
+
+/** 滚一步（dir < 0 向上）。 */
+export const scrollStepDir = (dir) => {
+  const el = findScrollContainer() || (typeof document !== 'undefined' ? (document.scrollingElement || document.documentElement) : null)
+  if (!el) return false
+  const step = scrollStepSize(el.clientHeight)
+  try { el.scrollTop = (el.scrollTop || 0) + (dir >= 0 ? step : -step); return true } catch (e) { return false }
+}
+
+/** 直接滚到底（旋钮 scroll 模式按下、摇杆「滚动到底部」都用它）。 */
+export const scrollToBottomDir = () => {
+  const el = findScrollContainer() || (typeof document !== 'undefined' ? (document.scrollingElement || document.documentElement) : null)
+  if (!el) return false
+  try { el.scrollTop = el.scrollHeight; return true } catch (e) { return false }
+}
+
+// ---- 界面开关的定位（只在服务拿不到时的兜底路径使用）----
+
+/** 规划模式 chip：只在规划模式开着时渲染（aria-label 形如「plan mode 已开启，按下关闭」）。 */
+const PLAN_CHIP_RE = /plan\s*mode\s*(已开启|on)|plan.*(按下关闭|press to turn off)/i
+export const planChipEl = () => {
+  if (typeof document === 'undefined') return null
+  let nodes = []
+  try { nodes = Array.from(document.querySelectorAll('[aria-label],[title]')) } catch (e) { return null }
+  for (const el of nodes) {
+    if (PLAN_CHIP_RE.test(labelOf(el)) && nodeVisible(el)) return el
+  }
+  return null
+}
+
+/** 侧边栏开关按钮：只认真实控件（button/[role=button]）上的 aria-label/title，避免点到正文。 */
+const SIDEBAR_RE = /sidebar|侧边栏|侧栏|展开.*栏|收起.*栏/i
+export const sidebarToggleEl = () => {
+  if (typeof document === 'undefined') return null
+  let nodes = []
+  try { nodes = Array.from(document.querySelectorAll('button,[role="button"]')) } catch (e) { return null }
+  for (const el of nodes) {
+    if (SIDEBAR_RE.test(labelOf(el)) && nodeVisible(el)) return el
+  }
+  return null
+}
+
+/** composer 输入框：优先当前聚焦的那个，其次取最后一个可见 textarea。 */
+export const composerTextarea = () => {
+  if (typeof document === 'undefined') return null
+  let nodes = []
+  try { nodes = Array.from(document.querySelectorAll('textarea')) } catch (e) { return null }
+  const visible = nodes.filter(nodeVisible)
+  const active = typeof document.activeElement !== 'undefined' ? document.activeElement : null
+  if (active && visible.includes(active)) return active
+  return visible.length ? visible[visible.length - 1] : null
+}
+
+// ---- 待确认交互的面板（审批 / 计划确认）：只在「服务拿不到」时当兜底 ----
+
+/**
+ * 审批面板 / 计划确认面板上的按钮，**按界面顺序**返回（拒绝 / 拒绝执行在左，
+ * 允许一次 / 确认执行在右 —— 两个面板都是这个顺序，见 dsh-client-ui-approval 的
+ * ApprovalPanel 与 dsh-client-ui-user-questions 的 PlanReviewPanel）。
+ *
+ * 认面板**只认面板自己的身份标记**（`data-approval-key` / `data-plan-review-key`）：
+ * 这两个属性是 DSH 给面板写的（用于 one-shot 重挂载），比文案稳 —— 文案会跟着语言变，
+ * class 会跟着版本变。找不到就返回空数组，调用方如实报「拿不到」。
+ * @returns {Element[]} 按钮（可能为空）；顺序即界面顺序。
+ */
+export const interactionPanelButtons = () => {
+  if (typeof document === 'undefined') return []
+  for (const sel of ['[data-approval-key]', '[data-plan-review-key]']) {
+    let card = null
+    try { card = document.querySelector(sel) } catch (e) { card = null }
+    if (!card) continue
+    let btns = []
+    try { btns = Array.from(card.querySelectorAll('button')) } catch (e) { btns = [] }
+    if (btns.length) return btns
+  }
+  return []
+}
+
+// ---- 键盘事件兜底：服务 / 输入机全都拿不到时的最后一条路 ----
+
+/**
+ * 向某个元素派发一次 Enter（发送的最后兜底）。
+ * 只认「当前聚焦元素」：DSH 的 composer 就是从键盘路径收下这一下的。
+ */
+export const dispatchEnter = (target) => {
+  if (typeof document === 'undefined' || typeof KeyboardEvent === 'undefined') return false
+  const el = target || document.activeElement
+  if (!el || typeof el.dispatchEvent !== 'function') return false
+  const opts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }
+  try { el.dispatchEvent(new KeyboardEvent('keydown', opts)); return true } catch (e) { return false }
+}
+
+/** 兜底：在 composer 输入框上派发 ⌘Z / ⌘⇧Z（DSH 的输入机就是从这条键盘路径进来的）。 */
+export const dispatchUndoChord = (shift) => {
+  if (typeof document === 'undefined' || typeof KeyboardEvent === 'undefined') return false
+  const el = composerTextarea()
+  if (!el) return false
+  const opts = {
+    key: shift ? 'Z' : 'z',
+    code: 'KeyZ',
+    keyCode: 90,
+    which: 90,
+    metaKey: true,
+    shiftKey: !!shift,
+    bubbles: true,
+    cancelable: true
+  }
+  try { el.dispatchEvent(new KeyboardEvent('keydown', opts)); return true } catch (e) { return false }
+}

@@ -1,0 +1,256 @@
+// dsh-omkb · client/src/components/keyboard-layout.jsx
+// 设置页里的**布局可视化**：把设备画出来（三排键 + 底部一行），并让真机上的操作在布局里「演」出来。
+//
+// ---------- 布局特效：纯视觉，不触发任何功能 ----------
+// 数据只来自 /omkb/state（经 hid-bridge 的 subscribe 广播）：
+//   down  —— 当前**按住**的键名数组。设备对每个物理键都发一对事件（`params.act` 1/0），
+//            宿主把它翻译成这个字段（见 src/core/ble.js 的 HID_ACT）。特效就按它对齐：
+//            **按下就陷下去、接到松开才抬起来**，不再用「按固定时长自己弹回」去猜。
+//            判据在 ../press-state.js（纯 JS，自检与探针直接验同一份）。
+//   keyT  —— 每个键名一个**按下次数**计数器：按得比一次轮询还快时（轮询拿到的 down 里已经
+//            空了）补一次短闪，否则那颗键毫无反应。不能用 sticky 的 `key`：两次轮询之间
+//            按下的不同键只看得到最后一个。
+//   joy   —— 摇杆实时方向（推着非空、松手回 null），正好用来做「推拉 + 回弹」。
+// 特效只给布局里的键加一个 class、给摇杆球一个 transform，**绝不调用任何 DSH 接口**：
+// 按物理键时该触发的功能由 hid-bridge 那边照常触发，这里是旁路观测，不是第二条通路。
+import { useEffect, useRef, useState } from 'react'
+import { DSVI } from '../core.js'
+import { capFor, micRowKeys } from '../keypad/layout.js'
+import { CUSTOM_ICON } from '../keypad/keycaps.js'
+import { FLASH_MS, createPressTracker, samePressed } from '../utils/press-state.js'
+import { Key, KeyFace } from './ui.jsx'
+import { OmkbKeycapModal } from './keycap-modal.jsx'
+import { OmkbJoystickModal } from './joystick-modal.jsx'
+
+/** 摇杆每个方向推出去多远（px）——「推拉摇动」的幅度。 */
+export const JOY_SHIFT = 9
+
+/** 摇杆方向 → 球体位移。 */
+export const JOY_OFFSET = {
+  up: [0, -JOY_SHIFT], down: [0, JOY_SHIFT], left: [-JOY_SHIFT, 0], right: [JOY_SHIFT, 0]
+}
+
+/**
+ * 订阅 HID 状态，产出布局特效需要的两样东西。
+ * @param {{current: boolean}} splitRef 「独立麦克风键」是否打开（用 ref 是为了不因开关
+ *   变化而重建订阅 —— 重建会把按下状态与 keyT 基线清零，刚发生的按键就漏掉了）。
+ * @returns {{pressed: object, joy: string|null, tap: Function}}
+ *   pressed —— 视觉键 id → true（正在显示按下）；joy —— 当前摇杆方向；tap —— 本地点击也闪一次。
+ */
+function useHidSignals(splitRef) {
+  const [pressed, setPressed] = useState({})
+  const [joy, setJoy] = useState(null)
+  const trackerRef = useRef(null)
+  if (trackerRef.current === null) trackerRef.current = createPressTracker()
+  const tracker = trackerRef.current
+  const shownRef = useRef({})
+
+  // 状态机 → React：集合没变就不 setState（轮询 120ms 一帧，每帧都写会白渲染）
+  const commit = () => {
+    const next = tracker.snapshot()
+    if (samePressed(next, shownRef.current)) return
+    shownRef.current = next
+    setPressed(next)
+  }
+
+  /** 本地点击布局上的键：闪一下（手边没设备也要有反馈）。 */
+  const tap = (visualId) => { tracker.tap(visualId); commit() }
+
+  useEffect(() => {
+    const hid = DSVI.services && DSVI.services.hid
+    if (!hid || typeof hid.subscribe !== 'function') return undefined
+    let lastJoy
+    const off = hid.subscribe((s) => {
+      tracker.fold(s, splitRef && splitRef.current)
+      commit()
+      const j = s && typeof s.joy === 'string' && s.joy ? s.joy : null
+      if (j !== lastJoy) { lastJoy = j; setJoy(j) }
+    })
+    // 短闪到期、宿主静默（按键状态不再可信）都需要有人收尾：订阅只在有帧时才被叫醒。
+    const timer = setInterval(commit, Math.max(60, Math.round(FLASH_MS / 2)))
+    return () => {
+      off()
+      clearInterval(timer)
+      tracker.reset()
+      shownRef.current = {}
+    }
+  }, [])
+
+  return { pressed, joy, tap }
+}
+
+/** 三排图标键的键码（顺序 = 布局里从左到右）。 */
+const ACT_ROW_CODES = ['ACT06', 'ACT07', 'ACT08', 'ACT09']
+
+/**
+ * 布局可视化（Codex Micro 风格）。
+ * @param update - 写回偏好（与设置页其它控件同一条持久化路径）。
+ * @param prefs - 当前偏好快照（只看 micKey / actLabels / joystick）。
+ * @param clearField - 清掉某个字段的用户层覆盖（回落 schema 默认），清空最后一颗键帽时用。
+ * @param preview - **只画不响应**的预览模式（首次连接引导用）。给 `{ colors }` 时，
+ *   6 颗智能体键的圆点改用 `colors[visualId]` 上色（示意键盘灯的颜色语言），
+ *   并且所有键都不响应点击（不弹键帽编辑器 / 摇杆配置，也不播按压特效）。
+ *   为什么要走同一个组件：引导里那张键盘图必须是**同一份绘制代码** —— 另写一份迟早
+ *   画出两台不一样的键盘（键帽换了、麦克风键拆了，引导里还是老样子）。
+ */
+export function OmkbLayout({ update, prefs = {}, clearField, preview = null }) {
+  const actLabels = prefs.actLabels || {}
+  const [editor, setEditor] = useState(null) // { target }
+  const [joyOpen, setJoyOpen] = useState(false)
+  // 预览模式：只画。信号照订（hooks 顺序不能变），但一律不反映到界面上。
+  const staticShot = !!preview
+  const swatch = (preview && preview.colors) || null
+  // 底部那颗两倍宽的 Mic 键下面有两个开关：开关打开时拆成两颗键画（模型见 keypad/layout.js）。
+  const micSplit = !!prefs.micKey
+  const micKeys = micRowKeys(prefs)
+  const splitRef = useRef(micSplit)
+  useEffect(() => { splitRef.current = micSplit }, [micSplit])
+  // 真机信号 → 布局特效（纯视觉；见文件上方 useHidSignals 的说明）
+  const { pressed, joy, tap } = useHidSignals(splitRef)
+  // 预览模式下摇杆不跟着真机推拉（它在引导里只是插图）；键帽/摇杆的弹窗也一律不开。
+  const shownJoy = staticShot ? null : joy
+  const shownPressed = staticShot ? {} : pressed
+  const openKeycap = (target) => () => { if (!staticShot) setEditor({ target }) }
+  // 写回键帽：target 是**键码**（actLabels 的键），不是视觉 id。
+  const saveCap = (target, pick) => update('actLabels', { ...actLabels, [target]: pick })
+  // 恢复默认 = 把这一格从 actLabels 里删掉（回落出厂键帽；拆分态那颗自定义键回落成「未指派」）。
+  // 删空了就连字段一起 unset（见 settings-panel.jsx 的 clearField 注释）。
+  const clearCap = (target) => {
+    const next = { ...actLabels }
+    delete next[target]
+    if (!Object.keys(next).length && typeof clearField === 'function') return clearField('actLabels')
+    return update('actLabels', next)
+  }
+  // 智能体键的圆点：预览模式给定的示意色优先（引导要展示「这几颗键靠颜色说话」）。
+  const dot = (visualId) => (
+    <div
+      className={'omkb-key-dot' + (swatch && swatch[visualId] ? ' omkb-key-dot--swatch' : '')}
+      style={swatch && swatch[visualId] ? { background: swatch[visualId] } : undefined}
+    />
+  )
+  // 每个键挂上视觉 id（自检/探针按它定位）、键帽 id（探针据此核对「显示的是不是键帽」）
+  // 与「正在按下」的 class。
+  const slot = (visualId, onClick, extra = '') => ({
+    'data-omkb-key': visualId,
+    className: [extra, shownPressed[visualId] ? 'omkb-key--pressed' : ''].filter(Boolean).join(' '),
+    onClick: staticShot ? undefined : (onClick || (() => tap(visualId)))
+  })
+  const [jx, jy] = JOY_OFFSET[shownJoy] || [0, 0]
+  return (
+    <div className={'omkb-page-wrap' + (staticShot ? ' omkb-page-wrap--preview' : '')}>
+      <div className="omkb-keyboard-wrap">
+        <div className="omkb-grid-4col">
+          {/* Row1 左一旋钮（本次不做旋钮特效） */}
+          <div className="omkb-control-item">
+            <div className="omkb-control-base">
+              <div className="omkb-circle-knob-inner" />
+            </div>
+          </div>
+          <Key {...slot('r1-2')}>{dot('r1-2')}</Key>
+          <Key {...slot('r1-3')}>{dot('r1-3')}</Key>
+          {/* Row1 右一摇杆：点击弹出「模拟摇杆」方向配置；推杆时球体跟随方向偏移并回弹 */}
+          <div
+            className="omkb-control-item omkb-joy-ctrl"
+            data-omkb-key="joy"
+            onClick={staticShot ? undefined : () => setJoyOpen(true)}
+          >
+            <div className="omkb-control-base">
+              <div
+                className="omkb-joystick-dot"
+                data-joy={shownJoy || 'center'}
+                style={{
+                  transform: `translate(${jx}px, ${jy}px)`,
+                  transition: shownJoy ? 'transform .1s ease-out' : 'transform .28s cubic-bezier(.34,1.56,.64,1)'
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Row2 */}
+          <Key {...slot('r2-1')}>{dot('r2-1')}</Key>
+          <Key {...slot('r2-2')}>{dot('r2-2')}</Key>
+          <Key {...slot('r2-3')}>{dot('r2-3')}</Key>
+          <Key {...slot('r2-4')}>{dot('r2-4')}</Key>
+
+          {/* Row3 动作键（ACT：点击弹出「编辑按键」）。
+              **画的是键帽、不是物理键码**：给 ACT07 选了 MIC，它就得长成麦克风的样子
+              （键帽即功能，见 keypad/keycaps.js）。以前这里印的是 actLabels 的原始值，
+              于是选完 SEND 键上显示的是 'ACT12' —— 看起来像「设置了没用」。
+              **只有图标、没有键下文字**（像真键盘那样）：名字在「编辑按键」弹窗里写在候选下面。 */}
+          {ACT_ROW_CODES.map((code) => {
+            const capId = capFor(code, prefs)
+            const visualId = code.toLowerCase()
+            return (
+              <Key
+                key={code}
+                {...slot(visualId, openKeycap(code), 'omkb-key--act' + (capId ? '' : ' omkb-key--custom'))}
+                data-omkb-cap={capId || CUSTOM_ICON}
+              >
+                <KeyFace capId={capId} />
+              </Key>
+            )
+          })}
+        </div>
+
+        {/* 底部一行：旋钮面板 · Mic 键（两个开关，见 keypad/layout.js）· 发送键
+            data-omkb-mic 把当前状态写在 DOM 上：探针据此判断该期望一颗宽键还是两颗键，
+            不必去猜 aria-label 的本地化文案。 */}
+        <div className="omkb-bottom-row" data-omkb-mic={micSplit ? 'split' : 'merged'}>
+          <div className="omkb-knob-panel">
+            <div className="omkb-knob-lights">
+              <div className="omkb-knob-light omkb-blue"/>
+              <div className="omkb-knob-light omkb-green"/>
+              <div className="omkb-knob-light omkb-amber"/>
+            </div>
+            <div className="omkb-circle-knob"/>
+          </div>
+
+          {micKeys.map((k) => (
+            <Key
+              key={k.visualId}
+              {...slot(
+                k.visualId,
+                openKeycap(k.code),
+                (k.wide ? 'omkb-key-mic ' : '') + 'omkb-key--act' + (k.custom ? ' omkb-key--custom' : '')
+              )}
+              data-omkb-cap={k.capId || CUSTOM_ICON}
+            >
+              <KeyFace capId={k.capId} />
+            </Key>
+          ))}
+
+          {(() => {
+            const capId = capFor('ACT12', prefs)
+            return (
+              <Key
+                {...slot('act12', openKeycap('ACT12'), 'omkb-key--act' + (capId ? '' : ' omkb-key--custom'))}
+                data-omkb-cap={capId || CUSTOM_ICON}
+              >
+                <KeyFace capId={capId} />
+              </Key>
+            )
+          })()}
+        </div>
+      </div>
+
+      {!staticShot && editor && (
+        <OmkbKeycapModal
+          target={editor.target}
+          current={actLabels[editor.target] || null}
+          fallback={capFor(editor.target, prefs)}
+          onCancel={() => setEditor(null)}
+          onClear={() => { clearCap(editor.target); setEditor(null) }}
+          onSave={(pick) => { saveCap(editor.target, pick); setEditor(null) }}
+        />
+      )}
+
+      {!staticShot && joyOpen && (
+        <OmkbJoystickModal
+          value={prefs.joystick}
+          onClose={() => setJoyOpen(false)}
+          onSave={(cfg) => { update('joystick', cfg); setJoyOpen(false) }}
+        />
+      )}
+    </div>
+  )
+}

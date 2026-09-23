@@ -1,0 +1,354 @@
+
+
+/* dsh-omkb · client/src/settings.css — 设置面板样式
+ * 以 ?raw 引入，追加到 DSVI.css，随 installStyles 一起注入。 */
+.omkb-key--act{position:relative}
+.omkb-modal-overlay{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:rgba(15,18,25,.4);backdrop-filter:blur(4px)}
+.omkb-modal{width:min(520px,92vw);background:#fff;border-radius:14px;padding:18px;box-shadow:0 24px 60px rgba(0,0,0,.25)}
+.omkb-modal-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.omkb-modal-title{font-size:18px;font-weight:600;color:#1f2937}
+.omkb-modal-sub{margin-top:2px;font-size:13px;color:#4b5563}
+.omkb-modal-x{background:0 0;border:0;font-size:22px;line-height:1;color:#4b5563;cursor:pointer;border-radius:6px;width:30px;height:30px}
+.omkb-modal-x:hover{background:rgba(0,0,0,.06)}
+.omkb-modal-search{width:100%;margin:14px 0;padding:8px 12px;border:1px solid #e5e7eb;border-radius:9px;font-size:13px;outline:none;box-sizing:border-box}
+.omkb-modal-search:focus{border-color:#3b82f6}
+.omkb-modal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:10px;max-height:300px;overflow:auto}
+/* 「编辑按键」的候选 = **和外面那排键同一套外观**。
+ * 组件直接复用 .omkb-key（同一个圆角、同一条投影、同一个图标），这里只覆盖网格尺寸、
+ * 选中态与「键下面那行名字」—— 以前候选项是一排 emoji 小方卡片，弹窗里挑的东西和选完之后
+ * 键盘上看到的东西长得完全不一样，用户得自己脑补。 */
+.omkb-capgrid{grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:12px}
+/* 一格 = 键 + 键下面的名字。名字在键**外面**：布局的键已经不带文字了（像真键盘），
+ * 弹窗是唯一还有名字的地方。以前那行字是 .omkb-key-cap（绝对定位，只在 .omkb-key--act 里
+ * 定得住），而候选不是 .omkb-key--act —— 于是所有候选的名字被甩到遮罩底部叠成一堆。 */
+.omkb-cap-cell{display:flex;flex-direction:column;gap:6px;cursor:pointer}
+.omkb-cap-name{text-align:center;font-size:11px;font-weight:600;letter-spacing:.3px;color:var(--dsw-alias-label-secondary,#374151)}
+.omkb-cap{background:#f7f5f1;border:1px solid rgba(255,255,255,.6)}
+.omkb-cap-cell:hover .omkb-cap{border-color:#93c5fd}
+.omkb-cap--sel,.omkb-cap--sel:hover{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.35),0 2px 6px rgba(0,0,0,.06)}
+.omkb-cap-cell--sel .omkb-cap-name{color:#2563eb}
+/* 未指派的自定义键（拆分态那颗 Mic 右开关）：虚框 + 淡一点，
+ * 一眼看出「这里还没选功能」，而不是「又一颗 MIC 键」。 */
+.omkb-key--custom{border-style:dashed;border-color:rgba(0,0,0,.16);background:#f2efe9;box-shadow:none}
+.omkb-modal-spacer{flex:1}
+/* 置灰的按钮要真的看得出不能点（「保存」在没换键帽时是禁用的）。 */
+.omkb-modal .omkb-ghost[disabled],.omkb-modal .omkb-primary[disabled]{opacity:.4;cursor:default}
+.omkb-modal .omkb-ghost[disabled]:hover{background:transparent}
+.omkb-modal .omkb-primary[disabled]:hover{opacity:.4}
+/* 「重置布局」确认弹窗：把会重置成什么一条条列出来 */
+.omkb-reset-body{max-height:320px;overflow:auto;margin-top:8px}
+.omkb-reset-list{margin:0 0 4px;padding-left:18px;color:#4b5563;font-size:12.5px;line-height:1.65}
+.omkb-modal-hint{margin-top:10px;font-size:12px;line-height:1.5;color:#9ca3af}
+.omkb-modal-foot{display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:16px}
+.omkb-modal .omkb-ghost{background:transparent;color:#4b5563;border:0;padding:7px 14px;border-radius:8px;cursor:pointer;font-size:13px}
+.omkb-modal .omkb-ghost:hover{background:rgba(0,0,0,.06)}
+.omkb-modal .omkb-primary{background:#000;color:#fff;border:0;padding:7px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:500}
+.omkb-modal .omkb-primary:hover{opacity:.88}
+.omkb-control-item{cursor:default}
+.omkb-joy-ctrl{cursor:pointer}
+.omkb-joy-body{display:flex;gap:16px;align-items:stretch;margin-top:14px}
+/* 摇杆弹窗里的方向盘底盘：与布局里那颗摇杆同形（正圆），不再是圆角方框 —— 见上面 .omkb-control-base 的注释。 */
+.omkb-joy-pad{flex:none;align-self:center;width:64px;height:64px;border-radius:50%;background:#eef2f6;display:grid;place-items:center}
+.omkb-joy-knob{width:26px;height:26px;border-radius:50%;background:#111;box-shadow:0 2px 4px rgba(0,0,0,.25)}
+.omkb-joy-list{flex:1;display:flex;flex-direction:column;gap:6px}
+.omkb-joy-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid #e5e7eb;border-radius:10px;cursor:pointer}
+.omkb-joy-row:hover{border-color:#93c5fd}
+.omkb-joy-row--sel,.omkb-joy-row--sel:hover{border-color:#3b82f6;background:#eff6ff}
+.omkb-joy-arrow{font-size:15px;color:#4b5563;width:16px;text-align:center}
+.omkb-joy-dir{font-weight:600;color:#1f2937}
+.omkb-joy-val{margin-left:auto;color:#4b5563;font-size:13px;max-width:58%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.omkb-joy-foot{display:flex;justify-content:flex-end;margin-top:16px}
+.omkb-joy-done{width:100%}
+.omkb-overlay--sub{z-index:10002}
+.omkb-modal--sub{width:min(480px,92vw)}
+.omkb-sub-title{font-size:16px;font-weight:700;color:#1f2937}
+.omkb-sub-clear{display:flex;align-items:center;gap:6px;background:transparent;border:1px solid #e5e7eb;color:#4b5563;border-radius:20px;padding:3px 10px;font-size:12px;cursor:pointer}
+.omkb-sub-clear span{color:#999;font-size:14px}
+.omkb-sub-body{max-height:320px;overflow:auto}
+.omkb-sub-cat{font-size:13px;font-weight:700;color:#374151;margin:12px 0 4px}
+.omkb-sub-pick{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;cursor:pointer}
+.omkb-sub-pick:hover{background:#f3f4f6}
+.omkb-sub-pick--soon{opacity:.45;cursor:default}
+.omkb-sub-pick--soon:hover{background:transparent}
+.omkb-sub-name{flex:none;font-weight:600;color:#1f2937}
+.omkb-sub-des{margin-left:auto;color:#4b5563;font-size:12px;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.omkb-sub-empty{padding:18px;text-align:center;color:#9ca3af;font-size:13px}
+.omkb-wrap{display:flex;flex-direction:column;gap:16px;padding:0 0 24px;max-width:560px}
+.omkb-heading{margin-bottom:4px}
+.omkb-title{font-size:18px;font-weight:600;color:var(--dsw-alias-label-primary);margin:0}
+.omkb-subtitle{font-size:13px;color:#4b5563;margin:4px 0 0}
+.omkb-card{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;padding:14px 16px}
+.omkb-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 0}
+.omkb-row + .omkb-row{border-top:1px solid var(--dsw-alias-border-l2)}
+.omkb-row__label{min-width:0;flex:1}
+.omkb-row__title{font-size:14px;color:var(--dsw-alias-label-primary)}
+/* 模块描述文字：固定 #999（不跟随主题令牌——令牌在浅色主题下太浅，读不清） */
+.omkb-row__desc{font-size:12px;color:#999;margin-top:2px}
+.omkb-row__ctrl{flex:none;display:flex;align-items:center;gap:8px}
+.omkb-dot{width:8px;height:8px;border-radius:999px;flex:none}
+.omkb-dot--ok{background:var(--dsw-alias-state-success-primary)}
+.omkb-dot--err{background:var(--dsw-alias-state-error-primary)}
+/* 「无法判定」：既不是成功也不是失败，用中性灰（别拿红点吓人） */
+.omkb-dot--idle{background:var(--dsw-alias-label-tertiary)}
+.omkb-status{font-size:13px;font-weight:500}
+.omkb-status--ok{color:var(--dsw-alias-state-success-primary)}
+.omkb-status--err{color:var(--dsw-alias-state-error-primary)}
+.omkb-status--idle{color:var(--dsw-alias-label-secondary)}
+.omkb-hint{font-size:12px;color:var(--dsw-alias-state-warn-label);margin-top:8px;line-height:1.5}
+.omkb-slider{width:160px;accent-color:var(--dsw-alias-brand-primary)}
+.omkb-val{font-size:12px;color:var(--dsw-alias-label-secondary);min-width:34px;text-align:right}
+/* ---------- 电量（设置页「电池」那一行；只在设备连上时出现）----------
+ * 颜色三档：正常跟随次级文字色；**低电量**（阈值见 utils/device.js 的 BATTERY_LOW_PCT）
+ * 图标与数字一起转告警红 —— 数字也要红，因为图标小、红点容易被当成装饰。
+ * 「充电中」用中性文字的小胶囊，不抢告警色（此刻低电量已经不告警了，见 batteryView）。 */
+.omkb-batt{display:inline-flex;align-items:center;color:var(--dsw-alias-label-secondary)}
+.omkb-batt--low{color:var(--dsw-alias-state-error-primary)}
+.omkb-batt__val{font-size:13px;font-weight:600;color:var(--dsw-alias-label-secondary);min-width:34px;text-align:right}
+.omkb-batt__val--low{color:var(--dsw-alias-state-error-primary)}
+.omkb-batt__tag{font-size:11px;color:var(--dsw-alias-label-tertiary);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:1px 6px}
+.omkb-select{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:5px 8px;font-size:13px}
+.omkb-switch{position:relative;width:38px;height:22px;border-radius:999px;border:none;background:var(--dsw-alias-label-tertiary);cursor:pointer;transition:background .15s}
+.omkb-switch[data-on]{background:var(--dsw-alias-brand-primary)}
+.omkb-switch::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:999px;background:#fff;transition:transform .15s}
+.omkb-switch[data-on]::after{transform:translateX(16px)}
+.omkb-ghost{background:0 0;border:none;color:var(--dsw-alias-label-secondary);font-size:13px;cursor:pointer;padding:4px 8px;border-radius:8px}
+.omkb-ghost:hover{background:var(--dsw-alias-interactive-bg-hover)}
+/* 破坏性操作（「移除」）：平时与其它 ghost 按钮同形，只有文字用告警色 ——
+ * 按钮长得越像普通按钮，越要让人一眼看出它不一样。 */
+.omkb-ghost--danger{color:var(--dsw-alias-state-error-primary)}
+.omkb-ghost--danger:hover{background:var(--dsw-alias-interactive-bg-hover-danger)}
+.omkb-modal .omkb-primary--danger{background:var(--dsw-alias-state-error-primary)}
+.omkb-modal .omkb-primary--danger:hover{opacity:.88}
+/* ---------- 保存提示：顶部悬浮 message ----------
+ * 由设置页 OmkbSaveToast 渲染，只在 saved / saving / error 时存在。
+ * 三条硬约束：
+ *   1) position:fixed —— 必须**脱离文档流**（原来的行内文本每次出现都把下方卡片顶动一行）；
+ *   2) z-index 高于本插件的弹窗遮罩（.omkb-modal-overlay 9999 / 二级 10002），
+ *      否则在「编辑键帽」弹窗关掉的那一拍会被盖住 —— 保存提示恰好出现在那一拍；
+ *   3) pointer-events:none —— 它是通知不是控件，绝不能挡住底下任何点击
+ *      （视口顶部正中在设置弹窗的头部区域，那里有 DSH 自己的关闭按钮附近的可点区域）。
+ * 颜色走 DSH 主题令牌：浅色/深色主题自动跟随，不写死背景。 */
+.omkb-toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:10050;display:flex;align-items:center;gap:7px;max-width:70vw;padding:7px 14px 7px 12px;border-radius:999px;background:var(--dsw-alias-bg-layer-1,#fff);border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));box-shadow:0 10px 26px rgba(15,18,25,.16),0 2px 6px rgba(15,18,25,.08);font-size:13px;font-weight:500;line-height:1.25;color:var(--dsw-alias-label-primary,#111);pointer-events:none;animation:omkb_toast_in .18s ease-out}
+.omkb-toast__ico{display:flex;align-items:center;justify-content:center;flex:none;width:14px;height:14px}
+.omkb-toast__text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.omkb-toast--saving .omkb-toast__ico{color:var(--dsw-alias-label-secondary,#6b7280)}
+.omkb-toast--saved .omkb-toast__ico{color:var(--dsw-alias-state-success-primary,#16a34a)}
+.omkb-toast--error .omkb-toast__ico{color:var(--dsw-alias-state-error-primary,#dc2626)}
+.omkb-toast--error{color:var(--dsw-alias-state-error-primary,#dc2626)}
+/* 「保存中」用转圈而不是静态图标：写盘快慢不定，转圈说明还在进行中。 */
+.omkb-toast__spin{box-sizing:border-box;width:13px;height:13px;border-radius:50%;border:2px solid currentColor;border-top-color:transparent;animation:omkb_toast_spin .7s linear infinite}
+@keyframes omkb_toast_in{from{opacity:0;transform:translate(-50%,-10px)}to{opacity:1;transform:translate(-50%,0)}}
+@keyframes omkb_toast_spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.omkb-toast{animation:none}.omkb-toast__spin{animation-duration:1.6s}}
+
+.omkb-layout{display:flex;flex-direction:column;gap:12px;align-items:center;padding:14px 0 6px}
+.omkb-lrow{display:flex;gap:12px;justify-content:center;align-items:center}
+
+.omkb-page-wrap {
+  background: #f5f5f3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.omkb-keyboard-wrap {
+  width: 520px;
+  padding: 24px;
+  background: #eae8e3;
+  border-radius: 28px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+}
+
+.omkb-grid-4col {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.omkb-key {
+  aspect-ratio: 1 / 1;
+  background: #f7f5f1;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  /* 回弹曲线：按下时快（配合 --pressed 里的 transition-duration），松开时轻轻回弹 */
+  transition: transform 0.18s cubic-bezier(0.34, 1.4, 0.64, 1), box-shadow 0.18s ease, background 0.18s ease;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+.omkb-key:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* 真机按键时布局里对应键的按压特效（纯视觉，见 components/keyboard-layout.jsx 的 useHidSignals）：
+   按下 = 陷下去 + 内阴影 + 底色变暗；松开时用上面的回弹曲线弹回来。 */
+.omkb-key--pressed {
+  transform: translateY(3px) scale(0.95);
+  background: #e9e6df;
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0.05), inset 0 2px 6px rgba(0, 0, 0, 0.14);
+  transition-duration: 0.06s;
+}
+
+.omkb-key-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #7b68bc;
+}
+
+.omkb-control-item {
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  cursor: default;
+}
+
+/* 旋钮 / 摇杆的**凹槽底盘**：必须跟里面的圆零件（.omkb-circle-knob-inner / .omkb-joystick-dot）
+ * 同形 —— 都是正圆。改回 px 圆角会让"圆零件"看上去像被套进一个圆角方框里
+ * （用户 2026-09-23 报的「原来圆形的图标变成圆角形状」就是这层底盘造成的：
+ *  白芯 #f1f1ef 与底盘 #e6e4df 对比度极低，整体看就是个圆角方形）。
+ * 契约由 test/verify_layout.js 的【圆形零件】一节守着。 */
+.omkb-control-base {
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  background: #e6e4df;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255,255,255,0.4);
+  border: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.omkb-circle-knob-inner {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: #f1f1ef;
+  box-shadow: 0 6px 14px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -4px 8px rgba(0,0,0,0.08);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.omkb-joystick-dot {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: #1a1a1a;
+  /* 推杆时抖得很快（inline style 覆盖成 .1s），松手按这条回弹曲线归位 ——
+     所以默认值就是「回弹」那条，飘出去的方向感由 JS 写 transform。 */
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+  will-change: transform;
+}
+
+.omkb-svg-icon {
+  width: 32px;
+  height: 32px;
+}
+
+.omkb-bottom-row {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.omkb-knob-panel {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.omkb-knob-lights {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.omkb-knob-light {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.omkb-blue { background: #74a9ff; }
+.omkb-green { background: #90c968; }
+.omkb-amber { background: #e0c05a; }
+
+.omkb-circle-knob {
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  background: #222;
+  flex-shrink: 0;
+}
+
+.omkb-key-mic {
+  grid-column: span 2;
+  aspect-ratio: unset;
+}
+
+/* 预览模式（首次连接引导里的键盘插图，见 components/guide-modal.jsx）：
+ * 只画不响应 —— 整张插图对指针透明（连 :active 的按压回弹也不要），背景交还给外层卡片。 */
+.omkb-page-wrap--preview{background:transparent}
+.omkb-page-wrap--preview .omkb-key{cursor:default;pointer-events:none}
+/* 示意色圆点（引导里那 6 颗智能体键）：白色/黑色在浅色键面上会看不见，
+ * 统一加一圈极淡的内描边，让「灯珠」在四种颜色下都有轮廓。 */
+.omkb-key-dot--swatch{box-shadow:inset 0 0 0 1px rgba(0,0,0,.18)}
+
+/* ---------- 首次连接引导 ----------
+ * 层级夹在本插件自己的弹窗（9999 / 二级 10002）之上、保存提示（10050）之下：
+ * 引导是整屏遮罩，必须在所有设置弹窗之上；但保存提示只出现在设置页里，
+ * 万一同时出现也不该被引导盖住。
+ * 注意：**没有**「点遮罩关闭」——引导一旦关掉就永久记住「看过了」（见 guide-modal.jsx 顶部），
+ * 误点一次等于再也看不到，所以出口只有右上角 × / 跳过 / 走完两步。 */
+.omkb-guide-overlay{z-index:10040}
+.omkb-guide{position:relative;width:min(600px,94vw);max-height:92vh;overflow:auto;padding:18px 18px 0;display:flex;flex-direction:column}
+.omkb-guide-x{position:absolute;top:6px;right:8px;z-index:2}
+.omkb-guide-shot{display:flex;justify-content:center;margin-bottom:14px;pointer-events:none}
+.omkb-guide-shot .omkb-keyboard-wrap{width:min(480px,100%);box-sizing:border-box;padding:18px;border-radius:22px;box-shadow:0 6px 20px rgba(0,0,0,.08)}
+.omkb-guide-body{padding:0 6px}
+.omkb-guide-title{font-size:20px;font-weight:700;color:#1f2937;text-align:center}
+.omkb-guide-desc{margin-top:8px;font-size:13px;line-height:1.65;color:#4b5563;text-align:center}
+.omkb-guide-status{margin-top:12px;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:7px;font-size:13px;font-weight:500}
+.omkb-guide-sep{color:#c9c9c9}
+.omkb-guide-legend{margin-top:14px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px;text-align:left;border:1px solid #ececec;border-radius:12px;padding:12px 14px}
+.omkb-guide-legend-row{display:flex;align-items:center;gap:8px;font-size:12.5px;min-width:0}
+.omkb-guide-swatch{width:12px;height:12px;border-radius:50%;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.18)}
+.omkb-guide-legend-name{font-weight:600;color:#374151;flex:none}
+.omkb-guide-legend-hint{color:#9ca3af;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.omkb-guide-note{margin-top:14px;padding:12px 14px;border-radius:12px;background:#f7f5f1;font-size:12.5px;line-height:1.65;color:#4b5563;text-align:left}
+.omkb-guide-foot{margin-top:16px;padding-bottom:18px;justify-content:center}
+@media (max-width:560px){.omkb-guide-legend{grid-template-columns:1fr}}
+
+/* ---------- 侧边栏底部：设置按钮旁边的方形键盘入口 ----------
+ * 展开态：36×36 方块，**覆盖定位**贴到「设置」那一行的右端（与齿轮同一行并列），
+ * 因此它不占文档流，底栏不会为它多出一行。top/right 由 JS 现场量出来写在 style 上
+ * （见 components/sidebar-action.jsx 的 placeFootAction）：DSH 的类名是模块哈希、行高还会随
+ * 展开/收起变化，量着放才稳。量不到就退回文档流（仍可用，只是多占一行）。
+ * 收起成 56px 导轨时留在流里：36×36 居中，正好落在齿轮正上方（与 DSH 自己的导轨按钮同规格）。 */
+.omkb-foot-action{box-sizing:border-box;position:relative;width:36px;height:36px;color:var(--dsw-alias-label-primary);cursor:pointer;background:0 0;border:none;border-radius:10px;flex:none;align-items:center;justify-content:center;margin:0;padding:0;font-family:inherit;display:flex;overflow:hidden}
+.omkb-foot-action:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.omkb-foot-action>svg{flex:none;display:block}
+/* 覆盖到设置行右端时：抬一层（压住设置行的 hover 反馈也不影响点击），并确保外边距为 0
+ * ——绝对定位的 top/right 是从**外边距盒**起算的，留白由几何常量控制。 */
+.omkb-foot-action--pinned{position:absolute;z-index:1;margin:0}
+/* 导轨态：留在文档流，居中（footerActions 是横向 flex，这里只有它一个）。 */
+.omkb-foot-action--rail{align-self:center;margin:0 0 4px}
+/* 「键盘已断开」的红点（判据在 utils/device.js 的 isDeviceOffline，见 sidebar-action.jsx）。
+ * 画在按钮**内圈**：按钮是 overflow:hidden（画到框外会被裁掉），而按钮 36px、图标 20px 居中，
+ * 所以贴着内圈右上角 = 看起来正落在图标右上。描边用底层的颜色给红点垫开一点，
+ * 免得它跟图标的线条糊在一起（`corner-shape` 由 core.js 的 omkb- 兜底规则抵掉，这里是正圆）。
+ * pointer-events:none：它纯装饰，点下去仍然是「打开键盘设置页」，不把点击语义劈成两个。 */
+.omkb-foot-action__dot{position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:999px;background:var(--dsw-alias-state-error-primary,#ef4444);box-shadow:0 0 0 1.5px var(--dsw-alias-bg-layer-1,#fff);pointer-events:none}
