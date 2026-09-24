@@ -145,7 +145,6 @@
 .omkb-lrow{display:flex;gap:12px;justify-content:center;align-items:center}
 
 .omkb-page-wrap {
-  background: #f5f5f3;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -153,7 +152,7 @@
 }
 
 .omkb-keyboard-wrap {
-  width: 520px;
+  width: 420px;
   padding: 24px;
   background: #eae8e3;
   border-radius: 28px;
