@@ -10,11 +10,28 @@
 // 并在 webServer 上暴露 GET /omkb/state 返回状态快照供浏览器客户端轮询
 // （每个输入源各有自己的累加计数器：enc/knobPress/joyPush+joyDir，见 #state 声明）。
 // 另外解析 `device.status`（其 params 带 battery / is_charging）→ state.battery / state.charging，
-// 设置页的「电池」那一行就是读它（见 parseDeviceStatus）。设备**不会自己定时推**：连上之后由
-// 宿主主动发一条 `device.status` 去问（#requestStatus），设备才上报 —— 所以在 open() 成功、
-// 且 data 监听器挂好之后立刻问一次。
+// 设置页的「电池」那一行就是读它（见 parseDeviceStatus）。设备**不会自己定时推**，要问一次它才报；
+// 但「问」的时机是**检测到设备已连接之后**，不是 open() 那一刻（用户 2026-09-25 要求）：
+// 启动时句柄可能开得起来而蓝牙链路还没建立，那时候问只是白发一条。
+// 判据 = 收到设备的第一帧数据（#onData → #markConnected）；另有兜底：句柄开着但 #probeMs 内
+// 一声不吭，才主动问一次（覆盖「链路是旧的、设备不会自己说话」那种情况，见 #armProbe）。
 // 灯光：浏览器把「哪个会话占哪颗键、平时什么颜色」POST 到 /omkb/agents，本模块负责实际写 HID；
-// 会话**运行失败**时由宿主的 agent/error 事件触发对应键闪红灯（flashError），窗口结束自动回空闲。
+// 会话**运行失败**时由宿主的 agent/error 触发对应键转红灯（reportError），跑完一轮由
+// agent/turn-stopping 触发状态码 2（reportSuccess）。两者都是**结果态、不会自己变回去**
+// （用户 2026-09-25 要求「错误后不变白」），直到该会话重新运行（agent/status）才收掉。
+// **会话灯态不许重复发**（用户 2026-09-25 要求「一次只发一条」）：一个事件循环拍里可能有好几个
+// 来源都要重画（agent/error 与 agent/status 连着来、POST /omkb/agents 里 allIdle 翻转还会顺手
+// 唤醒亮度），逐条写出去等于让设备一口气收好几条 thstatus。两道防线各管一段 ——
+//   ① `#renderAgents` **不直接写设备**，只记下「此刻应该是什么样」，写入排到这一拍末尾（微任务）
+//      合并成一条（见 `#pendingAgents`）→ 管**同一拍**的多次重画；
+//   ② `#writeThstatus` 比对「上次真正写出去的那份」，内容一样就**跳过**（见 `#lastThstatus`）
+//      → 管**跨拍**的重复（宿主的结论与浏览器那份带 350ms 防抖的快照错开一拍到达，内容相同）。
+//      这一层是用户实测「还是会发送两条」之后补的：只做①挡不住跨拍的那一对。
+// **进程要走了就把两组灯全部按灭**：设备会保留最后收到的灯效，不关的话就是「app 关了、键盘还亮着」。
+// 两个落点：插件卸载（dispose）与**进程级退出**（Ctrl+C/SIGTERM/SIGHUP，见 ./exit-guard.js 的
+// blackout 回调 —— 那条路常常等不到 dispose）。灭灯**必须同步写出去**，所以它走 #sendThstatus
+// 而不是合并闸门（「exit」钩子里微任务根本不会跑）。**断开连接（close）时刻意不做**灭灯
+// —— 断开随时会发生、也随时会重连，在那里关灯换来的只是「重连之后黑一片」。
 
 import { createRequire } from 'node:module'
 import { JOYSTICK_METHOD, parseJoystick } from './joystick.js'
@@ -22,13 +39,11 @@ import { createExitGuard } from './exit-guard.js'
 
 const require = createRequire(import.meta.url)
 
-// 槽位状态标识（st）的词表 —— 与 src/client/agents.js 的 AGENT_STATUS 逐字一致。
-// 放在模块级而不是类里：老版本 Node 对「私有静态字段」支持不全，且词表本来就是全局约定。
-export const AGENT_STATUSES = new Set(['running', 'idle', 'error', 'empty'])
-// 浏览器**只能**报这三种：error 是宿主在红灯窗口内自己叠加的（见 #renderAgents）。
-// 若允许浏览器发 error，它就能谎报一个「永远不会自动解除」的失败态，而灯并不红。
-export const AGENT_STATUS_INBOUND = new Set(['running', 'idle', 'empty'])
-export const AGENT_STATUS_DEFAULT = 'empty'
+// 说明：槽位的状态码 `st`（整数）有过一个来回 —— 2026-09-25 先按要求把整条链删掉
+// （浏览器 payload / 宿主期望灯态 / 写给设备的 thstatus 全都不带 st），随后又按要求
+// 以 **int** 形式加回来：空闲 0 / 运行 1 / 成功 2 / 失败 3（见 AGENT_ST）。
+// 教训：这是**跨进程的线格式**，加/删都必须整条链一起动，且两边词表逐字一致（自检会断言）；
+// 只往 thstatus 里塞回一个字段的话，设备会按一个没人认得的数去分支，而且不会有任何报错。
 
 /**
  * 设备上报的 `params.act` —— **按键边沿**（一个物理键发一对事件）：
@@ -94,6 +109,41 @@ export const parseDeviceStatus = (msg) => {
   return { battery, charging: normalizeCharging(params.is_charging) }
 }
 
+/**
+ * 下发给设备的**槽位状态码**（整数）—— 就是 v.oai.thstatus 里每个槽位的 `st`。
+ *
+ * **必须与 `src/client/agents.js` 的 `AGENT_STATE` 逐字一致**（两边自检都会断言这两个表相等；
+ * 改一边忘一边 = 设备按一个没人认得的数去分支，且不会有任何报错）。
+ * 放在模块级而不是类里：它是跨进程的线格式约定，本来就不属于某个实例。
+ */
+export const AGENT_ST = {
+  IDLE: 0,    // 空闲 —— 会话在、没在跑
+  RUNNING: 1, // 运行 —— agent loop 在跑
+  SUCCESS: 2, // 成功 —— 刚跑完一轮（**宿主叠加**，见 reportSuccess）
+  ERROR: 3    // 失败 —— 跑失败了（**宿主叠加**，见 reportError，同时把灯转红）
+}
+/**
+ * 浏览器**只能**报这两种：成功/失败由宿主自己在结果态里叠加 —— 只有宿主收得到那条总线，
+ * 也只有它分得清「用户主动中断」（不发 agent/error）与「真失败」。
+ * 若允许浏览器发 ERROR，它会用一份自己并不知道真假的结论去覆盖宿主的判断，而灯并不红——
+ * 设备那边看到的就是自相矛盾的一对（状态码说失败、颜色说正常）。
+ */
+export const AGENT_ST_INBOUND = [AGENT_ST.IDLE, AGENT_ST.RUNNING]
+/** 认不出 / 缺字段时回落到哪一档（老客户端不发 st，就是这个下场：空闲）。 */
+export const AGENT_ST_DEFAULT = AGENT_ST.IDLE
+
+/**
+ * 「全灭」槽位 —— **整个应用关闭前**写给设备的最后一份 thstatus（6 个槽位的 c/b/e 全 0）。
+ *
+ * 为什么单独抽出来当契约：自检要能直接验这份形状（见 test/verify_blackout.js），
+ * 而且「关闭时灭灯」这件事**不能**靠「把浏览器的灯态清空」来实现 —— 那样只在宿主
+ * 重启时才成立，而关闭是插件卸载那一刻才发生的。
+ * 深冻结：它是一份只读的字面量契约，谁都不许在运行时改它。
+ */
+export const BLACKOUT_SLOTS = Object.freeze(
+  Array.from({ length: 6 }, (_, id) => Object.freeze({ id, c: 0, b: 0, e: 0, st: AGENT_ST.IDLE }))
+)
+
 export class BleController {
   // ---------- 配置（可用环境变量覆盖） ----------
   #reportId = 0x06 // ReportMap: 0x85, 0x06
@@ -131,7 +181,7 @@ export class BleController {
   //                       故意**不给它配计数器**：它是「现在多少」而不是「发生了一件事」，
   //                       拿它判事件就会退回「靠状态字段猜事件类型」那类老 bug（见文件头）。
   //                       断开时清成 null/false —— 留着旧读数等于在展示一台已经拔掉的键盘的电量。
-  #state = { t: 0, open: false, product: null, battery: null, charging: false, brightness: 0.9, autoDim: 0, key: null, keyAct: null, down: [], agent: -1, act: null, enc: 0, encPress: 0, encLong: 0, knobPress: 0, joy: null, joyT: 0, joyPush: 0, joyDir: null, agents: [], errors: [], idle: null, keyT: {} }
+  #state = { t: 0, open: false, product: null, battery: null, charging: false, brightness: 0.9, autoDim: 0, key: null, keyAct: null, down: [], agent: -1, act: null, enc: 0, encPress: 0, encLong: 0, knobPress: 0, joy: null, joyT: 0, joyPush: 0, joyDir: null, agents: [], outcomes: [], idle: null, keyT: {} }
   /** 当前物理按住的键名（只有拿到 act 才会维护；见 #handleLine 的松开分支）。 */
   #held = new Set()
   #logger
@@ -156,47 +206,98 @@ export class BleController {
    */
   #exitGuard = null
   #reconnectTimer = null
+  /**
+   * 「**检测到设备已连接**」的判据 —— 本次链路里有没有真的收到过设备的数据。
+   *
+   * 为什么不能用「`open()` 成功」当判据（用户 2026-09-25 指出）：启动那一刻句柄可能开得起来
+   * （设备还挂在系统里），而**蓝牙链路其实还没建立**，这时候把 `device.status` 发出去只是白发
+   * 一条 —— 设备收不到，我们这边也没有任何地方会因此报错（静默白问）。
+   * 唯一能证明「设备在链路上、而且在通信」的硬证据，是它自己发来的**数据帧**。
+   *
+   * 生命期跟着链路走：**每次 `open()` 都重置回 false**（那是「一条新链路开始」的唯一时刻），
+   * 所以每次（重）连都会重新检测一次；`close()` 里也顺手清一遍（状态卫生，见那里的注释）。
+   */
+  #linkSeen = false
+  /**
+   * 「一句不吭」时的兜底探活定时器：句柄开着、`#probeMs` 里一帧都没收到 → 问一次。
+   *
+   * 为什么留着它：设备的协议用法是「被问才报」或「它自己刚连上时报」。宿主重启时若链路其实
+   * 还在（旧连接），设备不会主动说话，不兜底问一次的话电池行会永远显示「—」（那是 2026-09-23
+   * 专门修过的 bug）。代价只是链路真没建起来时白发一条 —— 那种情况写不出去，也不报错。
+   */
+  #probeTimer = null
+  #probeMs = 15000 // 兜底延迟；DSH_OMKB_PROBE_MS 覆盖（自检脚本调小它），0 = 不兜底
 
-  // ---------- 运行失败的红色闪灯 ----------
-  // 分工：**浏览器**决定「哪个会话占哪颗键、平时是什么颜色」（它才知道会话列表），
-  // **宿主**决定「失败的那颗键临时变红多久」（它才收得到 agent/error，也是唯一写 HID 的人）。
-  // 因此浏览器下发的槽位里带上会话 id（sid），宿主用它把失败事件定位到具体某个键。
-  #desiredAgents = [] // 浏览器下发的期望灯态（设备字段 + st/sid 元数据）
+  // ---------- 会话的「结果态」：运行失败（红）/ 跑完一轮（成功）----------
+  // 分工：**浏览器**决定「哪个会话占哪颗键、平时是什么颜色与状态」（它才知道会话列表），
+  // **宿主**决定「上一轮跑成了什么样」（它才收得到 agent/error 与 agent/turn-stopping，
+  // 也是唯一写 HID 的人）。因此浏览器下发的槽位里带上会话 id（sid），宿主用它把事件定位到键。
+  #desiredAgents = [] // 浏览器下发的期望灯态（设备字段 + 会话 id 元数据）
   #slotSessions = [] // 槽位下标 → 会话 id
-  #errorSlots = new Map() // 槽位下标 → { until, sid }，红灯窗口
-  #errorTimer = null // 指向最近一次到期的单个定时器（不是每个槽位一个）
-  #errorMs = 3000 // 红灯持续时长；可用 DSH_OMKB_ERROR_MS 覆盖（自检脚本调小它）
+  /**
+   * 「同拍合并」的两个暂存位（见 #renderAgents）。
+   *
+   *   `#pendingAgents`   —— 算好但还没写出去的那一份参数（null = 没东西待写）
+   *   `#agentsScheduled` —— 当前这一拍是否已经排过写入（排过就只覆盖内容，不再排第二次）
+   *
+   * 为什么要有它（用户 2026-09-25 要求：**会话信息返回给键盘设备时，一次不许发多条**）：
+   * 同一个事件循环拍里会有好几个来源都要重画灯态 —— 宿主的 `agent/error` 与 `agent/status`
+   * 常常连着来、浏览器 POST /omkb/agents 里 `allIdle` 翻转时还会顺手 `#wake()`。
+   * 逐条写出去就是**设备一口气收到好几条 `v.oai.thstatus`**（每条还要切成 5 帧 63 字节的
+   * HID 报告）。攒成一条再发，设备收到的永远是「此刻应该是什么样」。
+   */
+  #pendingAgents = null
+  #agentsScheduled = false
+  /**
+   * 上一次**真正写出去**的那条 `v.oai.thstatus` 长什么样（JSON 字符串，用来比对内容）。
+   *
+   * 为什么同拍合并还不够（用户 2026-09-25：「thstatus 还是会发送两条」）：`#pendingAgents`
+   * 只管**同一个事件循环拍**，而真实时序里同一份灯态会**跨拍**被推两次 —— 宿主的结论
+   * （`agent/error`）与浏览器那一份快照相隔一拍到达（浏览器带 350ms 防抖，快照里往往还写着
+   * 运行中，可宿主把结果态叠上去之后算出来的**内容完全一样**），或者浏览器自己连着推两遍。
+   * 两条一模一样，设备没必要听两遍。
+   *
+   * 只在**写成功之后**更新（没句柄 / 写失败时不动，下次同内容仍会尝试）；
+   * `close()` 清空 —— 「链路断了」是唯一必须忘掉「上次发过什么」的时刻（重连要重放）。
+   */
+  #lastThstatus = null
+  /**
+   * 槽位下标 → { sid, kind }，**结果态**（kind: 'error' | 'success'）。
+   *
+   * ⚠ **它不会自己过期**（2026-09-25 用户要求：「错误后不变白」）。原来的实现是 3 秒窗口，
+   * 到点自动回到浏览器下发的常态；现在一直挂着，直到下面三件事之一发生：
+   *   1. 该会话**重新开始运行** → 用户重试了，`clearOutcome()`（宿主 agent/status=running 驱动）；
+   *   2. 该会话从槽位上消失（归档 / 关掉 / 被别的会话顶掉，见 #applyAgents 的整表重建）；
+   *   3. 同一颗键上来了**更新的结论**（又失败一次 / 这回跑成功了，后写覆盖先写）。
+   *
+   * 「到点自动消失」这件事**不能靠浏览器重新下发来替代**：失败那一刻浏览器快照里这个会话
+   * 常常还写着 running（它的推送还带 350ms 防抖），拿浏览器下发的 st 当清除判据，红灯会在
+   * 亮起的同一瞬间被自己的陈旧快照抹掉。清除只认宿主的 agent/status（见 #applyAgents 的注释）。
+   *
+   * 两种表现：
+   *   'error'   —— 状态码 st=3，**并且**把颜色换成红灯（用户可见的「上次失败了」）
+   *   'success' —— 状态码 st=2，颜色不动（跑完了是正常态，不该抢眼的颜色）
+   */
+  #outcome = new Map()
   #errorColor = 0xff0000 // 默认红；浏览器可用 payload.errorColor 覆盖（调色板在 src/client/agents.js）
-
-  // ---------- 槽位状态标识（st） ----------
-  // 每个槽位随灯态一起带一个「会话状态」字段，跟着 v.oai.thstatus 下发到设备：
-  //   running — 会话正在运行      idle — 会话空闲
-  //   empty   — 该键没有会话      error — 该会话运行失败（**宿主叠加**，只在红灯窗口内）
-  // 为什么要它：以前状态只体现在颜色里（蓝/白），设备只能靠猜颜色反推；有了 st，设备可以
-  // 自己按状态做灯效，而颜色随时可调不影响语义。词表必须与 src/client/agents.js 的
-  // AGENT_STATUS 一致（两边自检都会断言这一串）。
-  // 校验状态标识：合法就用它，非法/缺字段 → 按槽位自身推断
-  // （有会话在亮 = e 开着或有颜色 → idle；否则 empty）。老客户端不发 st 也能正常工作。
-  #statusFrom = (slot, allowed) => {
-    if (!slot) return AGENT_STATUS_DEFAULT
-    if (typeof slot.st === 'string' && allowed.has(slot.st)) return slot.st
-    return (Number(slot.e) > 0 || this.#clampRgb(slot.c) > 0) ? 'idle' : AGENT_STATUS_DEFAULT
-  }
-  /** 浏览器报上来的状态（不接受 error，见 AGENT_STATUS_INBOUND）。 */
-  #inboundStatus = (slot) => this.#statusFrom(slot, AGENT_STATUS_INBOUND)
-  /** 真正下发到设备前的兜底校验（此时才允许宿主叠加的 error）。 */
-  #outboundStatus = (slot) => this.#statusFrom(slot, AGENT_STATUSES)
 
   constructor({ logger, diagnostics } = {}) {
     this.#logger = logger
     this.#diagnostics = typeof diagnostics === 'function' ? diagnostics : null
-    const ms = Number(process.env.DSH_OMKB_ERROR_MS)
-    if (Number.isFinite(ms) && ms >= 0) this.#errorMs = ms
+    const probe = Number(process.env.DSH_OMKB_PROBE_MS)
+    if (Number.isFinite(probe) && probe >= 0) this.#probeMs = probe
     this.#dimTimer = setInterval(() => this.#autoDimCheck(), 1000)
     this.#dimTimer.unref()
     // 安全网只**建**不装：装的动作在 open() 成功之后（没设备就别碰进程信号）。
     // release 指向 close()：它是幂等的，重复调用安全。
-    this.#exitGuard = createExitGuard({ release: () => this.close(), log: (m) => this.#warn(m) })
+    // blackout 指向 blackout()：退出（Ctrl+C 等）前必须先把灯关掉 —— 灯是设备自己记着的，
+    // 进程一走没人替我们关；而宿主未必来得及走到 dispose()（见 ./exit-guard.js 顶部那一节）。
+    // ⚠ blackout 必须排在 release **之前**执行（由安全网保证），否则句柄先没了就写不出去。
+    this.#exitGuard = createExitGuard({
+      release: () => this.close(),
+      blackout: () => this.blackout(),
+      log: (m) => this.#warn(m)
+    })
   }
 
   // 日志同时打到 Cordis logger 和终端 stdout/stderr，方便从命令行用 `dsh web` 调试
@@ -394,6 +495,10 @@ export class BleController {
 
   #onData = (buf) => {
     if (!buf || buf.length < 3) return
+    // ---- 收到设备的**第一帧** = 检测到「已连接」----
+    // 排在解析之前：哪怕这一帧后面认不出来，它也已经证明了链路在通、设备在说话。
+    // 这是「设备已连接」的**唯一硬证据**（句柄开得起来只说明设备还在系统里，见 #linkSeen）。
+    if (!this.#linkSeen) this.#markConnected() // 里面会按需问一次电量
     // 部分平台首字节是 report id，先判断并跳过（channel 值只有 1/2，不会跟 0x06 冲突）
     let off = buf[0] === this.#reportId ? 1 : 0
     if (buf.length < off + 2) return
@@ -460,7 +565,7 @@ export class BleController {
       if (this.#reconnectTimer) { clearInterval(this.#reconnectTimer); this.#reconnectTimer = null }
       this.#log(`已打开 HID 设备: ${this.#state.product} (manufacturer=${cand.manufacturer || ''})`)
       // 设备（重）连后重放灯态。必须走 #renderAgents 而不是直接重放上次的原始参数：
-      // 重连可能发生在红灯窗口之内，直接重放会把红色抹掉。
+      // 重连可能发生在「结果态挂着」的时候，直接重放会把红灯/成功状态抹掉。
       if (this.#desiredAgents.length) this.#renderAgents()
       this.#hid.on('data', this.#onData)
       this.#hid.on('error', (e) => {
@@ -473,11 +578,12 @@ export class BleController {
           this.#log('设备断开，已启动 30 秒自动重连')
         }
       })
-      // 连上后**主动问一次**电量（用户 2026-09-23 明确指出的协议用法）：
-      // 设备只在「自己被问」或「它自己刚连上」时才上报 device.status，而宿主重启时
-      // BLE 链路是不断的、设备根本不知道换了个人听 —— 不主动问，电池行就永远是「—」。
-      // 必须放在 `data` 监听器**之后**发：应答可能立刻就回来，先挂监听才收得到。
-      this.#requestStatus()
+      // 这次（重）连开始检测「设备是否真的连上」——**不在这一刻问电量**。
+      // 用户 2026-09-25 明确要求：dsh 启动时不要请求 device.status，等检测到设备已连接再问。
+      // 理由是他那边实测启动那一刻蓝牙还没连上（句柄开得起来 ≠ 链路建立），问了也白发。
+      // 判据是「收到设备的第一帧」（见 #onData → #markConnected），这里只武装兜底探活。
+      this.#linkSeen = false
+      this.#armProbe()
     } catch (e) {
       this.#warn(
         'node-hid 打开失败(需要正确编译的原生依赖，且设备非标准键盘):',
@@ -488,6 +594,9 @@ export class BleController {
   }
 
   close = () => {
+    // **这里刻意不关灯**（用户 2026-09-25 明确要求）：断开是随时会发生的（设备掉线、点「重连」、
+    // 宿主重扫设备），而灯效是设备自己记着的 —— 在这儿把它关掉，换来的只是「重连之后黑一片」。
+    // 灭灯只发生在**整个应用要关闭**的时候（插件卸载 = 我们不再管这台设备），见 dispose()。
     if (this.#hid) {
       try { this.#hid.close() } catch (e) {}
       this.#hid = null
@@ -501,6 +610,24 @@ export class BleController {
     // 而不是把断开前的 12% 一直挂在界面上（用户看到的就是一台没连上的键盘还有电量）。
     this.#state.battery = null
     this.#state.charging = false
+    // 顺手把「这条链路的东西」也清掉：已连接标记、兜底探活定时器。
+    // ⚠ 这两句与 open() 里那句 `this.#linkSeen = false` **互为冗余**，两句都反证过：
+    //   删掉任一句，跑起来的行为都不变（生产路径上 open() 永远紧跟在 close() 之后 —— 掉线是
+    //   `error → close → 30 秒后 open`、重连按钮是 `close + open`、启动那次本来就是 false）。
+    //   语义上的机制放在 **open()**（「谁开链路谁重置」）；这里留一份只是不让 close() 之后的状态
+    //   撒谎（内部字段，眼下没有任何读取路径）。要改「重新检测」这条语义，去改 open()。
+    this.#linkSeen = false
+    if (this.#probeTimer) { clearTimeout(this.#probeTimer); this.#probeTimer = null }
+    // 排着队还没写出去的那一条灯态也作废（同拍合并的暂存，见 #renderAgents / #flushAgents）：
+    // 链路都没了，补写只会多一行「设备未连接，忽略写回」的 warn。重连时 open() 会重新
+    // #renderAgents() 重放，所以不会漏掉灯态。
+    this.#pendingAgents = null
+    // 顺手忘掉「上次写出去的灯态长什么样」（内容去重的账，见 #lastThstatus）：链路断过之后
+    // 设备那份画面不再可信（它可能自己重启过 / 被人手动改过），重连时 `#renderAgents()` 必须
+    // **真的重放一次**，不能被内容比对挡掉。
+    // 机制就放在这里 —— `open()` 开头有 `if (this.#hid || this.#state.open) return` 早退，
+    // 把清零写它里面反而会漏；这里不存在「谁先谁后」的歧义。
+    this.#lastThstatus = null
   }
 
   // ---------- HID 写回：JSON-RPC 分帧写入（用于灯光/亮度控制） ----------
@@ -530,12 +657,57 @@ export class BleController {
     return true
   }
 
+  // ---------- 「设备已连接」的检测 ⇒ 才去问电量 ----------
+  /**
+   * 检测到设备已连接时：停掉兜底、必要时问一次电量。
+   *
+   * 由 `#onData` 在收到**第一帧**时调用，而且必须排在**解析之前** —— 「设备在链路上说话」这件事
+   * 只要有一帧就能证明，哪怕这一帧认不出来（调错通道、固件换了字段、JSON 截断）。
+   * 把这个判据往后挪（等解析成功）等于给「已连接」加了一道会失败的前置条件：漏判的代价是整个
+   * 功能静默失效（电池行永远「—」），而它的收益只是省掉一条请求。
+   * 代价如实写在这里：**设备自己刚连上时推的那条 `device.status` 也会触发我们问一次**（因为
+   * 判连接在解析之前，那时 `battery` 还是 null）。一次多余的查询，换来判据不吃解析的成败。
+   *
+   * 「手上已经有读数就不再问」这条留给**兜底路径**（见 #armProbe 与它的守卫）。
+   */
+  #markConnected = () => {
+    this.#linkSeen = true
+    if (this.#probeTimer) { clearTimeout(this.#probeTimer); this.#probeTimer = null }
+    this.#log('检测到设备已连接（收到第一帧数据）')
+    if (this.#state.battery === null) this.#requestStatus()
+  }
+
+  /**
+   * 武装「一句不吭」的兜底探活：`#probeMs` 内一帧都没收到，才主动问一次电量。
+   *
+   * 只在 open() 成功后武装一次，设备一开口（#markConnected）或链路一断（close）就撤掉。
+   * 它**不是**「连上就问」：它要等满了整个窗口，且期间设备一声不响 —— 那才是「链路可能还活着、
+   * 但设备不会自己说话」的那种旧连接（宿主重启）。
+   */
+  #armProbe = () => {
+    if (this.#probeTimer) { clearTimeout(this.#probeTimer); this.#probeTimer = null }
+    if (!(this.#probeMs > 0)) return
+    this.#probeTimer = setTimeout(() => {
+      this.#probeTimer = null
+      // 已经说过话 / 已经断开：都不该再兜底（断开时 close() 本来也会把它撤掉，这里是双保险）
+      if (!this.#hid || !this.#state.open || this.#linkSeen) return
+      this.#log(`打开句柄后 ${this.#probeMs}ms 没收到设备的任何数据 → 兜底问一次电量`)
+      this.#requestStatus()
+    }, this.#probeMs)
+    this.#probeTimer.unref?.()
+  }
+
   /**
    * 向设备要一次状态（电量 / 是不是在充电）。
    *
-   * 协议用法（用户 2026-09-23 给的）：**连上之后发一条 `device.status`，设备就会上报**
-   * `battery`（电量）与 `is_charging`（是否在充电）。设备自己不会定时推，所以「连上就问一次」
-   * 是拿到读数的前提。params 给空对象 —— 这是「把你的状态告诉我」的查询，不带参数。
+   * 协议用法（用户 2026-09-23 给的）：**发一条 `device.status`，设备就会上报** `battery`（电量）
+   * 与 `is_charging`（是否在充电）。设备自己不会定时推，所以想拿到读数就得问一次。
+   *
+   * ⚠ 调用时机由**「检测到设备已连接」**决定，不是 open() 那一刻（用户 2026-09-25 改的口径）：
+   *   · 正常路径 —— 收到设备的第一帧（#markConnected，且手上还没读数）；
+   *   · 兜底路径 —— 句柄开着但 `#probeMs` 内一声不吭（#armProbe）。
+   * 启动那一刻蓝牙链路往往还没建立，那时候问就是白发一条（设备收不到、也没人会报错）。
+   * params 给空对象 —— 这是「把你的状态告诉我」的查询，不带参数。
    *
    * 设备怎么回都能收：通知形状（`{method:'device.status',params:{...}}`）或应答形状
    * （`{id,result:{...}}`）都由 parseDeviceStatus 认，见那里的注释。
@@ -612,85 +784,265 @@ export class BleController {
     return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fallback
   }
 
+  /**
+   * 状态码的白名单校验：**必须是整数**且在 allowed 里，否则回落到 IDLE。
+   *
+   * 为什么要判类型而不是只 `Number()` 一下：`Number(true) === 1`、`Number('1') === 1` ——
+   * 只做数值转换的话，浏览器塞个 `true` 就能伪装成「运行中」。设备拿这个数直接分支，
+   * 所以校验必须严于「能转成数字」。
+   */
+  #stOf = (v, allowed) => (typeof v === 'number' && Number.isInteger(v) && allowed.includes(v) ? v : AGENT_ST_DEFAULT)
+
+  /** 浏览器报上来的状态码：只接受 IDLE/RUNNING（见 AGENT_ST_INBOUND）。 */
+  #inboundSt = (v) => this.#stOf(v, AGENT_ST_INBOUND)
+
+  /** 真正下发到设备前的兜底（此时才允许宿主叠加的 SUCCESS/ERROR）。 */
+  #clampSt = (v) => this.#stOf(v, Object.values(AGENT_ST))
+
   // Agent 键 LED：把 6 个槽位的状态一次性写回（v.oai.thstatus）
-  // 每个槽位带 `st`（状态标识）——设备可以只认它做灯效，不必反推颜色。
   // 这里是设备协议的**唯一出口**：未知字段（浏览器的 sid、错误类型等）不会被带下去。
+  //
+  // 每个槽位恰好 5 个字段：id / c / b / e / st。
+  // 曾经还发过 s / sk / sa —— 它们**从头到尾恒为 0**（没有任何一行代码给过别的值），
+  // 2026-09-25 按用户要求删掉。要加新字段，先答得出「谁产出它、谁消费它」。
   //
   // 自动调暗期间一律把 e/b 压成 0：调暗是「灯全灭」，而浏览器仍会照常推送灯态
   // （设置页打开、会话列表变化都会触发），不压的话下一次推送就把灯又点亮了。
-  #sendThstatus = (slots) => {
-    if (!Array.isArray(slots)) return false
+  // st **不压**：它是语义而不是光学量，压成「空闲」会让设备以为会话跑完了。
+  /**
+   * 一组槽位 → 真正写给设备的参数（白名单 5 字段 + 取值范围收敛 + 调暗压灭）。
+   * **不改变任何状态、不碰设备** —— 什么时候把它交出去由调用方决定。
+   */
+  #thstatusParams = (slots) => {
     const dimmed = this.#dimmed
-    const params = slots.slice(0, 6).map((s, i) => ({
+    return slots.slice(0, 6).map((s, i) => ({
       id: i,
-      st: this.#outboundStatus(s),
       c: this.#clampRgb(s && s.c),
       b: dimmed ? 0 : this.#clamp01(s && s.b, 0),
       e: dimmed ? 0 : Math.round(Number(s && s.e) || 0),
-      s: this.#clamp01(s && s.s, 0),
-      sk: 0,
-      sa: 0
+      st: this.#clampSt(s && s.st)
     }))
-    this.#state.agents = params
-    return this.#sendRpc('v.oai.thstatus', params)
-  }
-
-  // ---------- 期望灯态 + 失败红灯 ⇒ 实际灯态 ----------
-  // 唯一的灯态出口：把浏览器下发的期望灯态与「正在闪红的那几颗键」叠加后写 HID。
-  // 这样浏览器在任何时刻重新下发灯态（会话列表变化、切设置页都会触发）都不会把红灯
-  // 提前冲掉——红灯由宿主自己守到窗口结束。
-  // 状态标识同理：红灯窗口内的那颗键报 'error'，窗口结束自动回到浏览器给的状态。
-  #renderAgents = () => {
-    if (!this.#desiredAgents.length) return false
-    const now = Date.now()
-    const slots = this.#desiredAgents.map((s, i) => {
-      const err = this.#errorSlots.get(i)
-      const red = err !== undefined && err.until > now
-      return { id: i, st: red ? 'error' : s.st, c: red ? this.#errorColor : s.c, b: s.b, e: s.e, s: s.s, sk: 0, sa: 0 }
-    })
-    this.#state.errors = [...this.#errorSlots].map(([slot, e]) => ({ slot, sid: e.sid, msLeft: Math.max(0, e.until - now) }))
-    return this.#sendThstatus(slots)
-  }
-
-  // 红灯窗口到期 → 收起红色、回到期望灯态（也就是「然后再变为空闲灯光」）。
-  // 只保留一个定时器并指向最近一次到期：槽位可以同时有多个窗口，逐槽定时器会互相覆盖。
-  #armErrorTimer = () => {
-    if (this.#errorTimer) { clearTimeout(this.#errorTimer); this.#errorTimer = null }
-    if (this.#errorSlots.size === 0) return
-    let next = Infinity
-    for (const e of this.#errorSlots.values()) if (e.until < next) next = e.until
-    this.#errorTimer = setTimeout(() => {
-      this.#errorTimer = null
-      const now = Date.now()
-      for (const [slot, e] of [...this.#errorSlots]) if (e.until <= now) this.#errorSlots.delete(slot)
-      this.#renderAgents()
-      this.#armErrorTimer() // 还有别的窗口没到期就继续等
-    }, Math.max(0, next - Date.now()))
-    this.#errorTimer.unref?.()
   }
 
   /**
-   * 某个会话运行失败 → 让它的那颗键闪红灯，窗口结束后自动回到期望灯态。
+   * 写一条 `v.oai.thstatus` —— **唯一的落笔点**（`#sendThstatus` 与 `#flushAgents` 都走它）。
    *
-   * 由宿主的 `agent/error` 事件驱动（见 src/core/index.js）。注意这个事件**只在真正的失败**
-   * 时发出：用户主动中断走的是另一条分支，不会闪红灯。
-   * @param {string} sessionId - 失败的会话（DSH 里 agent.id 就是会话 id）。
-   * @returns {boolean} 是否真的点亮了某个键（该会话没占键时为 false）。
+   * 内容与**上一次真正写出去的**完全一致时直接跳过，并记一行日志。
+   * 比对的是**规范化之后**的参数，所以「先失败、随后浏览器补一份陈旧快照」这种重复也认得出来
+   * —— 它算出来的红灯与宿主刚写出去的逐字节相同（见 `#lastThstatus` 的注释）。
+   * @returns {boolean} 是否真的写了（内容没变时为 false，这不是错误）。
    */
-  flashError = (sessionId) => {
-    if (typeof sessionId !== 'string' || !sessionId) return false
-    const slots = []
-    for (let i = 0; i < this.#slotSessions.length; i++) if (this.#slotSessions[i] === sessionId) slots.push(i)
-    if (slots.length === 0) return false // 不在侧边栏 / 还没下发过灯态 → 没有键可亮
-    const until = Date.now() + this.#errorMs
-    for (const slot of slots) this.#errorSlots.set(slot, { until, sid: sessionId })
-    this.#renderAgents()
-    this.#armErrorTimer()
-    this.#log(`会话运行失败 → 槽位 ${slots.join(',')} 闪红灯 ${this.#errorMs}ms`)
+  #writeThstatus = (params) => {
+    const key = JSON.stringify(params)
+    if (key === this.#lastThstatus) {
+      this.#log('灯态与上次写出去的完全相同 → 跳过重复写回')
+      return false
+    }
+    const ok = this.#sendRpc('v.oai.thstatus', params)
+    if (ok) this.#lastThstatus = key
+    return ok
+  }
+
+  /**
+   * **立刻**把一组槽位写给设备（规范化 + 记诊断 + 写）。
+   *
+   * 只有「进程要走了」那条线该用它（`#lightsOff` 灭灯），因为那条路**必须同步**：
+   *   · `dispose()` 的灭灯要排在 `close()` 之前，早一步句柄就没了；
+   *   · 安全网的 `'exit'` 钩子跑在 process 退出回调里，**微任务根本不会被执行**。
+   * 会话灯态走 `#renderAgents()`（同拍合并 + 内容去重），**不要**拿这个函数去写常态灯。
+   *
+   * 它也过内容去重（见 `#writeThstatus`）：连续两次灭灯只会写出去一条 —— 「全灭」本来就已经
+   * 是设备此刻的样子。
+   * @returns {boolean} 是否真的写给了设备（内容与上次相同 → false）。
+   */
+  #sendThstatus = (slots) => {
+    if (!Array.isArray(slots)) return false
+    const params = this.#thstatusParams(slots)
+    this.#state.agents = params
+    return this.#writeThstatus(params)
+  }
+
+  /**
+   * 把灯**全部**关掉 —— 两组灯各一条指令，缺一不可。
+   *
+   * 为什么要主动关：灯效是**设备自己记着**的状态，BLE 链路断开并不会让它熄灭。设备会一直
+   * 保持最后收到的那个画面（Agent 键亮着、氛围灯亮着），看起来就像「app 都关了，键盘还亮着」。
+   *
+   * 两条指令覆盖两组互不相干的灯：
+   *   · `v.oai.rgbcfg` 全 0  —— 普通键背光 + 外周氛围灯；
+   *   · `v.oai.thstatus` 全 0 —— Agent 键那圈灯（它**不走** rgbcfg）。
+   * 只关一组就是「亮着一半」，用户照样看得出没关干净。
+   *
+   * **只在「进程要走了」这条线上调用，绝不在 close() 里**：断开是随时会发生的（掉线 /
+   * 点「重连」/ 宿主重扫设备），在那儿关灯只会让「重连之后黑一片」（用户明确要求做出这个区别）。
+   * 两个落点 ——
+   *   · `dispose()`：插件卸载（宿主优雅关闭 / 重载）；
+   *   · **退出安全网**（exit-guard）：Ctrl+C / SIGTERM / SIGHUP 这类进程级退出，
+   *     宿主未必来得及走到 `dispose()`（见 ./exit-guard.js 顶部「退出前必须灭灯」）。
+   *
+   * 幂等：重复调用只是把同一份「全灭」再写一遍，弄不坏任何状态（插件可能被卸载两次、
+   * 安全网也可能在 exit 钩子上再调一次）。
+   *
+   * 它会让 `state.agents` 也变成全 0（`#sendThstatus` 的正常副作用）：这正是设备此刻
+   * 真实的样子，也是 /omkb/state 该报的事实。**期望灯态 `#desiredAgents` 一个字节都不动**。
+   * @returns {boolean} 两条指令是否真的写出去了（没连上、或内容与上次完全相同被跳过时 false）。
+   */
+  #lightsOff = () => {
+    const dim = this.#sendBrightness(0)
+    const dark = this.#sendThstatus(BLACKOUT_SLOTS)
+    return dim && dark
+  }
+
+  /**
+   * 灭灯的唯一对外落点（`#lightsOff` 的公开包装，自带「没连着就什么都不做」的守卫）。
+   *
+   * 故意写成**公有类字段**（和 `close` 同一套路）：自检脚本可以把它整个换成打印或计数器，
+   * 以此观测「退出路径到底有没有灭灯」（见 test/lib/exit-guard-child.mjs）——
+   * 而 `#lightsOff` 是私有的，从外面换不掉。
+   * @returns {boolean} 是否真的写给设备了。
+   */
+  blackout = () => {
+    if (!this.#hid || !this.#state.open) return false
+    return this.#lightsOff()
+  }
+
+  // ---------- 期望灯态 + 结果态 ⇒ 实际灯态 ----------
+  // 会话灯态的**唯一出口**：把浏览器下发的期望灯态与「上一轮跑出结论的那几颗键」叠加后写 HID。
+  // 这样浏览器在任何时刻重新下发灯态（会话列表变化、切设置页都会触发）都不会把结果态
+  // 冲掉——收不收只由宿主说了算（见 #latchOutcome 与 #applyAgents）。
+  //
+  // ⚠ **同拍合并**（用户 2026-09-25）：这里**不直接写设备**，只把「此刻应该是什么样」算出来存进
+  // `#pendingAgents`，真正的写入排到当前这一拍的末尾（微任务）。同一拍里再被调用多少次都只是
+  // 覆盖那一份内容 —— 设备因此只会收到**一条** `v.oai.thstatus`。谁后到谁赢，因为它们算的都是
+  // 同一个问题的答案：此刻应该是什么样。
+  //
+  // 光有这一层还不够（用户当天实测「thstatus 还是会发送两条」）：它只管**同一拍**，而同一份
+  // 灯态常**跨拍**被推两次（宿主结论与浏览器那份带 350ms 防抖的快照错开到达，内容一模一样）。
+  // 那一半由 `#writeThstatus` 的**内容去重**兜住 —— 两条防线各管一段，缺一不可。
+  //
+  // 诊断字段（`#state.agents` / `#state.outcomes`）留在**同步**这一半更新：读它的人
+  // （GET /omkb/state、自检）不该被一个微任务的时序影响。
+  //
+  // 反过来，**灭灯不走这里**（见 #sendThstatus 的注释）：退出路径必须同步写出去。
+  #renderAgents = () => {
+    if (!this.#desiredAgents.length) return false
+    const params = this.#thstatusParams(this.#composeAgents())
+    this.#state.agents = params
+    // 排查用：哪些键此刻挂着结果态（红/成功）、分别是哪个会话。它们是**不会自己消失**的，
+    // 所以「灯的颜色没人解释」时，先来这里看是谁挂的。
+    this.#state.outcomes = [...this.#outcome].map(([slot, t]) => ({ slot, sid: t.sid, kind: t.kind }))
+    this.#pendingAgents = params
+    if (!this.#agentsScheduled) {
+      this.#agentsScheduled = true
+      queueMicrotask(this.#flushAgents)
+    }
     return true
   }
 
-  // 来自设置面板的 Agent 键 LED 配置（{ slots: [{st,c,b,e,s,sid}...], errorColor } 或纯数组）
+  /**
+   * 把当前这一拍攒下的那一份灯态写出去（**最多一条**，且内容与上次相同就跳过）。
+   *
+   * 断开时 `close()` 会把 `#pendingAgents` 清掉：链路都没了还补写一条，除了多一行
+   * 「设备未连接，忽略写回」的 warn 之外毫无意义；重连时 `open()` 会重新 `#renderAgents()`
+   * 把灯态重放出来，不会漏（`close()` 也顺手忘了「上次发过什么」，见 `#lastThstatus`）。
+   * @returns {boolean} 这一拍是否真的往设备写了一条（无待写 / 内容没变时为 false）。
+   */
+  #flushAgents = () => {
+    this.#agentsScheduled = false
+    const params = this.#pendingAgents
+    this.#pendingAgents = null
+    if (!params) return false
+    return this.#writeThstatus(params)
+  }
+
+  /**
+   * 期望灯态 + 结果态 → 6 个槽位（设备字段形态）。不改变状态、不碰设备。
+   *
+   * 结果态只认「此刻占着这个槽位的那个会话」：会话消失 / 换人时宁可少亮一盏，也不要把
+   * 别人上一轮的失败挂到新来的会话身上（`#applyAgents` 已经整表重建过，这里是出口兜底）。
+   */
+  #composeAgents = () => this.#desiredAgents.map((s, i) => {
+    const out = this.#outcome.get(i)
+    const mine = out && this.#slotSessions[i] === out.sid ? out : null
+    const red = !!mine && mine.kind === 'error'
+    return {
+      id: i,
+      // 失败压过一切；成功只是「状态码是 2」，颜色仍按浏览器给的那份。
+      st: red ? AGENT_ST.ERROR : (mine ? AGENT_ST.SUCCESS : s.st),
+      c: red ? this.#errorColor : s.c,
+      b: s.b,
+      e: s.e
+    }
+  })
+
+  /**
+   * 某个会话这一轮跑出了结论 → 让它占的那几颗键**保持**这个结果态，直到该会话重新运行
+   * （见 clearOutcome）。
+   * @param sessionId - 会话 id（DSH 里 agent.id 就是会话 id）。
+   * @param kind - 'error'（运行失败，**顺带把灯换成红灯**）| 'success'（正常跑完一轮，只改状态码）。
+   * @returns {boolean} 是否真的命中了某个键（该会话没占键时为 false，不算异常）。
+   */
+  #latchOutcome = (sessionId, kind) => {
+    if (typeof sessionId !== 'string' || !sessionId) return false
+    const bad = kind === 'error'
+    const slots = []
+    for (let i = 0; i < this.#slotSessions.length; i++) if (this.#slotSessions[i] === sessionId) slots.push(i)
+    if (slots.length === 0) return false // 不在侧边栏 / 还没下发过灯态 → 没有键可亮
+    // 同槽位后写覆盖先写：失败之后重试成功，红灯该被成功盖掉（反过来则说明重试又失败了，
+    // 那个也是新的结论）。两颗键对应同一会话时一起设。
+    for (const slot of slots) this.#outcome.set(slot, { sid: sessionId, kind })
+    this.#renderAgents()
+    this.#log(bad
+      ? `会话运行失败 → 槽位 ${slots.join(',')} 转红灯（保持到该会话重新运行）`
+      : `会话跑完一轮 → 槽位 ${slots.join(',')} 报成功（保持到该会话重新运行）`)
+    return true
+  }
+
+  /**
+   * 某个会话运行失败 → 让它的那颗键**一直红着**（状态码同时变 3），不再自己变回白色。
+   *
+   * 由宿主的 `agent/error` 事件驱动（见 src/core/index.js）。注意这个事件**只在真正的失败**
+   * 时发出：用户主动中断走的是另一条分支，不会转红。
+   * 收掉它的唯一常规途径是「该会话重新开始运行」（clearOutcome）。
+   */
+  reportError = (sessionId) => this.#latchOutcome(sessionId, 'error')
+
+  /**
+   * 某个会话**正常跑完一轮** → 让它那颗键一直报 st=2（成功），颜色不动。
+   *
+   * 由宿主的 `agent/turn-stopping` 驱动：那是「这一轮要收尾了」的钩子，用户中断
+   * （signal.aborted）与真失败（agent/error）都在它之前就 throw 掉了，走不到这一步 ——
+   * 所以它天然就是「成功」的信号，不需要再去比对什么 reason。
+   */
+  reportSuccess = (sessionId) => this.#latchOutcome(sessionId, 'success')
+
+  /**
+   * 某个会话**重新开始运行** → 收掉它的结果态（红 / 成功），回到浏览器下发的常态（蓝）。
+   *
+   * 这是结果态唯一会「自己走掉」的途径，由宿主的 `agent/status`（status === 'running'）驱动：
+   * 那是 agent loop 的相位变化，用户重试 = 新一轮 = 相位从 idle 变 running。
+   *
+   * 为什么**不**拿浏览器下发的 `st=1` 当清除判据：浏览器那份快照带 350ms 防抖，失败发生的
+   * 那一刻它手里往往还写着「这个会话在跑」，把它当成「用户重试了」会让红灯刚亮就被抹掉
+   * ——那正是这次要修的病（见 #outcome 的注释）。
+   * @param sessionId - 会话 id。
+   * @returns {boolean} 是否真的收掉了某个结果态（本来就没挂时为 false）。
+   */
+  clearOutcome = (sessionId) => {
+    if (typeof sessionId !== 'string' || !sessionId) return false
+    let hit = false
+    for (const [slot, t] of [...this.#outcome]) {
+      if (t.sid !== sessionId) continue
+      this.#outcome.delete(slot)
+      hit = true
+    }
+    if (!hit) return false
+    this.#renderAgents()
+    this.#log(`会话 ${sessionId} 重新开始运行 → 收掉结果灯`)
+    return true
+  }
+
+  // 来自设置面板的 Agent 键 LED 配置（{ slots: [{st,c,b,e,sid}...], errorColor } 或纯数组）
   #applyAgents = (payload) => {
     const list = Array.isArray(payload) ? payload : (payload && Array.isArray(payload.slots) ? payload.slots : null)
     if (!list) return
@@ -716,28 +1068,27 @@ export class BleController {
     for (let i = 0; i < 6; i++) {
       const s = list[i] || {}
       desired.push({
-        st: this.#inboundStatus(s),
+        st: this.#inboundSt(s.st),
         c: this.#clampRgb(s.c),
         b: this.#clamp01(s.b, 0),
-        e: Math.round(Number(s.e) || 0),
-        s: this.#clamp01(s.s, 0)
+        e: Math.round(Number(s.e) || 0)
       })
       sessions.push(typeof s.sid === 'string' && s.sid ? s.sid : null)
     }
     this.#desiredAgents = desired
     this.#slotSessions = sessions
-    // 红灯要跟着会话走，不能跟着槽位走：会话列表重排时槽位会换人，红灯必须一起搬家，
+    // 结果态要跟着会话走，不能跟着槽位走：会话列表重排时槽位会换人，结果态必须一起搬家，
     // 会话消失（归档 / 关掉）时则撤掉。这里整表重建，避免原地增删的边界情况。
-    const now = Date.now()
+    //
+    // ⚠ 这里**不**看浏览器下发的 st：它带 350ms 防抖，失败那一刻常常还是「running」的陈旧
+    //   快照（见 #outcome 的注释），拿它收结果态 = 红灯刚亮就被抹掉。收只认 agent/status。
     const next = new Map()
-    for (const [, e] of this.#errorSlots) {
-      if (e.until <= now) continue
-      const at = sessions.indexOf(e.sid)
-      if (at !== -1 && !next.has(at)) next.set(at, e)
+    for (const [, t] of this.#outcome) {
+      const at = sessions.indexOf(t.sid)
+      if (at !== -1 && !next.has(at)) next.set(at, t)
     }
-    this.#errorSlots = next
+    this.#outcome = next
     this.#renderAgents()
-    this.#armErrorTimer()
   }
 
   // 空闲自动调暗：autoDim(秒) 到了就关灯（亮度 0 = ambient 与键灯一起熄）。
@@ -830,9 +1181,17 @@ export class BleController {
 
   dispose = () => {
     clearInterval(this.#dimTimer)
-    if (this.#errorTimer) { clearTimeout(this.#errorTimer); this.#errorTimer = null }
     if (this.#reconnectTimer) { clearInterval(this.#reconnectTimer); this.#reconnectTimer = null }
-    // 卸下安全网（只移除我们自己注册的监听者，宿主的一个都不碰；幂等）。
+    if (this.#probeTimer) { clearTimeout(this.#probeTimer); this.#probeTimer = null }
+    // **进程要走了就把灯关掉**（用户 2026-09-25 要求）。这里是灭灯的落点之一：插件被卸载
+    // = 我们不再管这台设备了，而设备不会因为 BLE 断开自己熄灭 —— 它会一直亮着最后那幅画面
+    // （Agent 键亮着、氛围灯亮着），看起来就像「app 都关了，键盘还亮着」。
+    // **另一个落点是退出安全网**（Ctrl+C/SIGTERM/SIGHUP，见 ./exit-guard.js）—— 宿主优雅关闭
+    // 那条路未必走得到这里（用户实测「Ctrl+C 之后灯还亮着」）。
+    // 断开（close）时故意不做这件事，见那里的注释。
+    // 必须排在 close() **之前**：唯一出口 #sendRpc 要先看到活着的句柄才写得出去。
+    this.blackout()
+    // 卸下安全网（只移除我们自己注册的监听者 + 'exit' 钩子，宿主的一个都不碰；幂等）。
     this.#exitGuard?.dispose()
     this.close()
   }
@@ -856,7 +1215,9 @@ export const createBleReader = ({ logger, diagnostics } = {}) => {
     close: ctl.close,
     registerRoute: ctl.registerRoute,
     setPrefs: ctl.setPrefs,
-    flashError: ctl.flashError,
+    reportError: ctl.reportError,
+    reportSuccess: ctl.reportSuccess,
+    clearOutcome: ctl.clearOutcome,
     // 测试注入（自检脚本用它喂摇杆帧，见 #feedLine）；宿主运行时不用。
     feedLine: ctl.feedLine,
     dispose: ctl.dispose,

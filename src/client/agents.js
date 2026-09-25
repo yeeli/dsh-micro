@@ -8,19 +8,20 @@
 // 服务（会话摘要里没有这个字段），因此本控制器同时持有 sessions 与 workspaces。
 //
 // 运行失败的红色不在这里计算：客户端只负责「谁占哪颗键、平时什么颜色」，
-// 失败的瞬态红灯由宿主在收到 agent/error 时叠加（见 src/core/ble.js 的 flashError）。
-// 这里要做的只是把每槽的会话 id 一起下发，宿主才定位得到该亮哪颗键。
+// 失败红灯由宿主在收到 agent/error 时叠加（见 src/core/ble.js 的 reportError）。
+// **那个红不会自己变回白色**（用户 2026-09-25 要求），要等该会话重新运行才收掉 ——
+// 所以客户端这里也不许「顺便下发一次就把红冲掉」。这里要做的只是把每槽的会话 id
+// 一起下发，宿主才定位得到该亮哪颗键。
 import { archivedIdsOf, byRecency, visibleSessions } from './core.js'
 
-// 槽位状态标识（下发给宿主 payload 里每个槽位的 `st`，最终随 v.oai.thstatus 发给键盘）。
-// 为什么要单独一个字段：以前「会话在跑 / 空闲」只体现在**颜色**上（蓝/白），设备只能靠
-// 猜颜色反推状态；现在把状态本身显式发下去，设备侧就能自己按状态做灯效，颜色怎么调都不影响语义。
+// 槽位状态（字符串）—— **只在浏览器内部用**：给槽位的 `status` 字段与首次连接引导的图例当 key。
+// 下发给设备的是**另一套**：整数状态码 `AGENT_STATE`（见下）。两套并存是有意的 ——
+// 字符串这套在这里可读、可直接比较；整数那套是设备固件的线格式，改动成本高。
 //
-// 词表（浏览器只产出前三个）：
 //   running — 该会话正在运行（agent loop 在跑）
 //   idle    — 会话存在、当前空闲
 //   empty   — 这个键没有分配会话（灯熄灭）
-//   error   — 该会话刚才运行失败（**由宿主叠加**，只在红灯窗口内，见 src/core/ble.js）
+//   error   — 该会话运行失败（红色由宿主叠加并一直保持；这里只给引导页图例当 key）
 export const AGENT_STATUS = {
   RUNNING: 'running',
   IDLE: 'idle',
@@ -28,8 +29,26 @@ export const AGENT_STATUS = {
   ERROR: 'error'
 }
 
-/** 合法状态词表（宿主侧同名校验，两边必须一致）。 */
-export const AGENT_STATUSES = [AGENT_STATUS.RUNNING, AGENT_STATUS.IDLE, AGENT_STATUS.EMPTY, AGENT_STATUS.ERROR]
+/**
+ * 下发给设备的**槽位状态码**（整数）—— 就是 v.oai.thstatus 里每个槽位的 `st`。
+ *
+ * 为什么是整数而不是上一版那几个字符串：设备固件要按状态分支做灯效，数值能直接当索引/位掩码，
+ * 字符串还得在固件里建一张对照表。**词表必须与 src/core/ble.js 的 `AGENT_ST` 逐字一致**
+ * （两边自检都会断言这两个表相等，改一边忘一边会立刻被抓出来）。
+ *
+ * 谁产出哪一档：
+ *   IDLE / RUNNING —— **浏览器**（只有它知道会话列表和谁在跑；`pushLeds` 里算）。
+ *   SUCCESS / ERROR —— **宿主**叠加（只有它收得到那条总线，也只有它说得清
+ *                     「用户主动中断」和「真失败」的区别，见 src/core/index.js）。
+ *                     这两个是**结果态、不会自己过期**，要等该会话重新运行才收掉。
+ * 空槽位（没有分配会话）同样是 IDLE，靠 `e: 0`（灯灭）区分 —— 设备侧不需要第 5 个值。
+ */
+export const AGENT_STATE = {
+  IDLE: 0,    // 空闲 —— 会话在、没在跑
+  RUNNING: 1, // 运行 —— agent loop 在跑
+  SUCCESS: 2, // 成功 —— 跑完一轮（宿主叠加，一直保持到该会话下次运行）
+  ERROR: 3    // 失败 —— 跑失败了（宿主叠加，同时把灯转红；一直保持到该会话下次运行）
+}
 
 /**
  * Codex Micro 状态色（packed RGB 整数）。
@@ -39,7 +58,7 @@ export const AGENT_STATUSES = [AGENT_STATUS.RUNNING, AGENT_STATUS.IDLE, AGENT_ST
 export const AGENT_COLOR_RGB = {
   working: 0x304FFE, // 蓝 —— 运行中
   idle: 0xFFFFFF,    // 白 —— 空闲
-  error: 0xFF0000,   // 红 —— 运行失败（瞬态：由宿主闪一下再回到空闲，见下）
+  error: 0xFF0000,   // 红 —— 运行失败（由宿主点亮并保持，直到该会话重新运行）
   off: 0x000000      // 黑 —— 关（未分配）
 }
 
@@ -116,34 +135,39 @@ export class AgentController {
   /** 最近一次刷新时的「全部空闲」结论（诊断/自检用）。 */
   get allIdle() { return this.#allIdle }
 
-  // 槽位映射 → v.oai.thstatus 的 6 个 slot 对象，POST 给 host。
+  // 槽位映射 → 6 个 slot 对象，POST 给 host（宿主再把这些字段写进 v.oai.thstatus 发给键盘）。
   // 防抖合并：进入页面/列表变化时 refresh 会被连续触发多次，
-  // 这里把多次调用合并成最后一次发送（350ms 内只发一次 thstatus）。
+  // 这里把多次调用合并成最后一次发送（350ms 内只发一次）。
   //
   // 每个槽位带两样「不是设备光学参数」的信息：
-  //   sid —— 会话 id：宿主要靠它把 agent/error（运行失败）定位到具体某颗键；
-  //   st  —— 状态标识（running/idle/empty）：宿主要靠它区分「空闲白」和「没有会话的黑」，
-  //          也是发给设备的语义字段（error 态由宿主在红灯窗口内覆盖成 'error'）。
-  // 颜色只在这里决定（失败的红色也由本表下发），宿主只负责「什么时候临时换成红色」。
+  //   sid —— 会话 id：宿主要靠它把 agent/error（运行失败）与 agent/turn-stopping
+  //          （跑完一轮）定位到具体某颗键；
+  //   st  —— 状态码（int，见 AGENT_STATE）：设备侧直接按它做灯效，不必反推颜色。
+  //          这里只发 IDLE/RUNNING，成功/失败由宿主叠加。
+  // 颜色只在这里决定（失败的红色也由本表下发），宿主只负责「什么时候点亮红色、什么时候收掉」。
+  // ⚠ 宿主**不看**这里下发的 st 去收回红灯：本表带 350ms 防抖，失败那一刻它常常还写着
+  //   running（见 src/core/ble.js 的 #outcome）。
   //
   // 请求体里另外带 `allIdle`：宿主据此做「所有会话空闲 → 超时关灯」。
+  //
+  // ⚠ 设备契约只要这几个字段（id/c/b/e/st）。曾经还发过 s/sk/sa 三个，**从头到尾恒为 0**
+  //   （没有任何一行代码给过它们别的值），2026-09-25 按用户要求删掉 —— 留着它们只会让
+  //   读协议的人以为「这几个字段有用，只是暂时没接上」。要加回新字段，先想清楚谁产出。
   pushLeds = (slots, brightness, allIdle) => {
     const b = Math.max(0, Math.min(1, brightness == null ? 0.9 : brightness))
     const th = (slots || []).slice(0, 6).map((s, i) => {
       if (!s || !s.id) {
-        return { id: i, sid: null, st: AGENT_STATUS.EMPTY, c: 0, b: 0, e: 0, s: 0, sk: 0, sa: 0 }
+        // 没分配会话：灯灭（e:0）。状态码仍给 IDLE —— 设备用 e 区分「灭着的空位」。
+        return { id: i, sid: null, st: AGENT_STATE.IDLE, c: 0, b: 0, e: 0 }
       }
       const running = s.status === AGENT_STATUS.RUNNING
       return {
         id: i,
         sid: s.id,
-        st: running ? AGENT_STATUS.RUNNING : AGENT_STATUS.IDLE,
+        st: running ? AGENT_STATE.RUNNING : AGENT_STATE.IDLE,
         c: running ? this.AGENT_COLORS.working : this.AGENT_COLORS.idle,
         b,
-        e: 1,
-        s: 0,
-        sk: 0,
-        sa: 0
+        e: 1
       }
     })
     const body = JSON.stringify({

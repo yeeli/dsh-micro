@@ -89,6 +89,15 @@ const locales = {
     // 断开时的悬停/可访问名（图标右上会多一个红点）。**不许写成「点击重新连接」** ——
     // 这个入口点了是打开设置页，重连在那一页的按钮上（口径见 components/sidebar-action.jsx）。
     'sidebar.offline': '键盘已断开 · 点击打开设置重新连接',
+    // 「与**后台**断开」气泡里的三句话 —— 这三句**照抄 DSH 自己词典里的措辞**
+    // （dsh-client-ui-settings-general 的 connection.connecting / .error / .connected）。
+    // 为什么要抄：这条提示原本由 DSH 画在「设置」那一行里，我们只是把它换个地方展示（气泡），
+    // 措辞跟着它走，用户才不会觉得界面上冒出两套说法。
+    'sidebar.connecting': '自动重连中',
+    'sidebar.disconnected': '连接异常',
+    'sidebar.reconnected': '连接成功',
+    // 气泡的可访问名：点它就是「立即重连」（= 点那颗被我们藏起来的 DSH 指示器）
+    'sidebar.reconnectNow': '点击立即重连',
     // ---------- 首次连接引导（设备第一次连上时弹一次，见 components/guide-modal.jsx）----------
     // （设置页那一行「首次连接引导 / 重新播放」2026-09-24 按要求去掉，专属词条一并撤了）
     'guide.close': '关闭引导',
@@ -112,7 +121,7 @@ const locales = {
     'guide.legend.idle': '白色 · 空闲',
     'guide.legend.idleHint': '会话存在，在等你',
     'guide.legend.error': '红色 · 运行失败',
-    'guide.legend.errorHint': '刚出错，会闪几秒',
+    'guide.legend.errorHint': '刚出错，一直亮到你重试',
     'guide.legend.empty': '关闭 · 未分配',
     'guide.legend.emptyHint': '这颗键还没分到会话',
     // ---------- 「移除键盘」确认弹窗（见 components/remove-modal.jsx）----------
@@ -216,6 +225,14 @@ const locales = {
     // Must NOT say "click to reconnect": this entry opens the settings page, where the
     // reconnect button lives (see components/sidebar-action.jsx).
     'sidebar.offline': 'Keyboard disconnected · open settings to reconnect',
+    // The three lines shown in the "host disconnected" bubble. Wording is copied verbatim from
+    // DSH's own dictionary (connection.connecting / .error / .connected) on purpose: the notice
+    // is DSH's, we only re-present it as a bubble, so the wording must not diverge.
+    'sidebar.connecting': 'Reconnecting',
+    'sidebar.disconnected': 'Disconnected',
+    'sidebar.reconnected': 'Connected',
+    // Accessible name of the bubble — clicking it reconnects (= clicking the hidden indicator)
+    'sidebar.reconnectNow': 'Click to reconnect now',
     // ---------- First-connect guide (see components/guide-modal.jsx) ----------
     // (the "First-connect guide / Replay" settings row was removed on 2026-09-24; its keys went with it)
     'guide.close': 'Close guide',
@@ -239,7 +256,7 @@ const locales = {
     'guide.legend.idle': 'White · idle',
     'guide.legend.idleHint': 'Session exists, waiting for you',
     'guide.legend.error': 'Red · failed',
-    'guide.legend.errorHint': 'Just errored, flashes for a few seconds',
+    'guide.legend.errorHint': 'Just errored, stays red until you retry',
     'guide.legend.empty': 'Off · unassigned',
     'guide.legend.emptyHint': 'No session on this key yet',
     // ---------- "Remove keypad" confirm modal (see components/remove-modal.jsx) ----------

@@ -34,6 +34,27 @@
 // （仍可用，只是多占一行），绝不把按钮藏起来。收起成导轨时干脆不覆盖：留在流里就是个
 // 36×36 的居中方块，正好落在齿轮正上方（和 DSH 自己的导轨按钮同规格）。
 //
+// ── 与后台断开时那一行会多出一个邻居（2026-09-25，改了两轮）─────────────────
+// DSH 的 triggerRow 里除了「设置」按钮，还并排放着一个连接状态指示器（ConnectionIndicator）：
+// 正常时它渲染成 null（不占位）；web 与后台断开时它是那条橙色的「自动重连中」，
+// 刚恢复的那几秒是绿色的「连接成功」。那一行是 `flex-start` 布局、设置按钮是 `flex:1`
+// （吃满剩余宽度），指示器紧贴按钮右边 —— 也就是**正好落在我们贴右端的地方**。
+//
+// 第一轮（错）：认出邻居就「退回文档流」。结果底栏多出一行、键盘图标孤零零浮在「设置」上方
+// （用户 03:22 截图：「这个错误更加严重了」）。问题不在坐标 —— 是「那一行里多了个邻居」这件事
+// 本身就让那一行归 DSH 安排了，我们不该往里挤，也不该为它改自己的位置。
+//
+// 第二轮（现行）：**把 DSH 的指示器藏起来，改用贴在自己方块上方的深色气泡**展示同一句话
+// （样式见 assets/settings.css 的 .omkb-conn-tip，行为见 syncConnTip）。于是那一行恢复成
+// 「只有一个设置按钮」，覆盖定位照常；提示一点没丢 —— **点气泡 = 点那颗被藏起来的指示器**
+// （断开时它是「立即重连」，重连中时它是「重启」），行为与 DSH 原样一致。
+// 气泡里那三句话直接抄 DSH 自己的词典（connection.connecting / .error / .connected），
+// 用户不会觉得界面上冒出第二套说法。
+//
+// 认得出它的判据（都不依赖哈希 class）：断开/重连中 = `button[data-phase]`（data-phase 就是
+// 状态字符串），刚恢复 = `[role="status"]`。**认不出的邻居仍旧退回文档流**：宁可多一行也绝不重叠。
+// 另外用 MutationObserver 守那一行（邻居出现/消失只改行内节点，foot 尺寸不变，ResizeObserver 看不见）。
+//
 // ── 「直接打开键盘设置页」怎么实现 ──────────────────────────────────────────
 // 设置弹窗把「是否展开 + 当前分区」放在组件内部 state 里，**没有** openSettings(sectionId)
 // 之类的接口，所以只能：点设置触发按钮把弹窗打开 → 点掉导航里文字等于本插件分区标题
@@ -96,6 +117,20 @@ export const GEAR_GAP = 8
  * 也不能把「设置」这两个字挤变形（窄侧边栏下）。
  */
 export const MIN_GEAR_WIDTH = 96
+
+/**
+ * 认「那是 DSH 的连接状态指示器」的稳定标记（**不用**哈希 class）：
+ *   断开 / 重连中 = `button[data-phase]`（data-phase 就是状态字符串）
+ *   刚恢复的那几秒 = `[role="status"]`（那一个渲染成 div，不可点）
+ * 认不出就不认：调用方会退回文档流（绝不重叠）。
+ */
+export const CONN_NOTICE_SEL = 'button[data-phase],[role="status"]'
+/** 打在指示器上的标记属性：CSS 靠它把指示器藏起来（`[data-omkb-conn-hide]{display:none}`）。 */
+export const NOTICE_HIDE_ATTR = 'data-omkb-conn-hide'
+/** 气泡与键盘方块之间的间隔（px）。 */
+export const TIP_GAP = 6
+/** 小尾巴的宽度（px，也是它三角形的高）。 */
+export const TIP_TAIL = 12
 
 /** 弹窗打开后等导航行出现的预算：React 提交是异步的，但也就一两帧的事。 */
 export const NAV_WAIT_MS = 1200
@@ -303,6 +338,80 @@ export const positionedAncestor = (el) => {
   return null
 }
 
+/** 「设置」按钮的**直接父元素** = DSH 的 triggerRow（连接指示器就并排放在这一行里）。 */
+export const gearRowOf = (gear) => (gear && gear.parentElement) || null
+
+/**
+ * 同一行里 `except` 之外的**可见兄弟**（没有则 null）。
+ *
+ * 判据用**矩形**而不是 class：DSH 的类名是模块哈希（认不得），而这里需要的事实只有一个 ——
+ * 「它占不占位」。宽高都 > 1px 才算占位，于是「渲染成空 div」与「压根没渲染」两种实现都覆盖得到。
+ *
+ * 为什么需要它：DSH 的 triggerRow（实测 `display:flex; gap:8px`，**没写 justify-content**
+ * 即默认 flex-start）里除了「设置」按钮，还并排放着一个连接状态指示器
+ * （`dsh-client-ui-settings-general` 的 ConnectionIndicator）—— web 与宿主断开时，
+ * 它就是那条橙色的「自动重连中」。而「设置」按钮带 `flex:1`（吃满剩余宽度），指示器紧贴它右边。
+ * 我们为了给键盘方块腾位置而**收窄设置按钮**时，指示器会跟着往左跑，正好落到方块下面。
+ */
+export const visibleSiblingOf = (row, except) => {
+  let kids = null
+  try { kids = Array.from((row && row.children) || []) } catch (e) { return null }
+  for (const el of kids) {
+    if (el === except) continue
+    let r = null
+    try { r = el.getBoundingClientRect() } catch (e) { continue }
+    if (r && r.width > 1 && r.height > 1) return el
+  }
+  return null
+}
+
+/** 指示器的相位 → 词典键（三句话照抄 DSH 自己的措辞，见文件头）。 */
+export const NOTICE_PHASE_KEY = {
+  connecting: 'sidebar.connecting',
+  disconnected: 'sidebar.disconnected',
+  reconnected: 'sidebar.reconnected'
+}
+
+/**
+ * 认那个邻居的相位（DSH 的 ConnectionIndicator 有三种）：
+ *   connecting   —— `data-phase="connecting"`：橙色「自动重连中」
+ *   disconnected —— 带 data-phase 但不是 connecting：橙色「连接异常」（可点，点了立即重连）
+ *   reconnected  —— `[role="status"]` 那个 div：刚恢复时绿一下「连接成功」（不可点）
+ * 认不出返回 null（调用方据此判定「这不是连接指示器」，会退回文档流）。
+ */
+export const noticePhaseOf = (el) => {
+  if (!el) return null
+  let phase = null
+  try { phase = el.getAttribute('data-phase') } catch (e) { phase = null }
+  if (phase === 'connecting') return 'connecting'
+  if (phase !== null && phase !== undefined && phase !== '') return 'disconnected'
+  return matches(el, '[role="status"]') ? 'reconnected' : null
+}
+
+/** 那一行里认得出的连接指示器（**不管它现在可不可见** —— 可能正被我们自己藏着）。 */
+export const connNoticeOf = (gear) => {
+  const row = gearRowOf(gear)
+  return row ? q(row, CONN_NOTICE_SEL) : null
+}
+
+/** 那一行里所有候选（含被我们藏起来的：判据不能是「可见」，否则藏了以后就找不回来了）。 */
+const noticeCandidates = (row) => (row ? (qa(row, CONN_NOTICE_SEL) || []) : [])
+
+/**
+ * 藏 / 放连接指示器 —— 用**自定义属性**，不用 class 也不用 inline style：
+ * 后两者都在 React 的管辖里，它重渲染时会按自己的 props 覆盖回去（本项目踩过）。而
+ * `data-omkb-conn-hide` 它压根不认识，永远不会碰。
+ * @returns {boolean} 是否写成功；元素不在 DOM / 老浏览器没有这两个方法 → false，不抛错。
+ */
+export const setNoticeHidden = (el, on) => {
+  if (!el || typeof el.setAttribute !== 'function') return false
+  try {
+    if (on) { el.setAttribute(NOTICE_HIDE_ATTR, '1'); return true }
+    if (typeof el.removeAttribute === 'function') { el.removeAttribute(NOTICE_HIDE_ATTR); return true }
+  } catch (e) {}
+  return false
+}
+
 /**
  * 纯计算：把 size×size 的方块放到 gear 那一行的右端、竖直居中对齐。
  * @param containerRect - 包含块（定位祖先）的矩形。
@@ -363,6 +472,24 @@ export const placeFootAction = (button, opts = {}) => {
   if (!button || !button.style) return null
   const hosts = findFootHosts(button)
   if (!hosts) { unpinFootAction(button); return null }
+
+  // 「设置」那一行里除了按钮还有别的可见东西时，那一行就不归我们安排了。
+  // 其中**连接指示器是认得出的例外**：把它藏起来（我们改用气泡展示，见 syncConnTip），
+  // 那一行就恢复成「只有一个设置按钮」，覆盖定位照常。认不出的邻居则退回文档流：绝不重叠。
+  //
+  // 先「放出来」再量天然几何 —— 上一轮很可能正是我们把它藏起来的，而藏起来的元素宽高为 0，
+  // 直接量就会把「我们自己造成的不可见」当成「本来就没有邻居」，然后一直贴着（气泡没了、
+  // 指示器也被永久藏了）。同 narrowGear 的「先恢复再量」一个道理。
+  const row = gearRowOf(hosts.gear)
+  for (const el of noticeCandidates(row)) setNoticeHidden(el, false)
+  const sibling = visibleSiblingOf(row, hosts.gear)
+  const notice = sibling && noticePhaseOf(sibling) ? sibling : null
+  if (sibling && !notice) {
+    unpinFootAction(button)
+    return null
+  }
+  if (notice) setNoticeHidden(notice, true)
+
   const container = positionedAncestor(button)
   if (!container || typeof container.getBoundingClientRect !== 'function') { unpinFootAction(button); return null }
 
@@ -399,12 +526,16 @@ export const placeFootAction = (button, opts = {}) => {
     // 继续静默下去用户只会看到「灰底还盖着图标」。告警不阻断摆放。
     warnIfNotNarrowed(hosts.gear, want)
   }
-  return pos
+  // notice 带出去：组件据此决定气泡显不显示、显示哪一句（null = 没有提示）。
+  return { ...pos, notice }
 }
 
 /** 退回文档流（收起成导轨时用，也是摆放失败时的兜底），并把设置按钮的宽度还回去。 */
 export const unpinFootAction = (button) => {
   if (!button || !button.style) return
+  // 退回文档流之后那一行又归 DSH 安排了，不再有重叠风险：把可能被我们藏起来的连接指示器放回去。
+  const hosts0 = findFootHosts(button)
+  for (const el of noticeCandidates(hosts0 ? gearRowOf(hosts0.gear) : null)) setNoticeHidden(el, false)
   setClass(button, 'omkb-foot-action--pinned', false)
   for (const k of ['position', 'top', 'right', 'left']) {
     try { button.style[k] = '' } catch (e) {}
@@ -412,6 +543,121 @@ export const unpinFootAction = (button) => {
   // 宽度也要还回去（我们可能收窄过它，width 与 max-width 两个都写进去过）。优先用摆放时记下的
   // 引用，这样结构已经变了也能恢复；引用留在元素上不清理：它与按钮同生命周期，不会攒住别的东西。
   narrowGear(button.__omkbGear || (findFootHosts(button) || {}).gear, null)
+}
+
+// ── 「与后台断开」气泡（替代 DSH 那一行里的连接指示器）─────────────────────────
+// 节点是**模块级单例**（这个槽位只会有一个条目），**自己 create、挂在 document.body 上**，
+// 不走 React：① React 管不着它，重渲染顶不掉；② 挂在 body + position:fixed，不会被 footer
+// 那一行的 overflow 裁掉。文字与小尾巴是两个子元素 —— 写文字时不会把尾巴顶掉。
+let tipEl = null
+let tipTextEl = null
+let tipTailEl = null
+
+/** 视口宽度（判断「上方放不下、该翻到下方」要用）。取不到返回 0。 */
+const viewportWidth = () => {
+  const w = winOf()
+  const n = w && Number(w.innerWidth)
+  if (Number.isFinite(n) && n > 0) return n
+  try {
+    const de = (typeof document !== 'undefined') && document.documentElement
+    const m = de && Number(de.clientWidth)
+    if (Number.isFinite(m) && m > 0) return m
+  } catch (e) {}
+  return 0
+}
+
+/** 取（必要时创建）气泡节点。取不到 document 时返回 null，调用方据此跳过。 */
+export const connTipNode = () => {
+  if (tipEl) return tipEl
+  let doc = null
+  try { doc = (typeof document !== 'undefined') ? document : null } catch (e) { doc = null }
+  if (!doc || typeof doc.createElement !== 'function') return null
+  try {
+    tipEl = doc.createElement('div')
+    tipTextEl = doc.createElement('span')
+    tipTailEl = doc.createElement('span')
+  } catch (e) { tipEl = null; tipTextEl = null; tipTailEl = null; return null }
+  setClass(tipEl, 'omkb-conn-tip', true)
+  setClass(tipTextEl, 'omkb-conn-tip__text', true)
+  setClass(tipTailEl, 'omkb-conn-tip__tail', true)
+  // role=status：正常状态下它就是一条「状态播报」，读屏会念出来（原来那句提示也是这个语义）。
+  try { tipEl.setAttribute('role', 'status') } catch (e) {}
+  try { tipEl.appendChild(tipTextEl); tipEl.appendChild(tipTailEl) } catch (e) {}
+  return tipEl
+}
+
+/**
+ * 把气泡摆到方块正上方、尾巴对准方块中心；上方放不下就翻到下方（尾巴朝上）。
+ * 用 position:fixed + 视口坐标（节点在 body 上，包含块就是视口），
+ * 所以这里只量方块自己的矩形，不去碰包含块。
+ * @param tip - 气泡节点（connTipNode() 的产物）。
+ * @param button - 键盘方块。
+ * @param opts.size / opts.gap / opts.tail / opts.viewportWidth - 覆盖设计常量（自检用）。
+ * @returns {{top,right,below}|null}
+ */
+export const placeConnTip = (tip, button, opts = {}) => {
+  if (!tip || !tip.style || !button) return null
+  const size = num(opts.size, BUTTON_SIZE)
+  const gap = num(opts.gap, TIP_GAP)
+  const tail = num(opts.tail, TIP_TAIL)
+  const b = button.getBoundingClientRect()
+  const r = tip.getBoundingClientRect()
+  const h = num(r.height, num(opts.tipHeight, 30))
+  const w = num(r.width, 0)
+  let top = b.top - gap - h
+  const below = top < 0
+  if (below) top = b.bottom + gap
+  const vw = num(opts.viewportWidth, viewportWidth())
+  // 右边缘与方块右边缘齐平（方块贴在最右端，气泡往左展开）
+  let right = vw ? vw - b.right : 0
+  // 但不许越过视口左缘（窄侧边栏 + 长文案时）
+  if (vw && w && vw - right - w < GEAR_INSET) right = vw - GEAR_INSET - w
+  tip.style.top = Math.round(top) + 'px'
+  tip.style.right = Math.round(Math.max(0, right)) + 'px'
+  tip.style.left = 'auto'
+  if (tipTailEl && tipTailEl.style) tipTailEl.style.right = Math.round(size / 2 - tail / 2) + 'px'
+  setClass(tip, 'omkb-conn-tip--below', below)
+  return { top, right, below }
+}
+
+/**
+ * 同步气泡：有连接指示器就显示（文字由调用方按相位给），没有就收起。
+ * @param button - 键盘方块（气泡锚在它上方）。
+ * @param notice - 被我们藏起来的指示器元素；null / 空 → 收起气泡。
+ * @param opts.text / opts.ariaLabel / opts.onClick / opts.size / opts.gap - 文案与行为。
+ * @returns {boolean} 气泡此刻是否可见。
+ */
+export const syncConnTip = (button, notice, opts = {}) => {
+  const tip = connTipNode()
+  // 没有提示（或没有方块）→ 收起气泡。这是最常见的一条，先走掉。
+  if (!button || !notice) { if (tip) setClass(tip, 'omkb-conn-tip--on', false); return false }
+  // 挂到 body 上。每次都查一次父节点：真机上是首次挂载，自检里每个场景换一份 document。
+  let body = null
+  try { body = (typeof document !== 'undefined' && (document.body || document.documentElement)) || null } catch (e) { body = null }
+  // 气泡建不出来 / 挂不上 → **把指示器放回去**：宁可让那条提示留在 DSH 原来的位置（顶多是我们
+  // 贴右端时挨着它），也不能「藏了提示又没有任何替代」。这条只在环境异常时才会走到。
+  if (!tip || !body || typeof body.appendChild !== 'function') { setNoticeHidden(notice, false); return false }
+  if (tip.parentElement !== body) {
+    try { body.appendChild(tip) } catch (e) { setNoticeHidden(notice, false); return false }
+  }
+  const text = String(opts.text == null ? '' : opts.text)
+  if (tipTextEl) tipTextEl.textContent = text
+  // 只给可访问名、不给 title：气泡自己就把话说完了，再来一层原生 tooltip 是重复。
+  try { tip.setAttribute('aria-label', String(opts.ariaLabel || text)) } catch (e) {}
+  if (typeof opts.onClick === 'function') tip.onclick = opts.onClick
+  setClass(tip, 'omkb-conn-tip--on', true)
+  placeConnTip(tip, button, opts)
+  return true
+}
+
+/** 收起气泡（卸载 / 收起成导轨 / 找不到提示时）。节点留着复用，只是摘下来。 */
+export const disposeConnTip = () => {
+  if (!tipEl) return
+  setClass(tipEl, 'omkb-conn-tip--on', false)
+  try {
+    const p = tipEl.parentElement
+    if (p && typeof p.removeChild === 'function') p.removeChild(tipEl)
+  } catch (e) {}
 }
 
 /**
@@ -458,6 +704,18 @@ DSVI.footAction = {
   ancestor: positionedAncestor,
   placement: computePlacement,
   layoutParent,
+  // 「设置」那一行里已就位的邻居（连接指示器）——控制台/自检用它回答「现在方块为什么不在右端」。
+  gearRow: gearRowOf,
+  sibling: visibleSiblingOf,
+  // 连接指示器那条线：认相位、藏/放、以及替代它的气泡（控制台可
+  // `__dshOmkb.footAction.tipNode()` 看那颗气泡节点长什么样）。
+  notice: connNoticeOf,
+  noticePhase: noticePhaseOf,
+  hideNotice: setNoticeHidden,
+  tipNode: connTipNode,
+  placeTip: placeConnTip,
+  syncTip: syncConnTip,
+  disposeTip: disposeConnTip,
   candidateLabels
 }
 
@@ -496,6 +754,28 @@ export function OmkbSidebarAction({ wide, t }) {
   const hidden = dev.hidden
   const offline = dev.offline
 
+  // 「与后台断开」气泡的两段文案：正文按指示器的相位选（三句都照抄 DSH 自己的措辞），
+  // 可访问名说清「点一下会做什么」。词典取不到就退回中文兜底（和上面 tip 一个写法）。
+  const pick = (key, fallback) => (tr && tr(key)) || dict[key] || fallback
+  const noticeText = (notice) => {
+    const key = NOTICE_PHASE_KEY[noticePhaseOf(notice)] || NOTICE_PHASE_KEY.disconnected
+    return pick(key, '连接异常')
+  }
+  const noticeAria = (notice) => {
+    const body = noticeText(notice)
+    const action = pick('sidebar.reconnectNow', '点击立即重连')
+    return body ? body + ' · ' + action : action
+  }
+  // 点气泡 = 点那颗被我们藏起来的指示器（DSH 自己的行为：断开 → 立即重连；重连中 → 重启）。
+  // 指示器已经不在了（刚好恢复）→ 什么都不做：重连不归这个入口发起（见文件头「点击行为不变」）。
+  const onNoticeClick = () => {
+    const btn = ref.current
+    const hosts = btn ? findFootHosts(btn) : null
+    const el = hosts ? connNoticeOf(hosts.gear) : null
+    if (!el) return
+    try { el.click() } catch (e) { warn('点连接指示器失败：' + ((e && e.message) || e)) }
+  }
+
   // 展开态：贴到设置行右端（覆盖定位）。布局会动（折叠动画、窗口缩放、别家动作行增减），
   // 所以除了挂载时，还跟着 rAF / 一拍之后 / resize / foot 区尺寸变化各重量一次。
   // `hidden` 也在依赖里：从隐藏回到显示时按钮是**新挂载**的，不重跑就没人摆放它。
@@ -503,9 +783,19 @@ export function OmkbSidebarAction({ wide, t }) {
     const btn = ref.current
     const w = winOf()
     if (!btn || !w) return undefined
-    if (!wide) { unpinFootAction(btn); return undefined }
+    if (!wide) { unpinFootAction(btn); disposeConnTip(); return undefined }
     const place = () => {
-      try { placeFootAction(btn) } catch (e) { warn('摆放键盘入口失败：' + ((e && e.message) || e)) }
+      try {
+        const r = placeFootAction(btn)
+        const notice = r ? r.notice : null
+        // 气泡：有连接指示器（被我们藏起来的那颗）就显示，文字按它的相位选。
+        // 点气泡 = 点那颗指示器（断开时它就是「立即重连」），行为与 DSH 原样一致。
+        syncConnTip(btn, notice, {
+          text: noticeText(notice),
+          ariaLabel: noticeAria(notice),
+          onClick: onNoticeClick
+        })
+      } catch (e) { warn('摆放键盘入口失败：' + ((e && e.message) || e)) }
     }
     place()
     const raf = typeof w.requestAnimationFrame === 'function' ? w.requestAnimationFrame(place) : 0
@@ -517,13 +807,40 @@ export function OmkbSidebarAction({ wide, t }) {
         if (hosts) { ro = new ResizeObserver(place); ro.observe(hosts.foot) }
       }
     } catch (e) { ro = null }
+    // 「设置」那一行的守卫（2026-09-25）。
+    // 连接指示器出现/消失只改那一行**内部**的节点与样式，foot 的整体尺寸一点不变 ——
+    // ResizeObserver 看不到它，而它正是「与宿主断开时方块错位」的触发源。所以单独守那一行。
+    // 回调里过滤掉「只有设置按钮自己的 style 变了」：那是我们收窄时写的，理会它就会自激。
+    // 每次都重新取一次 gear（React 可能整行换新节点），不拿闭包里的旧引用比。
+    let mo = null
+    try {
+      if (typeof MutationObserver === 'function') {
+        const hosts = findFootHosts(btn)
+        const gRow = hosts && gearRowOf(hosts.gear)
+        if (gRow) {
+          mo = new MutationObserver((records) => {
+            const gearNow = (findFootHosts(btn) || {}).gear
+            if (records.some((r) => !(r.type === 'attributes' && r.target === gearNow))) place()
+          })
+          // data-phase 也在观察列表里：指示器从「重连中」变「连接异常」时**只有它变**
+          // （class 是同一套、我们自己的标记属性它不管），不盯它气泡上的字就会停在旧的那句。
+          // 我们自己的 data-omkb-conn-hide 不在列表里 → 藏/放不会把回调叫醒（不自激）。
+          mo.observe(gRow, {
+            childList: true, subtree: true, attributes: true,
+            attributeFilter: ['class', 'style', 'data-phase']
+          })
+        }
+      }
+    } catch (e) { mo = null }
     w.addEventListener('resize', place)
     return () => {
       try { if (raf) w.cancelAnimationFrame(raf) } catch (e) {}
       try { clearTimeout(timer) } catch (e) {}
       try { if (ro) ro.disconnect() } catch (e) {}
+      try { if (mo) mo.disconnect() } catch (e) {}
       try { w.removeEventListener('resize', place) } catch (e) {}
       unpinFootAction(btn)
+      disposeConnTip()
     }
   }, [wide, hidden])
 

@@ -72,7 +72,7 @@ export const rgbHex = (n) => {
 /**
  * 智能体键图例 —— **只列这台设备当下真的会显示的状态**。
  * 参考产品的图例有六色（含「已完成 / 需要输入」），但本项目目前没有这两个状态的来源
- * （见 agents.js 顶部词表：浏览器只产出 running/idle/empty，error 由宿主在红灯窗口内叠加），
+ * （见 agents.js 顶部词表：浏览器只产出 running/idle/empty，error 由宿主点亮并保持），
  * 照着抄会出现「图例上有、键盘上永远亮不起来」的假承诺，所以这里只画真有的四种。
  * 颜色取 agents.js 的 AGENT_COLOR_RGB —— 图例与设备灯同一份数值。
  */

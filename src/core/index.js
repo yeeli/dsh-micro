@@ -7,7 +7,9 @@
 //   3. 注册 `dsh-omkb` 设置命名空间（见 ./settings.js）：设置页的每一行都写在这里，
 //      落盘到 $DSH_HOME/settings.yaml；影响硬件的字段（亮度/自动调暗）回灌到 BLE。
 //   4. 浏览器客户端轮询 /omkb/state，按键变化即切换会话/语音/发送等。
-//   5. 订阅宿主总线的 agent/error：会话运行失败时让它对应的键闪红灯，随后自动回空闲灯态。
+//   5. 订阅宿主总线的 agent/error（运行失败 → 红灯 + 状态码 3）、agent/turn-stopping（跑完一轮
+//      → 状态码 2）与 agent/status（该会话重新开跑 → 收掉上面那个结果态）。前两者是**结果态、
+//      不会自己变回去**（用户 2026-09-25 要求「错误后不变白」），只有第三个会解除它。
 //   6. 退出安全网（见 ./exit-guard.js）：设备句柄会持有事件循环，握上它之后要保证
 //      Ctrl+C 依然能把进程带走 —— 宿主启动失败时也一样。**清理通道先于 open() 就位**。
 
@@ -56,7 +58,13 @@ export function apply(ctx) {
   let disposeMonitor = null
   let disposePrivacy = null
   ctx.on('dispose', () => {
+    console.log('dispose')
     if (disposeSettings) { try { disposeSettings() } catch (e) {} }
+    // ble.dispose() 不只是关句柄：它会**先关灯、再关句柄**（把键盘 LED 全熄，见 ble.js 的
+    // blackout/#lightsOff）—— 设备不会因为 BLE 断开自己熄灭，不关的话就是
+    // 「app 都关了、键盘还亮着」。这条只在应用关闭时发生，断开连接（掉线/重连）不关灯。
+    // ⚠ 这只是灭灯的**两个落点之一**：Ctrl+C / SIGTERM 这类进程级退出走的是 exit-guard
+    // （宿主可能来不及走到这里），见 ./exit-guard.js 顶部「退出前必须灭灯」。
     ble.dispose()
     if (disposeRoute) { try { disposeRoute() } catch (e) {} }
     if (disposeArchive) { try { disposeArchive() } catch (e) {} }
@@ -66,24 +74,57 @@ export function apply(ctx) {
 
   ble.open()
 
-  // ---- 运行失败 → 对应键闪红灯 ----
+  // ---- 运行失败 → 对应键转红灯（结果态，一直亮着）----
   // 为什么订阅在这个事件上：宿主总线的 agent/error 是「真正的失败」的唯一出口。
   // dsh-agent-loop 的 turn() catch 里分了两条路——用户主动中断走 signal.aborted
   // 分支（只记 turn/end reason=aborted 后直接 throw），**不**发 agent/error；
-  // 只有真失败才 throwError() → emit('agent/error')。所以按停止键不会闪红灯。
+  // 只有真失败才 throwError() → emit('agent/error')。所以按停止键不会转红。
   // 事件里的 agent.id 就是会话 id（DSH 里 agent 身份与会话 id 是同一根轴，
   // 宿主 apiproxy 也是拿 agent.id 当 sessionId 转发给浏览器的）。
   // 亮哪颗键由宿主自己定位：浏览器下发灯态时带了每槽的会话 id（见 ble.js #slotSessions）。
   ctx.effect(() => ctx.on('agent/error', ({ agent, error }) => {
     try {
       const id = agent && agent.id
-      if (!ble.flashError(id)) {
-        logger.info(`[omkb] 会话 ${id} 运行失败，但它当前没有占键（不在侧边栏），不闪灯`)
+      if (!ble.reportError(id)) {
+        logger.info(`[omkb] 会话 ${id} 运行失败，但它当前没有占键（不在侧边栏），不亮灯`)
       }
     } catch (e) {
       logger.warn('[omkb] 失败红灯下发异常:', e && e.message ? e.message : e)
     }
   }), 'omkb: agent error → LED')
+
+  // ---- 跑完一轮 → 对应键报「成功」状态（同样是结果态）----
+  // agent/turn-stopping 是「这一轮要收尾了」的钩子：dsh-agent-loop 在 turn 正常结束时
+  // 用 `dispatch.serial` 发它。它天然就是「成功」的信号，**不需要再去比对 reason** ——
+  // 用户主动中断（signal.aborted）与真正的失败（上面那条 agent/error）都在它**之前**就
+  // throw 掉了，根本走不到这一步。所以拿它当「成功」是准的，不会把中断说成完成。
+  //
+  // 与失败一样，只报状态不改行为的边界都在宿主侧：浏览器只管「谁占哪颗键、平时什么状态」。
+  // 返回 false（该会话没占键，比如后台跑的）是常事，不告警、也不刷日志。
+  ctx.effect(() => ctx.on('agent/turn-stopping', ({ agent }) => {
+    try {
+      ble.reportSuccess(agent && agent.id)
+    } catch (e) {
+      logger.warn('[omkb] 成功状态下发异常:', e && e.message ? e.message : e)
+    }
+  }), 'omkb: agent turn done → LED status')
+
+  // ---- 该会话重新开跑 → 收掉上面那个结果态 ----
+  // 为什么订阅 agent/status 而不是等浏览器下发的 st=1：那是 agent loop 的**相位变化**
+  // （setPhase → status 从 idle 变 running 才发，ds-agent-loop 里有「同值不许重发」的不变量），
+  // 语义就是「这个会话又干活了」。而浏览器那份快照带 350ms 防抖，失败那一刻它手里往往还写着
+  // 「这个会话在跑」——把它当判据会让红灯刚亮就被抹掉，正是这次要修的病。
+  // 用户中断不会重新触发 running（相位已经回到 idle），所以中断过的会话结果态照旧保留。
+  // 只在真收掉了东西时打日志：多数 agent/status 与灯无关，不该刷屏。
+  ctx.effect(() => ctx.on('agent/status', ({ agent, status }) => {
+    try {
+      if (status !== 'running') return
+      const id = agent && agent.id
+      if (ble.clearOutcome(id)) logger.info(`[omkb] 会话 ${id} 重新开始运行 → 收掉结果灯（红/成功）`)
+    } catch (e) {
+      logger.warn('[omkb] 结果灯收尾异常:', e && e.message ? e.message : e)
+    }
+  }), 'omkb: agent running → clear outcome LED')
 
   // ---- 设置持久化 ----
   // 注册命名空间 + 把持久化的硬件偏好应用到 BLE。读取值在宿主侧做变更检测
