@@ -1,4 +1,4 @@
-// dsh-omkb · src/client/nav-icon.js
+// dsh-omkb · src/client/sidebar.js
 // 设置页左侧导航里「OMKB 键盘」那一项的图标 —— 换成我们的键盘图标。
 //
 // ── 为什么只能改 DOM，不能「注册」一个图标 ──────────────────────────────
@@ -22,7 +22,7 @@
 // 详见下面 「移除键盘」那一节的四条纪律。
 
 import { DSVI, keypadIconHTML } from './core.js'
-import { candidateLabels, findSectionRow } from './components/sidebar-action.jsx'
+import { candidateLabels, findSectionRow } from './components/sidebar/action.jsx'
 
 /** 我们插进去的 svg 上的标记（DOM 里就靠它认自己）。 */
 export const NAV_MARK = 'data-omkb-navicon'
@@ -190,7 +190,7 @@ export const patchNavIcon = (labels, size = 16) => {
     if (rowHidden && !warnedMissing && settingsNavPresent()) {
       warnedMissing = true
       warn('设置弹窗开着，却找不到导航里本分区那一行 —— 「移除」之后那一项会留在菜单里。'
-        + '多半是 DSH 又换了导航行的写法，或我们插的图标没打上（见 nav-icon.js 头部）。')
+        + '多半是 DSH 又换了导航行的写法，或我们插的图标没打上（见 sidebar.js 头部）。')
     }
     return false
   }

@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/components/keyboard-layout.jsx
+// dsh-omkb · client/src/components/settings/keyboard-layout.jsx
 // 设置页里的**布局可视化**：把设备画出来（三排键 + 底部一行），并让真机上的操作在布局里「演」出来。
 //
 // ---------- 布局特效：纯视觉，不触发任何功能 ----------
@@ -14,13 +14,14 @@
 // 特效只给布局里的键加一个 class、给摇杆球一个 transform，**绝不调用任何 DSH 接口**：
 // 按物理键时该触发的功能由 hid-bridge 那边照常触发，这里是旁路观测，不是第二条通路。
 import { useEffect, useRef, useState } from 'react'
-import { DSVI } from '../core.js'
-import { capFor, micRowKeys } from '../keypad/layout.js'
-import { CUSTOM_ICON } from '../keypad/keycaps.js'
-import { FLASH_MS, createPressTracker, samePressed } from '../utils/press-state.js'
-import { Key, KeyFace } from './ui.jsx'
-import { OmkbKeycapModal } from './keycap-modal.jsx'
-import { OmkbJoystickModal } from './joystick-modal.jsx'
+import { DSVI } from '../../core.js'
+import { capFor, micRowKeys } from '../../utils/keycaps.js'
+import { CUSTOM_ICON } from '../../keypad.js'
+import { FLASH_MS, createPressTracker, samePressed } from '../../utils/press-state.js'
+import { KNOB_DOT_DEG, KNOB_DOT_REST_DEG, createKnobTracker } from '../../utils/knob-state.js'
+import { Key, KeyFace } from '../common/ui.jsx'
+import { OmkbKeycapModal } from '../modals/keycap.jsx'
+import { OmkbJoystickModal } from '../modals/joystick.jsx'
 
 /** 摇杆每个方向推出去多远（px）——「推拉摇动」的幅度。 */
 export const JOY_SHIFT = 9
@@ -29,6 +30,12 @@ export const JOY_SHIFT = 9
 export const JOY_OFFSET = {
   up: [0, -JOY_SHIFT], down: [0, JOY_SHIFT], left: [-JOY_SHIFT, 0], right: [JOY_SHIFT, 0]
 }
+
+/**
+ * 旋钮蓝点到圆心的距离（px）：圆盘半径 36 − 环宽 2 − 点半径 6 = 28，取 27 留 1px 余量
+ * —— 点的外缘正好贴着蓝环内侧（对齐用户给的效果图），又不会压到环上。
+ */
+export const KNOB_DOT_R = 27
 
 /**
  * 订阅 HID 状态，产出布局特效需要的两样东西。
@@ -40,17 +47,27 @@ export const JOY_OFFSET = {
 function useHidSignals(splitRef) {
   const [pressed, setPressed] = useState({})
   const [joy, setJoy] = useState(null)
+  /** 旋钮的转动指示：{active, dir} —— 环亮不亮、蓝点停哪一侧（见 ../utils/knob-state.js）。 */
+  const [knob, setKnob] = useState({ active: false, dir: null })
   const trackerRef = useRef(null)
   if (trackerRef.current === null) trackerRef.current = createPressTracker()
   const tracker = trackerRef.current
+  const knobRef = useRef(null)
+  if (knobRef.current === null) knobRef.current = createKnobTracker()
+  const knobTracker = knobRef.current
   const shownRef = useRef({})
+  const knobShownRef = useRef({ active: false, dir: null })
 
-  // 状态机 → React：集合没变就不 setState（轮询 120ms 一帧，每帧都写会白渲染）
+  // 状态机 → React：值没变就不 setState（轮询 120ms 一帧，每帧都写会白渲染）
   const commit = () => {
     const next = tracker.snapshot()
-    if (samePressed(next, shownRef.current)) return
-    shownRef.current = next
-    setPressed(next)
+    if (!samePressed(next, shownRef.current)) { shownRef.current = next; setPressed(next) }
+    // 旋钮只有「亮/灭」+「左/右」两个字段，比一下就够了
+    const k = knobTracker.snapshot()
+    if (k.active !== knobShownRef.current.active || k.dir !== knobShownRef.current.dir) {
+      knobShownRef.current = k
+      setKnob(k)
+    }
   }
 
   /** 本地点击布局上的键：闪一下（手边没设备也要有反馈）。 */
@@ -62,21 +79,25 @@ function useHidSignals(splitRef) {
     let lastJoy
     const off = hid.subscribe((s) => {
       tracker.fold(s, splitRef && splitRef.current)
+      knobTracker.fold(s)
       commit()
       const j = s && typeof s.joy === 'string' && s.joy ? s.joy : null
       if (j !== lastJoy) { lastJoy = j; setJoy(j) }
     })
-    // 短闪到期、宿主静默（按键状态不再可信）都需要有人收尾：订阅只在有帧时才被叫醒。
+    // 短闪到期、旋钮活性窗口到期、宿主静默（按键状态不再可信）都需要有人收尾：
+    // 订阅只在有帧时才被叫醒。
     const timer = setInterval(commit, Math.max(60, Math.round(FLASH_MS / 2)))
     return () => {
       off()
       clearInterval(timer)
       tracker.reset()
+      knobTracker.reset()
       shownRef.current = {}
+      knobShownRef.current = { active: false, dir: null }
     }
   }, [])
 
-  return { pressed, joy, tap }
+  return { pressed, joy, knob, tap }
 }
 
 /** 三排图标键的键码（顺序 = 布局里从左到右）。 */
@@ -100,21 +121,25 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null }) {
   // 预览模式：只画。信号照订（hooks 顺序不能变），但一律不反映到界面上。
   const staticShot = !!preview
   const swatch = (preview && preview.colors) || null
-  // 底部那颗两倍宽的 Mic 键下面有两个开关：开关打开时拆成两颗键画（模型见 keypad/layout.js）。
+  // 底部那颗两倍宽的 Mic 键下面有两个开关：开关打开时拆成两颗键画（模型见 utils/keycaps.js）。
   const micSplit = !!prefs.micKey
   const micKeys = micRowKeys(prefs)
   const splitRef = useRef(micSplit)
   useEffect(() => { splitRef.current = micSplit }, [micSplit])
   // 真机信号 → 布局特效（纯视觉；见文件上方 useHidSignals 的说明）
-  const { pressed, joy, tap } = useHidSignals(splitRef)
-  // 预览模式下摇杆不跟着真机推拉（它在引导里只是插图）；键帽/摇杆的弹窗也一律不开。
+  const { pressed, joy, knob, tap } = useHidSignals(splitRef)
+  // 预览模式下摇杆不跟着真机推拉、旋钮也不亮（它们在引导里只是插图）；键帽/摇杆的弹窗也一律不开。
   const shownJoy = staticShot ? null : joy
   const shownPressed = staticShot ? {} : pressed
+  const shownKnob = staticShot ? { active: false, dir: null } : knob
+  // 蓝点角度：方向给出停靠位（顺时针 90° / 逆时针 -90°），只按下没转时用静止位。
+  // **始终写一个角度**（而不是让点停在圆心）—— 首次顺时针转时点才会从左边滑到右边。
+  const knobDeg = KNOB_DOT_DEG[shownKnob.dir] ?? KNOB_DOT_REST_DEG
   const openKeycap = (target) => () => { if (!staticShot) setEditor({ target }) }
   // 写回键帽：target 是**键码**（actLabels 的键），不是视觉 id。
   const saveCap = (target, pick) => update('actLabels', { ...actLabels, [target]: pick })
   // 恢复默认 = 把这一格从 actLabels 里删掉（回落出厂键帽；拆分态那颗自定义键回落成「未指派」）。
-  // 删空了就连字段一起 unset（见 settings-panel.jsx 的 clearField 注释）。
+  // 删空了就连字段一起 unset（见 settings/panel.jsx 的 clearField 注释）。
   const clearCap = (target) => {
     const next = { ...actLabels }
     delete next[target]
@@ -140,10 +165,19 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null }) {
     <div className={'omkb-page-wrap' + (staticShot ? ' omkb-page-wrap--preview' : '')}>
       <div className="omkb-keyboard-wrap">
         <div className="omkb-grid-4col">
-          {/* Row1 左一旋钮（本次不做旋钮特效） */}
+          {/* Row1 左一旋钮：设备转动 / 按下时亮起蓝环，蓝点落在**这次转动的方向**上
+              （顺时针 → 右侧 3 点、逆时针 → 左侧 9 点，判据见 utils/knob-state.js）。
+              环与点都画在圆盘里面，所以圆盘那一层必须是定位祖先（见 settings.css）。 */}
           <div className="omkb-control-item">
-            <div className="omkb-control-base">
-              <div className="omkb-circle-knob-inner" />
+            <div className={'omkb-control-base' + (shownKnob.active ? ' omkb-knob--active' : '')}>
+              <div className="omkb-circle-knob-inner">
+                <div className="omkb-knob-ring" />
+                <div
+                  className="omkb-knob-dot"
+                  data-omkb-knob-dot={shownKnob.dir || 'off'}
+                  style={{ transform: `translate(-50%, -50%) rotate(${knobDeg}deg) translateY(${-KNOB_DOT_R}px)` }}
+                />
+              </div>
             </div>
           </div>
           <Key {...slot('r1-2')}>{dot('r1-2')}</Key>
@@ -174,7 +208,7 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null }) {
 
           {/* Row3 动作键（ACT：点击弹出「编辑按键」）。
               **画的是键帽、不是物理键码**：给 ACT07 选了 MIC，它就得长成麦克风的样子
-              （键帽即功能，见 keypad/keycaps.js）。以前这里印的是 actLabels 的原始值，
+              （键帽即功能，见 keypad.js）。以前这里印的是 actLabels 的原始值，
               于是选完 SEND 键上显示的是 'ACT12' —— 看起来像「设置了没用」。
               **只有图标、没有键下文字**（像真键盘那样）：名字在「编辑按键」弹窗里写在候选下面。 */}
           {ACT_ROW_CODES.map((code) => {
@@ -192,7 +226,7 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null }) {
           })}
         </div>
 
-        {/* 底部一行：旋钮面板 · Mic 键（两个开关，见 keypad/layout.js）· 发送键
+        {/* 底部一行：旋钮面板 · Mic 键（两个开关，见 utils/keycaps.js）· 发送键
             data-omkb-mic 把当前状态写在 DOM 上：探针据此判断该期望一颗宽键还是两颗键，
             不必去猜 aria-label 的本地化文案。 */}
         <div className="omkb-bottom-row" data-omkb-mic={micSplit ? 'split' : 'merged'}>

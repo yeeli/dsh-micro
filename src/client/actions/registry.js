@@ -4,9 +4,9 @@
 // 为什么要有这张表（用户原话：「将所有功能按键方法都放在 actions 目录下同一个文件内方便调用，
 // 随后可以增加新功能和删除旧功能」）：
 //   同一个功能会从**四个地方**被选到 / 被执行 ——
-//     ① 键帽候选（components/keycap-modal.jsx）→ 写进 actLabels；
-//     ② 按键分派（keypad/index.js）→ 按下时执行；
-//     ③ 旋钮自定义分配（settings-panel.jsx 的下拉 → knob.js 执行）；
+//     ① 键帽候选（components/modals/keycap.jsx）→ 写进 actLabels；
+//     ② 按键分派（keypad.js）→ 按下时执行；
+//     ③ 旋钮自定义分配（settings/panel.jsx 的下拉 → knob.js 执行）；
 //     ④ 控制台 / 自检（`__dshOmkb.actions`）。
 //   四处各写一份清单，迟早漂移（本项目踩过一次：键帽显示改了、按下还是录音）。
 //   现在只有这一份：**加功能 = 在 ACTIONS 里加一条；删功能 = 删掉那一条** ——
@@ -15,7 +15,7 @@
 // 一条记录里的字段：
 //   id     稳定标识，**会存进设置**（knobCustom 存的就是它）。改名要留 ALIASES。
 //   name   键帽上的短名（FAST/ARCH/…）：只有能当键帽的功能才有。
-//   icon   图标名 —— 具体路径由渲染层按它取（components/ui.jsx 的 CAP_ICON），
+//   icon   图标名 —— 具体路径由渲染层按它取（components/common/ui.jsx 的 CAP_ICON），
 //          纯 JS 模块不产出 JSX。
 //   capId  这颗功能在**键帽表**里的存储 id（actLabels 存的就是它），见下面的「沿用规则」。
 //   label  设置页下拉用的词典键（config/locales.js）。
@@ -28,6 +28,16 @@
 //   run / press / release —— 实现。形参是 `{ ops, voice, log }`（控制器把手上的东西交进来），
 //          这里**不自己去摸 DSH**：真正的 DSH 调用全在 ./index.js 的 DshOps 上 ——
 //          本目录是「唯一直接操作 DSH 的地方」，而门面是这条规则的唯一出口。
+//
+// 第三方插件依赖**不在这张表里**：有些功能要靠 DSH 生态里需单独安装的其他插件才能生效，
+// 但那份清单是**配置**而不是行为，已搬到 `../config/default.js` 的 PLUGIN_DEPS
+// （用户 2026-09-26 要求「把默认设置参数配置都写在这个文件中…不用去检测系统了」）。
+// 设置页底部那张「第三方插件」卡直接读它，**常驻显示、不做任何运行时检测**；
+// 于是「某个功能要加一个第三方插件」= 改 config/default.js，不必动本文件。
+//
+// 同理，**每颗键出厂执行哪个功能**也是配置（`../config/default.js` 的 FACTORY_KEY_FUNCS）：
+// 那张表写的就是本表里各条记录的 `id`，所以**改这里的 id = 改默认配置里要写的字**（改名要留 ALIASES）；
+// 只有带 `capId` 的功能能当键帽、也才能当某颗键的出厂功能（keycapActions()）。
 //
 // id 沿用规则（**老存档不许作废**）：2026-09-24 之前的键帽 id 就是**设备键码**（ACT06..ACT12），
 // 用户设置里存着它们；所以老功能的 capId 一律沿用键码，新功能才用动作名大写（如 FORK）。
@@ -129,7 +139,7 @@ export const ACTIONS = [
     desc: '语音输入：按住开始转写，松开停止',
     knob: true,
     // 同一条功能、两种界面语义，**都是用户要的**，所以分开写：
-    //   键帽/按键 = 按住说话（按下 start、松开 stop，见 keypad/index.js 的 release）；
+    //   键帽/按键 = 按住说话（按下 start、松开 stop，见 keypad.js 的 release）；
     //   旋钮手势 = 没有「按住」这回事，一转/一按就是开关（原 knob.js 里就是 toggle）。
     hold: true,
     press: (c) => startVoice(c.voice),
@@ -215,11 +225,17 @@ export const actionById = (id) => {
   return null
 }
 
-/** 能当键帽的功能（顺序即弹窗候选顺序）—— keypad/keycaps.js 的 KEYCAPS 就是它派生的。 */
+/** 能当键帽的功能（顺序即弹窗候选顺序）—— keypad.js 的 KEYCAPS 就是它派生的。 */
 export const keycapActions = () => ACTIONS.filter((a) => !!a.capId)
 
-/** 能出现在「旋钮自定义分配」下拉里的功能 —— settings-panel.jsx 的选项就是它派生的。 */
+/** 能出现在「旋钮自定义分配」下拉里的功能 —— settings/panel.jsx 的选项就是它派生的。 */
 export const knobActions = () => ACTIONS.filter((a) => a.knob === true)
+
+// 这里原本有一个 pluginDependencies()：把各功能 `requires` 里声明的第三方插件摊平去重，
+// 供设置页的「第三方插件」卡渲染、并用 ctx.get(service) 现场判「装没装」。
+// 2026-09-26 按用户要求删掉 —— 那份清单是配置，已搬到 ../config/default.js 的 PLUGIN_DEPS，
+// 由设置页直接读，**不再检测系统**（也就不需要这张表参与）。要恢复检测的话，
+// 判据（ctx.get(service) 存不存在）在 git 历史里。
 
 /** 执行上下文：控制器把手上的东西交进来，缺哪个就按缺的降级（拿不到就说拿不到）。 */
 const normalizeCtx = (o) => ({
@@ -267,7 +283,7 @@ export const pressAction = (id, ctx) => {
 
 /**
  * 按住型动作的「松开」（其余动作什么都不做）。
- * 判据与按住语义绑在一起：只有 hold 那条能收尾，别的动作按下就完成了（见 keypad/index.js）。
+ * 判据与按住语义绑在一起：只有 hold 那条能收尾，别的动作按下就完成了（见 keypad.js）。
  * @returns {boolean} 是否真的收尾了某个动作。
  */
 export const releaseAction = (id, ctx) => {

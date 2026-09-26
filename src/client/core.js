@@ -68,7 +68,7 @@ export const MicIcon = (size) =>
 //   16 视窗里外框占 12.8（留 1.6 边距，和 DSH 其它 16 图标视觉重量一致）。
 //
 // **几何只写一份**（KEYPAD_ICON）：`KeypadIcon`（React）和 `keypadIconHTML`（DOM 钩子）都从它生成。
-// 设置页导航项那处是往 DSH 的 DOM 里塞的（见 ./nav-icon.js），拿不到 React 元素 ——
+// 设置页导航项那处是往 DSH 的 DOM 里塞的（见 ./sidebar.js），拿不到 React 元素 ——
 // 两处各画一份几何，迟早会画成两个样。
 //
 // 数值都是「外框内宽 11.5」按上面比例算的：点间距 11.5×0.636÷2 = 3.66、点径 11.5×0.18 = 2.06…
@@ -135,39 +135,17 @@ export const keypadIconHTML = (size = 16, attrs = '') => {
   ].join('')
 }
 
-// ---------- 会话可见性：单一真源，必须与 DSH 侧边栏逐字对齐 ----------
+// ---------- 会话列表：判据整份转发自 utils/session-list.js ----------
 //
-// 侧边栏（dsh-client-ui-workspace 的 sessionVisible）只显示同时满足三条的会话：
-//   1. 不是子代理子会话      —— origin !== 'subagent'
-//   2. 没有被归档            —— 不在 workspaces 快照的 archivedSessionIds 里
-//   3. 不是「空白新会话」    —— 除非它就是当前会话（那条是新会话占位行）
+// 「哪一条是眼前这条会话」与「侧边栏看得见哪几条」这两条判断的**本体与全部依据**住在
+// `utils/session-list.js`：那是个**不许 import 任何东西**的叶子文件，所以 DSH 操作门面
+// （actions/session.js，要能在 node 里塞假快照直接断言）能直接 import 它，而不必被这里的
+// `import React`（peerDependency）拖进 UI 运行时 —— 2026-09-26 先把判据写在这儿、
+// 门面再来 import，verify:knob 等几套自检当场 ERR_MODULE_NOT_FOUND: react，就是踩的这个。
 //
-// 键盘灯和设置页的会话下拉都必须用这同一套判据：**亮几个灯 = 侧边栏看得见几个**。
-// 少判一条就会多亮灯——曾经只判了「非子代理 + 标题非空」，于是 2 个可见会话点亮了
-// 5 个键（3 个已归档/空白会话混了进来）。
-//
-// 两个必须知道的坑：
-//   - 归档集合**不在**会话摘要里，只存在于 workspaces 服务的快照上；
-//   - 会话摘要的 displayTitle **永不为空**——DSH 会依次退化成 cwd 目录名、会话 id
-//     （见 dsh-client-runtime 的 displayTitleOf）。所以「靠标题判空会话」是死代码，
-//     空会话唯一的判据是 blank 标志。
-export const archivedIdsOf = (workspaces) => {
-  try {
-    const snap = workspaces && workspaces.list ? workspaces.list.getSnapshot() : null
-    return new Set((snap && snap.archivedSessionIds) || [])
-  } catch (e) { return new Set() }
-}
-
-export const sessionVisible = (s, current, archived) =>
-  !!s && s.origin !== 'subagent' && !archived.has(s.id) && (!s.blank || s.id === current)
-
-/** 从 sessions.list 快照取「侧边栏可见」的会话，保持快照顺序。 */
-export const visibleSessions = (snapshot, archived) => {
-  if (!snapshot) return []
-  const byId = snapshot.byId || {}
-  const ids = Array.isArray(snapshot.ids) ? snapshot.ids : Object.keys(byId)
-  return ids.map((id) => byId[id]).filter((s) => sessionVisible(s, snapshot.current, archived))
-}
+// 这里只做转发：`import { archivedIdsOf, visibleSessions } from './core.js'` 的老写法
+// （agents.js / components/settings/panel.jsx）一个字都不用改，而拿到的是同一个函数。
+export * from './utils/session-list.js'
 
 /** 侧边栏的 recency 比较器：最新在前，updatedAt 相同时用 id 保证确定性次序。 */
 export const byRecency = (a, b) =>

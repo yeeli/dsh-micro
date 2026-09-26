@@ -4,18 +4,24 @@
 //      按 name='omkb' & manufacturer='OM' 匹配设备，解析按键（AG00..AG05 智能键、
 //      ACT06..ACT12 动作键），并把触发计数器/按键码暴露到 GET /omkb/state。
 //   2. 注册 /omkb/archive：归档当前会话（宿主 workspaceRegistry.archiveSession）。
-//   3. 注册 `dsh-omkb` 设置命名空间（见 ./settings.js）：设置页的每一行都写在这里，
-//      落盘到 $DSH_HOME/settings.yaml；影响硬件的字段（亮度/自动调暗）回灌到 BLE。
+//   3. 声明 `dsh-omkb` 设置命名空间：由本模块导出的 Config 承载（见 ./settings.js），
+//      落盘在 profile 的 patch 文件里；影响硬件的字段（亮度/自动调暗）回灌到 BLE。
 //   4. 浏览器客户端轮询 /omkb/state，按键变化即切换会话/语音/发送等。
 //   5. 订阅宿主总线的 agent/error（运行失败 → 红灯 + 状态码 3）、agent/turn-stopping（跑完一轮
 //      → 状态码 2）与 agent/status（该会话重新开跑 → 收掉上面那个结果态）。前两者是**结果态、
 //      不会自己变回去**（用户 2026-09-25 要求「错误后不变白」），只有第三个会解除它。
-//   6. 退出安全网（见 ./exit-guard.js）：设备句柄会持有事件循环，握上它之后要保证
+//   6. 退出安全网（见 ./guard.js）：设备句柄会持有事件循环，握上它之后要保证
 //      Ctrl+C 依然能把进程带走 —— 宿主启动失败时也一样。**清理通道先于 open() 就位**。
 
 import { createBleReader } from './ble.js'
-import { createSettingsBridge, readHardwarePrefs, OMKB_NAMESPACE } from './settings.js'
+import { Config, createSettingsProbe, readConfig, readHardwarePrefs } from './settings.js'
 import { createMonitorProbe, openPrivacyPane } from './monitor.js'
+import { logSink } from './log.js'
+
+// 设置命名空间 = 插件在 profile 里那条 loader 条目的 Config（见 ./settings.js 顶部）。
+// 导出即注册：loader 读 `entry.fiber.runtime.Config`，客户端用
+// `ctx.configForms.get('dsh-omkb')` 读写同一个命名空间。
+export { Config }
 
 const ARCHIVE_PATH = '/omkb/archive'
 /** 输入监控授权检测（仅 macOS；见 ./monitor.js 顶部注释里「为什么这么做」）。 */
@@ -24,47 +30,49 @@ const MONITOR_PATH = '/omkb/monitor'
 const PRIVACY_PATH = '/omkb/open-privacy'
 const JSON_HEAD = { 'content-type': 'application/json; charset=utf-8' }
 
-/** 兜底重扫间隔：覆盖「设置提交早于路由就绪」的启动竞态。 */
-const PREFS_RESCAN_MS = 10000
-
 export const name = 'dsh-omkb'
 
-// 设置命名空间接线。
-//
-// 为什么必须在宿主侧注册：浏览器端 ctx.settingsScope.bind({ namespace }) 只是从
-// settings.describe 的镜像里「派生」一个视图；命名空间没在宿主注册时镜像里就没有
-// 这一段，scope 恒为 unavailable / writable:false，scope.set() 的写入被静默丢弃
-// ——这正是「设置页改了不生效、重启即丢」的根因。
-// 注册动作在 apply() 内调用（installSettingsSection 是静态 import 语义）。
-const settingsBridge = createSettingsBridge()
+// 设置诊断探针（只读，不改行为）：把「schema 建起来没有 / 字段都标 volatile 没有 /
+// 宿主 describe() 里有没有我们这条命名空间」报给 /omkb/state。
+// 命名空间本身由上面导出的 Config 承载，这里没有注册动作可做。
+const settingsProbe = createSettingsProbe()
 
-export function apply(ctx) {
+/**
+ * 插件主体。
+ * @param ctx - 宿主插件上下文。
+ * @param config - loader 按我们导出的 Config 解析好的插件配置。volatile 字段在这里是
+ *   引用对象（`.get()` 取值），一律经 settings.js 的 readConfig 摊平后再用。
+ */
+export function apply(ctx, config) {
   const logger = ctx.logger('omkb')
   logger.info('[omkb] 蓝牙 HID 小键盘插件已加载（name=omkb, manufacturer=OM）')
+  // 同一件事也写进**我们自己的**出口（见 ./log.js）：正式版终端是安静的，日志文件里
+  // 必须留下「这一轮是什么时候起的、跑的是哪个版本」，否则那份文件只剩中间过程。
+  logSink.info('蓝牙 HID 小键盘插件已加载（name=omkb, manufacturer=OM）')
 
-  // 宿主把这份诊断挂到 GET /omkb/state 上：settings.registered === true 才代表
-  // 设置页的写入真的能落盘（终端日志不一定会转发到 stdout，这里由 HTTP 说话）。
-  const ble = createBleReader({ logger, diagnostics: () => settingsBridge.diagnose() })
+  // 宿主把这份诊断挂到 GET /omkb/state 上：settings.served === true 才代表宿主真的
+  // 在服务我们这条命名空间（终端日志不一定会转发到 stdout，这里由 HTTP 说话）。
+  const ble = createBleReader({ logger, diagnostics: () => settingsProbe.diagnose() })
 
   // ---- 清理通道：**必须先于 ble.open() 就位** ----
-  // 打开着的 HID 设备会持有事件循环引用（见 ./exit-guard.js）。宿主启动失败时往往还没
+  // 打开着的 HID 设备会持有事件循环引用（见 ./guard.js）。宿主启动失败时往往还没
   // 走到「清理插件」这一步就停了，如果这份 dispose 是 open() 之后才挂上的，设备句柄就
   // 没人关 → 事件循环永远排不空 → 进程挂着不动、Ctrl+C 也没反应（用户看到的就是
   // 「整个 dsh 卡死杀不掉」）。所以顺序必须是：先挂清理，再握资源。
   // 连带地，这些 dispose* 变量都得先声明 —— 否则 dispose 提前触发会在闭包里踩 TDZ。
-  let disposeSettings = null
   let disposeRoute = null
   let disposeArchive = null
   let disposeMonitor = null
   let disposePrivacy = null
   ctx.on('dispose', () => {
-    console.log('dispose')
-    if (disposeSettings) { try { disposeSettings() } catch (e) {} }
+    // 原来是一句裸的 `console.log('dispose')`（连 [omkb] 前缀都没有）：走日志出口，
+    // 正式版才不至于在插件卸载时往终端漏一行。
+    logSink.info('dispose')
     // ble.dispose() 不只是关句柄：它会**先关灯、再关句柄**（把键盘 LED 全熄，见 ble.js 的
     // blackout/#lightsOff）—— 设备不会因为 BLE 断开自己熄灭，不关的话就是
     // 「app 都关了、键盘还亮着」。这条只在应用关闭时发生，断开连接（掉线/重连）不关灯。
     // ⚠ 这只是灭灯的**两个落点之一**：Ctrl+C / SIGTERM 这类进程级退出走的是 exit-guard
-    // （宿主可能来不及走到这里），见 ./exit-guard.js 顶部「退出前必须灭灯」。
+    // （宿主可能来不及走到这里），见 ./guard.js 顶部「退出前必须灭灯」。
     ble.dispose()
     if (disposeRoute) { try { disposeRoute() } catch (e) {} }
     if (disposeArchive) { try { disposeArchive() } catch (e) {} }
@@ -127,39 +135,49 @@ export function apply(ctx) {
   }), 'omkb: agent running → clear outcome LED')
 
   // ---- 设置持久化 ----
-  // 注册命名空间 + 把持久化的硬件偏好应用到 BLE。读取值在宿主侧做变更检测
-  // （只有亮度/自动调暗真的变了才写 HID），因此可以安全地反复调用。
+  // 命名空间与 schema 由本模块导出的 Config 承载（导出即注册，没有 installSection 可调）。
+  // apply 收到的 config 就是宿主解析好的那份；volatile 字段是引用对象，readConfig 摊平。
   //
-  // install() 是异步接线的：它要先动态 import 运行时依赖（宿主可能正在并发加载
-  // dsh-settings，同步 require 会撞 ERR_REQUIRE_ESM_RACE_CONDITION），再通过
-  // ctx.inject(['settings']) 注册命名空间。返回值只表示「已发起」。
-  // 是否真的注册上了，看 GET /omkb/state 的 settings 诊断字段（phase === 'ready'
-  // 且 registered === true）；终端里的 logger 不一定会转发到 stdout。
-  if (settingsBridge.install(ctx)) {
-    let lastApplied = null
+  // 偏好怎么回到硬件：**由 loader 就地提交**，不走「重新 apply」。
+  // 标了 volatile 的字段改动时，loader 调 updateVolatile 写进同一个引用对象，再发
+  // `loader/volatile-update`（见 cordis-plugin-loader 的 _commitVolatile）——所以这里只需
+  // 订阅那个事件重扫一遍；ble.setPrefs 自己带变更检测，重复调用是安全的。
+  // 反过来说：不订阅的话，在设置页拖亮度滑杆**设备不会有任何反应**（配置变了、插件不知道）。
+  {
     const applyPrefs = () => {
       try {
-        const prefs = readHardwarePrefs(settingsBridge.read())
-        if (lastApplied && lastApplied.brightness === prefs.brightness && lastApplied.autoDim === prefs.autoDim) return
-        lastApplied = prefs
-        ble.setPrefs(prefs)
+        ble.setPrefs(readHardwarePrefs(readConfig(config)))
       } catch (e) {
         logger.warn('[omkb] 应用持久化偏好失败:', e && e.message ? e.message : e)
       }
     }
-    // attach 会立刻补发一次当前值；settings 服务未挂载时 source 为 null，
-    // 此时 applyPrefs 退化为 schema 默认值，仍是安全且幂等的。命名空间接好之后
-    // hooks.onChange 会再触发一次，把真实偏好补上。
-    settingsBridge.attach(applyPrefs)
-    // 路由注册晚于设置到达时，早期提交会错过监听；按固定间隔重扫兜底。
-    const rescan = setInterval(() => { if (settingsBridge.consume()) applyPrefs() }, PREFS_RESCAN_MS)
-    rescan.unref?.()
-    disposeSettings = () => clearInterval(rescan)
-  } else {
-    // 发起接线这一步就失败了（宿主上下文不支持 ctx.inject）= 设置页的写入无处落盘，
-    // 必须显式告警而不是静默失败。依赖解析/服务缺失这类失败由 diagnose() 承载。
-    const why = settingsBridge.diagnose().error || '未知原因'
-    logger.warn(`[omkb] 设置命名空间 ${OMKB_NAMESPACE} 未接线：${why}；设置页的改动将无法落盘`)
+    applyPrefs()
+    ctx.effect(() => ctx.on('loader/volatile-update', applyPrefs), 'omkb: 设置变更 → BLE')
+  }
+
+  // 让 DSH 不要为这条条目**再自动生成**一个设置页：本插件自带界面（settings.section
+  // 分区的 'omkb'），两份入口只会让人以为「改这份没用」。
+  // 用官方写法：configure 的第二个参数是「哪条条目」，默认是调用者自己的 fiber —— 显式传
+  // ctx.fiber 以免 ctx 经代理后指向别处；重复配置会抛，所以必须包在 ctx.effect 里（卸载时
+  // 自动撤销），并吞掉异常（这只是界面政策，失败不该连累按键）。
+  try {
+    ctx.inject(['settings'], (child) => {
+      try {
+        child.effect(() => child.settings.configure({ auto: false }, ctx.fiber))
+      } catch (e) {
+        logger.warn('[omkb] 声明「自带设置页」失败（不影响功能，只影响设置里会不会多出一个自动页）:', e && e.message ? e.message : e)
+      }
+      try { settingsProbe.attach(child) } catch (e) {}
+    })
+  } catch (e) {
+    logger.warn('[omkb] 等待 settings 服务失败:', e && e.message ? e.message : e)
+  }
+
+  // 延后一次探测：describe() 只收已经 active 的条目，apply 期间自己还没 active。
+  // 转成 unref 的定时器，绝不因为这条诊断把进程留住。
+  {
+    const timer = setTimeout(() => { try { settingsProbe.tick(ctx) } catch (e) {} }, 1500)
+    timer.unref?.()
   }
 
   // webServer 是依赖注入服务，必须通过 ctx.inject 声明后才能访问。

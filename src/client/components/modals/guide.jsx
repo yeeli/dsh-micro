@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/components/guide-modal.jsx
+// dsh-omkb · client/src/components/modals/guide.jsx
 // **首次连接引导**：设备第一次连上时弹出的三步说明（封面 + 智能体按键 + 命令键）。
 //
 // 谁决定「弹不弹」：`../guide.js` 的 GuideController（盯 /omkb/state 的 open +
@@ -14,10 +14,10 @@
 // 为什么点遮罩不关闭：别的弹窗点外面即关，引导不行 —— 它一旦关掉就**永久记住「看过了」**，
 // 一次误点等于再也没机会看到。所以只认三个明确出口：右上角 ×、跳过、走到最后一步。
 import { useEffect, useState } from 'react'
-import { DSVI } from '../core.js'
-import { MONITOR_URL, monitorDot, monitorVisible } from '../utils/monitor.js'
-import { GUIDE_LEGEND, agentSwatchByVisualId, isFirstStep, isLastStep, rgbHex } from '../utils/guide.js'
-import { OmkbLayout } from './keyboard-layout.jsx'
+import { DSVI } from '../../core.js'
+import { MONITOR_URL, monitorDot, monitorVisible } from '../../utils/monitor.js'
+import { GUIDE_LEGEND, agentSwatchByVisualId, isFirstStep, isLastStep, rgbHex } from '../../utils/guide.js'
+import { OmkbLayout } from '../settings/keyboard-layout.jsx'
 
 /** 6 颗智能体键的示意配色（四种状态都摆出来），在模块加载时算一次即可。 */
 const SWATCH = agentSwatchByVisualId()

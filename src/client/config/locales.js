@@ -36,18 +36,17 @@ const locales = {
     'layout.title': '布局',
     'layout.reset': '重置布局',
     'layout.desc': 'omkb 物理按键布局',
+    // 这一页打开期间设备只做演示（闸门见 hid-bridge 的 enterSim）—— 不加这句，用户会以为键盘坏了
+    'layout.simHint': '本页打开时，按键 / 旋钮 / 摇杆只在图中演示，不会触发功能',
     'opts.agentKey': '智能体键',
     'opts.agentKeyDesc': '6 个智能键映射到会话，并用键盘灯光显示会话状态',
     'opts.agentKey.pinned': '已置顶聊天',
     'opts.agentKey.recent': '最近的聊天',
     'opts.agentKey.priority': '优先聊天',
     'opts.agentKey.custom': '自定义分配',
-    'opts.agentAssign': '自定义分配',
-    'opts.agentAssignDesc': '为每个按键单独选择要打开的会话',
     'opts.agentAssign.slot': '按键',
     'opts.agentAssign.none': '未分配',
     'opts.knob': '旋钮',
-    'opts.knobDesc': '旋转旋钮控制的内容',
     'opts.knob.navigate': '输入区导航',
     'opts.knob.navigate.desc': '在编辑器控件和选项间移动（不含输入框）',
     'opts.knob.reasoning': '仅推理',
@@ -77,17 +76,24 @@ const locales = {
     'act.reasoning': '切换推理',
     'act.reasoningUp': '增强推理强度',
     'act.reasoningDown': '减弱推理强度',
+    // ---------- 第三方插件依赖（设置页底部，**常驻卡片**）----------
+    // 清单来自 config/default.js 的 PLUGIN_DEPS（静态配置、不检测系统）；清单为空时显示
+    // plugins.empty 那一行占位。要加插件条目请改那个文件，不要动这里的文案结构。
+    'plugins.title': '第三方插件',
+    'plugins.desc': '以下按键功能需要额外安装对应的 DSH 插件；安装状态按插件自带配置显示',
+    'plugins.empty': '暂无需要额外安装的插件',
+    'plugins.installed': '已安装',
+    'plugins.missing': '未安装',
+    'plugins.usedBy': '用于：',
     'opts.micKey': '使用独立麦克风键',
     'opts.micKeyDesc': '下方宽 Mic 键有两个开关，打开后各自独立（布局里拆成两颗键，可分别指定功能）',
-    'opts.tapFocus': '轻点一下即可聚焦Deepseek Harness',
-    'opts.tapFocusDesc': '单击打开已分配的任务并聚焦窗口',
     'settings.saving': '保存中…',
     'settings.saved': '已保存',
     'settings.saveError': '保存失败',
     // 侧边栏底部「设置」旁边的小键盘图标（点了直接落到本分区）
     'sidebar.action': '键盘设置',
     // 断开时的悬停/可访问名（图标右上会多一个红点）。**不许写成「点击重新连接」** ——
-    // 这个入口点了是打开设置页，重连在那一页的按钮上（口径见 components/sidebar-action.jsx）。
+    // 这个入口点了是打开设置页，重连在那一页的按钮上（口径见 components/sidebar/action.jsx）。
     'sidebar.offline': '键盘已断开 · 点击打开设置重新连接',
     // 「与**后台**断开」气泡里的三句话 —— 这三句**照抄 DSH 自己词典里的措辞**
     // （dsh-client-ui-settings-general 的 connection.connecting / .error / .connected）。
@@ -98,7 +104,7 @@ const locales = {
     'sidebar.reconnected': '连接成功',
     // 气泡的可访问名：点它就是「立即重连」（= 点那颗被我们藏起来的 DSH 指示器）
     'sidebar.reconnectNow': '点击立即重连',
-    // ---------- 首次连接引导（设备第一次连上时弹一次，见 components/guide-modal.jsx）----------
+    // ---------- 首次连接引导（设备第一次连上时弹一次，见 components/modals/guide.jsx）----------
     // （设置页那一行「首次连接引导 / 重新播放」2026-09-24 按要求去掉，专属词条一并撤了）
     'guide.close': '关闭引导',
     'guide.connected': '键盘已连接',
@@ -124,7 +130,7 @@ const locales = {
     'guide.legend.errorHint': '刚出错，一直亮到你重试',
     'guide.legend.empty': '关闭 · 未分配',
     'guide.legend.emptyHint': '这颗键还没分到会话',
-    // ---------- 「移除键盘」确认弹窗（见 components/remove-modal.jsx）----------
+    // ---------- 「移除键盘」确认弹窗（见 components/modals/remove.jsx）----------
     // 与「重置布局」的区别要在文案里说清：重置＝回到出厂值、界面还在；
     // 移除＝清空全部设置**并且**把界面收起来，直到这台键盘重新连上。
     'remove.title': '移除键盘',
@@ -171,18 +177,17 @@ const locales = {
     'layout.title': 'Layout',
     'layout.reset': 'Reset Layout',
     'layout.desc': 'Physical key layout of the omkb',
+    // While this page is open the device only previews (gate: hid-bridge's enterSim)
+    'layout.simHint': 'While this page is open, keys / knob / joystick only preview in the picture — no actions are triggered',
     'opts.agentKey': 'Smart Agent Keys',
     'opts.agentKeyDesc': 'Map the 6 smart keys to sessions and show their status as LED colors',
     'opts.agentKey.pinned': 'Pinned chats',
     'opts.agentKey.recent': 'Recent chats',
     'opts.agentKey.priority': 'Priority chats',
     'opts.agentKey.custom': 'Custom assignment',
-    'opts.agentAssign': 'Custom assignment',
-    'opts.agentAssignDesc': 'Choose a session to open for each key',
     'opts.agentAssign.slot': 'Key',
     'opts.agentAssign.none': 'None',
     'opts.knob': 'Knob',
-    'opts.knobDesc': 'What rotating the knob controls',
     'opts.knob.navigate': 'Input area navigation',
     'opts.knob.navigate.desc': 'Move between editor controls and options (skips the text box)',
     'opts.knob.reasoning': 'Reasoning only',
@@ -212,10 +217,17 @@ const locales = {
     'act.reasoning': 'Toggle reasoning',
     'act.reasoningUp': 'Increase reasoning',
     'act.reasoningDown': 'Decrease reasoning',
+    // ---------- Third-party plugin dependencies (always-on card at the bottom of the page) ----------
+    // The list comes from config/default.js (PLUGIN_DEPS, static config — no system probing);
+    // an empty list shows the plugins.empty placeholder line.
+    'plugins.title': 'Third-party Plugins',
+    'plugins.desc': 'The key actions below need extra DSH plugins; the status shown follows the plugin’s own config',
+    'plugins.empty': 'No extra plugins needed',
+    'plugins.installed': 'Installed',
+    'plugins.missing': 'Missing',
+    'plugins.usedBy': 'Used by: ',
     'opts.micKey': 'Use separate mic keys',
     'opts.micKeyDesc': 'The wide mic key has two switches; map them independently (the layout splits into two keys, each with its own action)',
-    'opts.tapFocus': 'Tap to focus omkb',
-    'opts.tapFocusDesc': 'Single tap opens the assigned task and focuses the window',
     'settings.saving': 'Saving…',
     'settings.saved': 'Saved',
     'settings.saveError': 'Save failed',
@@ -223,7 +235,7 @@ const locales = {
     'sidebar.action': 'Keyboard settings',
     // Hover / accessible name while the keyboard is disconnected (a red dot appears too).
     // Must NOT say "click to reconnect": this entry opens the settings page, where the
-    // reconnect button lives (see components/sidebar-action.jsx).
+    // reconnect button lives (see components/sidebar/action.jsx).
     'sidebar.offline': 'Keyboard disconnected · open settings to reconnect',
     // The three lines shown in the "host disconnected" bubble. Wording is copied verbatim from
     // DSH's own dictionary (connection.connecting / .error / .connected) on purpose: the notice
@@ -233,7 +245,7 @@ const locales = {
     'sidebar.reconnected': 'Connected',
     // Accessible name of the bubble — clicking it reconnects (= clicking the hidden indicator)
     'sidebar.reconnectNow': 'Click to reconnect now',
-    // ---------- First-connect guide (see components/guide-modal.jsx) ----------
+    // ---------- First-connect guide (see components/modals/guide.jsx) ----------
     // (the "First-connect guide / Replay" settings row was removed on 2026-09-24; its keys went with it)
     'guide.close': 'Close guide',
     'guide.connected': 'Keyboard connected',
@@ -259,7 +271,7 @@ const locales = {
     'guide.legend.errorHint': 'Just errored, stays red until you retry',
     'guide.legend.empty': 'Off · unassigned',
     'guide.legend.emptyHint': 'No session on this key yet',
-    // ---------- "Remove keypad" confirm modal (see components/remove-modal.jsx) ----------
+    // ---------- "Remove keypad" confirm modal (see components/modals/remove.jsx) ----------
     'remove.title': 'Remove keypad',
     'remove.sub': 'Take this keypad out of DSH',
     'remove.item1': 'Clear every keypad setting: keycaps, joystick directions, knob mode, brightness and auto-dim all go back to their factory values',

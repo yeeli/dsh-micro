@@ -1,8 +1,8 @@
 // dsh-omkb · client/src/actions/index.js
 // ★ DeepSeek Harness 能力门面 ★ —— client/ 目录下**唯一**直接操作 DSH 的目录。
 //
-// 谁调它：keypad/index.js（按键）、joystick.js（摇杆）、knob.js（旋钮）、
-// components/voice-button.jsx（把转写文本写回草稿）。那几处只负责「设备事件/手势 → 语义」——
+// 谁调它：keypad.js（按键）、joystick.js（摇杆）、knob.js（旋钮）、
+// components/common/voice-button.jsx（把转写文本写回草稿）。那几处只负责「设备事件/手势 → 语义」——
 // 键帽怎么解析、方向绑了什么动作、旋钮在哪个模式；真正落到 DSH 上的每一个动作都从这里走。
 // 以前这些调用散在三个文件里，各自去摸 ctx 服务、sessions 投影、DSH 的 DOM，同一个能力在两处
 // 各写一份兜底 —— 出问题要翻三个文件，而「下一转该去哪、菜单关没关、服务有没有」这类判断本来
@@ -49,8 +49,8 @@ import {
 } from './dom.js'
 import { reasoningStepDir, reasoningPressOnce } from './reasoning.js'
 import {
-  planActiveOf, currentSessionIdOf, sessionScopeOf, inputOf, commandChannelOf, formatDraft,
-  pendingInteractionOf, answerFor
+  planActiveOf, currentSessionIdOf, inputOf, commandChannelOf, formatDraft,
+  pendingInteractionOf, answerFor, archiveFailureText
 } from './session.js'
 
 // 子模块的导出原样转发：「DSH 操作的零件」从 actions/index.js 一个入口就能拿到。
@@ -59,6 +59,7 @@ export * from './session.js'
 export * from './reasoning.js'
 // 功能总表也从这个入口转发：控制台/自检/三个控制器都只需认 actions/index.js 一条路
 // （`__dshOmkb.actions.run('fork')` 手验任意功能，不必真按设备）。
+// 第三方插件依赖清单**不在**这里：它是配置，住在 config/default.js 的 PLUGIN_DEPS。
 export * from './registry.js'
 
 export class DshOps {
@@ -96,9 +97,6 @@ export class DshOps {
 
   /** 当前会话 id（sessions.list 快照的 current）。 */
   currentSessionId = () => currentSessionIdOf(this.sessions)
-
-  /** 某个会话的作用域（conversation.input.for 要它）。 */
-  sessionScope = (sid) => sessionScopeOf(this.sessions, sid)
 
   /** 当前会话的 composer 输入机（拿不到返回 null，调用方各自决定降级方式）。 */
   input = () => inputOf(this.sessions, this.conversation)
@@ -224,24 +222,34 @@ export class DshOps {
    *    （会同时处理「归档的正好是当前会话 → 清掉当前选择」）。
    * ② 退路：宿主旁路路由 POST /omkb/archive（宿主 workspaceRegistry.archiveSession；见 src/core/index.js）。
    *    它要求宿主重启过，所以只当兜底。
+   *
+   * ⚠ 失败必须**出声**：`archiveSession` 在「会话还有活动在跑」时会拒绝（`rpcError.code ===
+   * 'workspace/session-active'`），DSH 自己的流程是弹确认框、用户点了才用 `{ stopActivity: true }`
+   * 重试。本插件不替用户停活（不可逆），但要把拒绝说清楚 —— 否则表现就是「按了没反应」
+   * （归档键「无法使用」的那次报障里，前半段是会话 id 取不到、后半段就是这个静默）。
+   *
    * @returns {boolean} 是否真的派发出去（拿不到任何入口 → false + 一行日志）。
    */
   archive = () => {
     const sid = this.currentSessionId()
-    if (!sid) { this.log('当前没有会话，无法归档'); return false }
+    if (!sid) { this.log('归档失败：认不出当前会话（快照里既没有 current，也没有被主视图持有的那条）'); return false }
     const ui = this.#service('uiWorkspace')
     if (ui && typeof ui.archiveSession === 'function') {
       Promise.resolve()
         .then(() => ui.archiveSession(sid))
-        .catch((e) => this.log(`归档失败：${(e && e.message) || e}`))
+        .catch((e) => this.log(archiveFailureText(e)))
       return true
     }
     if (typeof fetch === 'function') {
+      // 退路也要看响应：以前只 catch 网络异常，宿主路由返回 4xx/5xx 时连一行日志都没有。
       fetch('/omkb/archive', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ sessionId: sid })
-      }).catch(() => {})
+      }).then(
+        (res) => { if (res && res.ok === false) this.log(`归档失败：宿主路由 /omkb/archive 返回 ${res.status}`) },
+        (e) => this.log(`归档失败：宿主路由 /omkb/archive 不可达（${(e && e.message) || e}）`)
+      )
       return true
     }
     this.log('拿不到归档入口：既没有 uiWorkspace 服务，也不在浏览器环境里')
@@ -252,7 +260,9 @@ export class DshOps {
    * 分叉当前会话（用户要的 FORK 键）：从当前这条复制出一条新的分支会话，原会话保留。
    * ① `uiWorkspace.forkSession` —— DSH 会话菜单里「分叉会话」走的正是它（内部是
    *    `sessions.fork({ sessionId, increaseTitle: true })` + 打开子会话）。
-   * ② 退路：没有 uiWorkspace 时自己走那两步（sessions.fork + sessions.open）。
+   * ② 退路：没有 uiWorkspace 时自己走那两步（sessions.fork + 打开子会话）。
+   *    打开子会话同样认官方入口 `uiWorkspace.openSession` —— `sessions.open` 在
+   *    0.1.7-rc.2 已被删（见 agents.js openSlot 的注释），别再只认它。
    * @returns {boolean} 是否真的派发出去。
    */
   fork = () => {
@@ -271,7 +281,12 @@ export class DshOps {
       Promise.resolve()
         .then(() => sessions.fork({ sessionId: sid, increaseTitle: true }))
         .then((childId) => {
-          if (childId && typeof sessions.open === 'function') sessions.open(childId)
+          if (!childId) return
+          const openSession = (ui && typeof ui.openSession === 'function')
+            ? (id) => ui.openSession(id)
+            : (typeof sessions.open === 'function' ? (id) => sessions.open(id) : null)
+          if (!openSession) { this.log(`分叉出的子会话没能打开（没有 uiWorkspace.openSession）：${childId}`); return }
+          openSession(childId)
         })
         .catch((e) => this.log(`分叉失败：${(e && e.message) || e}`))
       return true

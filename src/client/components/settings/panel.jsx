@@ -1,50 +1,42 @@
-// dsh-omkb · client/src/components/settings-panel.jsx
+// dsh-omkb · client/src/components/settings/panel.jsx
 // **设置面板本体**（DSH 设置页里的「OMKB 键盘」分区）：连接状态、输入监控提示、
-// 亮度/自动调暗（写回 HID）、布局可视化（引用 keyboard-layout.jsx）、以及按键/旋钮映射等
-// 本地偏好（通过 settingsScope 持久化）。
+// 亮度/自动调暗（写回 HID）、布局可视化（引用 settings/keyboard-layout.jsx）、以及按键/旋钮映射等
+// 本地偏好（持久化走 DSH 的设置表单 `ctx.configForms.get('dsh-omkb')`）。
 //
-// 这个文件同时是**设置页默认值的声明处**（DSVI.OMKB_DEFAULTS）与**设置样式的注入处**
-// （DSVI.css += settings.css?raw）—— 两件事都必须与宿主 schema（src/core/settings.js）
-// 逐字段对齐，理由见下面的注释。
+// 这个文件同时是**设置样式 settings.css 的注入处**（DSVI.css += settings.css?raw）。
+// ⚠ **默认值不在这个文件里了**：2026-09-26 起全部集中到 `../config/default.js`
+// （偏好默认值 + 布局出厂键帽 + 第三方插件清单），这里只 import 进来用 —— 那份必须与宿主
+// schema（src/core/settings.js）逐字段对齐，理由见 default.js 顶部。
 import { useEffect, useRef, useState } from 'react'
-import { DSVI, archivedIdsOf, visibleSessions } from '../core.js'
-import { MONITOR_URL, PRIVACY_URL, monitorDot, monitorNeedsSettings, monitorVisible } from '../utils/monitor.js'
+import { DSVI, archivedIdsOf, visibleSessions } from '../../core.js'
+import { MONITOR_URL, PRIVACY_URL, monitorDot, monitorNeedsSettings, monitorVisible } from '../../utils/monitor.js'
 // 「写入算不算成功」的判据与重试策略只有一份（utils/device.js）——设置页与控制器的
 // 所有落盘都按同一口径判（DSH 的 scope.set() 失败时 promise 照样 resolve）。
-import { SCOPE_RETRY, batteryView, isDeviceHidden, readbackOk, sameJson } from '../utils/device.js'
+import { SCOPE_RETRY, batteryView, isDeviceHidden, readbackOk, sameJson } from '../../utils/device.js'
 // 旋钮自定义分配的选项来自功能总表（与键帽候选、按下分派同一份，见 actions/registry.js）
-import { knobActions } from '../actions/registry.js'
-import '../config/locales.js'
-import settingsCss from '../assets/settings.css?raw'
+import { knobActions, actionById } from '../../actions/registry.js'
+// 默认配置（偏好默认值 + 第三方插件清单）只在 config/default.js 里写一份 —— 见下面的
+// 「默认偏好」段。这个 import 是**唯一**读默认值的地方，别在此处再手写一份字面量。
+import { OMKB_DEFAULTS, PLUGIN_DEPS } from '../../config/default.js'
+import '../../config/locales.js'
+import settingsCss from '../../assets/settings.css?raw'
 import { OmkbLayout } from './keyboard-layout.jsx'
-import { OmkbResetModal } from './reset-modal.jsx'
-import { OmkbRemoveModal } from './remove-modal.jsx'
-import { OmkbSaveToast } from './save-toast.jsx'
-import { BatteryIcon } from './ui.jsx'
+import { OmkbResetModal } from '../modals/reset.jsx'
+import { OmkbRemoveModal } from '../modals/remove.jsx'
+import { OmkbSaveToast } from '../toast/save.jsx'
+import { BatteryIcon } from '../common/ui.jsx'
 // 移除之后要把设置弹窗从本分区切走（我们的导航行会被藏起来，停在原地只剩一块空白内容区）。
 // 导航行怎么找只有那一个地方知道（findSectionRow/candidateLabels 也在那儿）。
-import { leaveOurSection } from './sidebar-action.jsx'
+import { leaveOurSection } from '../sidebar/action.jsx'
 
 // ---------- 默认偏好 ----------
-// 必须与宿主侧 schema（src/core/settings.js）逐字段对齐：任一字段只在这里声明，
-// 设置页写它时就会被宿主判为「无契约」，重启后丢失。
-DSVI.OMKB_DEFAULTS = {
-  brightness: 0.9, // 0..1
-  autoDim: 0, // 0=关闭，否则为秒数
-  actLabels: {}, // 键帽覆盖：ACTxx -> 选定的键帽 id
-  joystick: {}, // 摇杆映射：{ up, right, down, left } -> 动作名（'none' = 不绑定）
-  agentKey: 'recent', // recent | pinned | priority | custom
-  agentAssign: {}, // 自定义分配：slot(0..5) -> 会话 id
-  knob: 'navigate', // navigate | reasoning | scroll | custom
-  knobCustom: {}, // 自定义分配：{ cw, ccw, click, long } -> 动作名
-  micKey: false, // 独立麦克风键
-  tapFocus: false, // 轻点聚焦
-  guideSeen: false, // 首次连接引导看过了没有（连上设备时弹一次）
-  // 「这台键盘已被移除」（设备没连上时点「移除」写下的标记）。
-  // 它**不是偏好**而是生命周期标记：不显示在界面上、也不该被「重置布局」清掉，
-  // 唯一的清法是「设备重新连上」（见 client/device.js 的 #restore）。
-  removed: false
-}
+// **值不在这里**，在 ../config/default.js（客户端默认配置的唯一声明处，用户要求「把 OMKB 中的
+// 默认设置参数配置都写在这个文件中，方便后续更换」）。这里只把它挂到共享 DSVI 上：
+//   · 本文件的 update/clearField/resetLayout 用 DSVI.OMKB_DEFAULTS[key] 取默认值；
+//   · entry.js 把它交给 DeviceController（「移除键盘」要清空**全部**字段，清单从这里来）。
+// 为什么必须与宿主 schema（src/core/settings.js）逐字段对齐：任一字段只在一侧声明，
+// 设置页写它时就会被宿主判为「无契约」，重启后静默丢失。自检有两套断言守着这条。
+DSVI.OMKB_DEFAULTS = OMKB_DEFAULTS
 
 // 设置样式追加到共享 DSVI.css（随 installStyles 注入，见 ../assets/settings.css）
 DSVI.css += settingsCss
@@ -71,6 +63,18 @@ const GESTURES = [
   ['long', 'opts.knobCustom.long']
 ]
 
+/**
+ * 功能 id → 展示短名（「第三方插件」卡片里「依赖它的功能」那一列用）。
+ * 优先键帽短名（name，如 MIC / ARCH），没有短名（旋钮专属手势）就落回词典 label，
+ * 词典也没有就原样显示 id。三种都是可读的，绝不让界面冒出 undefined。
+ */
+const pluginKeyLabel = (id, tt) => {
+  const entry = actionById(id)
+  if (entry && entry.name) return entry.name
+  if (entry && entry.label) return tt(entry.label)
+  return String(id)
+}
+
 /** 自动调暗的可选档位（秒 → 文案 key）。 */
 const AUTO_DIM_OPTIONS = [
   [0, 'autoDim.off'],
@@ -82,7 +86,7 @@ const AUTO_DIM_OPTIONS = [
 
 /**
  * 设置分区组件（由 entry.js 注册到 settings.section 槽位）。
- * @param scope - settingsScope 的绑定（读写命名空间 dsh-omkb）。
+ * @param scope - 设置表单的绑定（读写命名空间 dsh-omkb）。
  * @param t - 词典函数。
  * @param sessions / workspaces - 会话与工作区服务（自定义分配下拉要用）。
  */
@@ -287,7 +291,7 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
   // 重置布局：清除用户覆盖字段，让设置恢复到 schema 默认值。
   // 含 guideSeen：清掉之后下次连上设备会**重新弹一次首次连接引导**（与重置弹窗里那条文案对应）。
   const resetLayout = () => {
-    const keys = ['agentKey', 'knob', 'micKey', 'tapFocus', 'agentAssign', 'knobCustom', 'actLabels', 'joystick', 'guideSeen']
+    const keys = ['agentKey', 'knob', 'micKey', 'agentAssign', 'knobCustom', 'actLabels', 'joystick', 'guideSeen']
     setPrefs((p) => {
       const next = { ...p }
       for (const key of keys) next[key] = DSVI.OMKB_DEFAULTS[key]
@@ -395,11 +399,39 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
     })
   }
 
+  // 打开本分区 → 让桥接层进入「只演示不执行」（见 hid-bridge 的 enterSim）。效果：
+  // 这一页里的按键 / 旋钮 / 摇杆只演给用户看，不真的切会话、切规划模式、发消息、批准审批。
+  // 一边一张：挂载进、卸载出 —— React 的清理函数就是那个释放函数（幂等），不必自己配对。
+  // 判据就是「本组件挂在树上」= 用户正看着 OMKB 键盘这一页（设置弹窗停在别的分区时按钮照常生效）。
+  // **智能体键（AG00..AG05）不在此列**：按下去仍然真的打开会话（用户 2026-09-25 明确要求）。
+  // ⚠ 位置有讲究：必须在下面 `if (hidden) return null` **之前**（所有 hooks 都要在早返回前），
+  // 否则「设备被移除」那条路径上 hooks 数量会变，React 直接报错。
+  useEffect(() => {
+    const hid = DSVI.services ? DSVI.services.hid : null
+    if (!hid || typeof hid.enterSim !== 'function') return undefined
+    return hid.enterSim()
+  }, [])
+
   const brightnessPct = Math.round((prefs.brightness ?? DSVI.OMKB_DEFAULTS.brightness) * 100)
   const autoDim = prefs.autoDim ?? 0
   const agentKey = prefs.agentKey ?? 'recent'
   const knob = prefs.knob ?? 'navigate'
   const knobCustom = prefs.knobCustom || {}
+
+  // ---------- 第三方插件依赖 ----------
+  // 清单来自 **配置**（../config/default.js 的 PLUGIN_DEPS）：哪个按键功能需要额外安装哪个
+  // DSH 插件，是**静态声明**，不查系统、也不看服务在不在 —— 用户 2026-09-26 明确要求
+  // 「不用去检测系统了」（此前是「每条功能声明 requires + ctx.get(service) 现场判装没装」，
+  // 那份模型已撤掉，见 actions/registry.js 的说明）。
+  // 因此这张卡**常驻**（清单为空时给一行占位），用户随时看得见这个模块、加条目立刻生效。
+  const plugins = PLUGIN_DEPS.map((d) => ({
+    plugin: String(d.plugin),
+    name: d.name || String(d.plugin),
+    desc: d.desc || '',
+    // 安装状态：**default.js 里手写的字段**，右侧徽标照它渲染（缺省 = 未安装）。
+    installed: d.installed === true,
+    usedBy: Array.isArray(d.usedBy) ? d.usedBy.filter((id) => typeof id === 'string' && id) : []
+  }))
   // 电量：低电量阈值、「没读数」怎么显示，判据都在 utils/device.js 里（自检直接验它）。
   const batt = batteryView(conn)
   // 「点过移除 + 设备没连上」→ 整个分区收起。判据与侧边栏入口、设置页导航行**同一份**
@@ -567,6 +599,11 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
             </button>
           </div>
         </div>
+        {/* 说明：这一页打开期间设备只做演示（见本组件顶部的 enterSim 与 hid-bridge 的闸门）。
+            为什么必须写在界面上：用户在设置页里按设备、转旋钮、推摇杆，看到布局有反应却
+            「什么都没发生」，第一反应是键盘坏了 —— 这行字是唯一的解释。
+            data-omkb-simhint 是给探针/自检定位用的锚点（不靠文案）。 */}
+        <div className="omkb-hint omkb-sim-hint" data-omkb-simhint="1">{tt('layout.simHint')}</div>
         <OmkbLayout prefs={prefs} update={update} clearField={clearField} />
       </div>
 
@@ -690,6 +727,43 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
             引导本身照旧 —— 设备第一次连上时自动弹一次，判据在 utils/guide.js 的
             shouldShowGuide（`open && !seen`），弹过就写 guideSeen。要手验三屏就调
             `__dshOmkb.services.guide.replay()`（不写 guideSeen、不看设备在不在）。 */}
+      </div>
+
+      {/* 第三方插件依赖：**常驻卡片**（以前是「没有功能声明 requires 就整卡隐藏」，2026-09-26
+          按用户要求改成常驻 —— 清单为空时给一行占位，模块始终看得见）。
+          数据源 = config/default.js 的 PLUGIN_DEPS（静态配置，**不检测系统**）。
+          每一行：左边插件名 + 说明（可选再带上「用于：」哪些按键功能），右边安装状态徽标
+          （照配置里手写的 installed 字段渲染，见本组件顶部 plugins 的计算）。 */}
+      <div className="omkb-card" data-omkb-plugins="1">
+        <div className="omkb-row">
+          <div className="omkb-row__label">
+            <div className="omkb-row__title">{tt('plugins.title')}</div>
+            <div className="omkb-row__desc">{tt('plugins.desc')}</div>
+          </div>
+        </div>
+        {plugins.length ? plugins.map((p) => (
+          <div className="omkb-row" key={p.plugin} data-omkb-plugin={p.plugin}>
+            <div className="omkb-row__label">
+              <div className="omkb-row__title">{p.name}</div>
+              <div className="omkb-row__desc">
+                {p.desc || null}
+                {p.desc && p.usedBy.length ? ' · ' : null}
+                {p.usedBy.length ? tt('plugins.usedBy') + p.usedBy.map((id) => pluginKeyLabel(id, tt)).join('、') : null}
+              </div>
+            </div>
+            <div className="omkb-row__ctrl">
+              <span className={'omkb-plugin-badge' + (p.installed ? ' omkb-plugin-badge--on' : ' omkb-plugin-badge--off')}>
+                {p.installed ? tt('plugins.installed') : tt('plugins.missing')}
+              </span>
+            </div>
+          </div>
+        )) : (
+          <div className="omkb-row" data-omkb-plugins-empty="1">
+            <div className="omkb-row__label">
+              <div className="omkb-row__desc">{tt('plugins.empty')}</div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

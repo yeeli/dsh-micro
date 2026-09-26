@@ -1,8 +1,8 @@
-// dsh-omkb · client/src/components/keycap-modal.jsx
+// dsh-omkb · client/src/components/modals/keycap.jsx
 // 「编辑按键」弹窗：给某颗物理键（键码）换一颗键帽。
 //
 // 三条约束：
-//   1) **候选就是键帽表**（keypad/keycaps.js）—— 一张表同时喂布局、弹窗、按键分派，
+//   1) **候选就是键帽表**（keypad.js）—— 一张表同时喂布局、弹窗、按键分派，
 //      弹窗里能选到的和按下去能发生的永远一致。
 //   2) **候选用外面的键同一套外观**：直接复用 <Key>（.omkb-key）与 KeyFace，
 //      不再另画一套 emoji 小卡片 —— 挑的时候看到的就是选完之后键盘上会变成的样子。
@@ -10,8 +10,8 @@
 //   3) 保存要有意义：没选、或选的就是当前值 → 保存按钮置灰（以前点了毫无反应，
 //      看起来像「编辑按键没实现」）。要退回出厂键帽用「恢复默认」。
 import { useState } from 'react'
-import { Key, KeyFace } from './ui.jsx'
-import { CUSTOM_LABEL, KEYCAPS, keycapOf } from '../keypad/keycaps.js'
+import { Key, KeyFace } from '../common/ui.jsx'
+import { CUSTOM_LABEL, KEYCAPS, keycapOf } from '../../keypad.js'
 
 /**
  * @param target - 被编辑的**键码**（actLabels 的键，如 'ACT07'）。

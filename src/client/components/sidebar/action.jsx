@@ -1,4 +1,4 @@
-// dsh-omkb · client/components/sidebar-action.jsx
+// dsh-omkb · client/components/sidebar/action.jsx
 // 侧边栏最下层：**「设置」按钮同一行的右端**放一个方形键盘按钮，点一下直接打开键盘设置页。
 //
 // ── 位置是怎么来的（先说清楚，免得以后以为是随手摆的 DOM）───────────────────────
@@ -55,6 +55,43 @@
 // 状态字符串），刚恢复 = `[role="status"]`。**认不出的邻居仍旧退回文档流**：宁可多一行也绝不重叠。
 // 另外用 MutationObserver 守那一行（邻居出现/消失只改行内节点，foot 尺寸不变，ResizeObserver 看不见）。
 //
+// 第三轮（2026-09-26，用户：「重新连接又改回黄色错位了」）—— 上一轮的修法**一直没生效**，
+// 根因是「那一行」找错了。真机上的层次是（产物里 SettingsRoot 的渲染 + renderer 的槽位出口）：
+//
+//     settingsArea
+//       └── [data-slot="sidebar.settings"](display:contents)
+//            └── div.triggerRow
+//                 ├── [data-slot="settings.launcher"](display:contents)   ← **齿轮的父亲**
+//                 │     ├── 齿轮 button[aria-haspopup="dialog"]
+//                 │     └── span[role="tooltip"]（悬停提示，锚点的下一个兄弟）
+//                 ├── ConnectionIndicator（橙色的「自动重连中」）
+//                 └── DesktopUpdateIndicator
+//
+// 而 `gearRowOf` 当时是 `gear.parentElement` = 那个 display:contents 的 launcher 出口，
+// 于是 `noticeCandidates` 永远是空数组：橙色指示器既不被藏、也弹不出气泡，就地压住贴右端的方块；
+// `visibleSiblingOf` 也只会撞见悬停提示（浮动层，被 isOverlay 跳过）→ 判成「没有邻居」。
+// 同一个坑还让 MutationObserver 观察错了节点（指示器出现时不会叫醒我们）。
+// 现在 `gearRowOf` 走 `layoutParent`（跳过 display:contents）= triggerRow，
+// 与 `markGearTip` 打行标记用的是**同一个函数**。教训：**「那一行」只能有一个定义**，
+// 两处各算一次（一个用 parentElement、一个用 layoutParent）就会分裂成「提示对齐了、邻居看不见」。
+// 详细依据写在 `gearRowOf` 的注释里，自检的假页面也照这个层次搭（之前少了一层 launcher 出口，
+// 于是源码里那个错判据在自检里永远绿）。
+//
+// ── 鼠标移到「设置」上：提示被我们挤进侧边栏 + 方块当场跳走（2026-09-26）───────────────
+// 用户截图：「鼠标移到设置上的时候错位 —— 深色提示压在那一行上」。两个症状，两个成因，都在我们自己身上：
+//   ① **提示被挤进来**。DSH 的 Tooltip（`dsh-client-ui-primitives`）默认 `side:"right"`：
+//      `left = 锚点右缘 + 10px`、竖直居中、`position:fixed`（坐标是它自己写进 inline style 的）。
+//      设置按钮被我们收窄到 206px 之后，那个「右缘 + 10」就落在**侧边栏里面** ——
+//      正好是键盘方块待的地方（实测：锚点右缘 190 → 提示 left ≈ 200）。
+//      → 用户要的位置是「在设置上面」，所以那一行的提示由我们改到**行上方**（CSS 见
+//        assets/settings.css 的 `[data-omkb-gear-tip]`；行本身有 position:relative 做包含块）。
+//   ② **方块当场跳走**。那个提示是**鼠标移上去才出现**的兄弟节点（primitives 的 Tooltip 不是 portal，
+//      它就渲染在锚点后面），一出现就被 `visibleSiblingOf` 当成「认不出的邻居」→ 我们立刻退回文档流。
+//      于是悬停的那一刻：方块跳到「设置」上方、提示落进它腾出来的位置 —— 截图里就是这个画面。
+//      → 浮动层不参与那一行的布局，**不算邻居**（判据见 `isOverlay`）。
+// 教训与「连接指示器」那一轮同源：**那一行里的任何动静都要先问「它占不占位」**，
+// 而不是「它是不是我们认识的东西」。占位的才争地盘，不占位的（提示气泡、悬浮层）理都不该理。
+//
 // ── 「直接打开键盘设置页」怎么实现 ──────────────────────────────────────────
 // 设置弹窗把「是否展开 + 当前分区」放在组件内部 state 里，**没有** openSettings(sectionId)
 // 之类的接口，所以只能：点设置触发按钮把弹窗打开 → 点掉导航里文字等于本插件分区标题
@@ -83,9 +120,9 @@
 //     图标 20px 居中，所以「按钮内圈右上」看起来正落在图标右上角。
 
 import { useEffect, useRef, useState } from 'react'
-import { DSVI, KeypadIcon } from '../core.js'
-import { isDeviceOffline } from '../utils/device.js'
-import { OmkbGuideHost } from './guide-modal.jsx'
+import { DSVI, KeypadIcon } from '../../core.js'
+import { isDeviceOffline } from '../../utils/device.js'
+import { OmkbGuideHost } from '../modals/guide.jsx'
 
 /** 槽位名（与 core.js 的 SLOT_FOOT_ACTION 同值，导出便于自检引用）。 */
 export const FOOT_ACTION_SLOT = DSVI.SLOT_FOOT_ACTION
@@ -131,6 +168,19 @@ export const NOTICE_HIDE_ATTR = 'data-omkb-conn-hide'
 export const TIP_GAP = 6
 /** 小尾巴的宽度（px，也是它三角形的高）。 */
 export const TIP_TAIL = 12
+
+/**
+ * 给我们贴着的那一行打的标记 —— CSS 靠它把行变成定位祖先（`position:relative`，
+ * DSH 现在自己也有一条，但那是它的类名管着，不保险）。
+ */
+export const GEAR_ROW_ATTR = 'data-omkb-gear-row'
+/**
+ * 给「设置」的悬停提示打的标记。**只打紧跟在设置按钮后面那一个**：
+ * 同一行里可能还有别的提示（桌面更新指示器也是 Tooltip，side:top），一起改就把别人的位置也挪了。
+ */
+export const GEAR_TIP_ATTR = 'data-omkb-gear-tip'
+/** 提示与那一行之间的间隔（px，CSS 里那条 `bottom: calc(100% + 8px)` 用的就是它）。 */
+export const TIP_ABOVE_GAP = 8
 
 /** 弹窗打开后等导航行出现的预算：React 提交是异步的，但也就一两帧的事。 */
 export const NAV_WAIT_MS = 1200
@@ -293,14 +343,24 @@ export const openKeyboardSettings = async (label, opts = {}) => {
 // ── 覆盖定位（把按钮贴到「设置」那一行的右端）────────────────────────────────
 
 /**
+ * display:contents 判据：这种元素**不生成盒子**（renderer 给每个槽位出口包的那层就是它），
+ * 所以它既不该参与「谁占位」的判断，也不能当包含块（见 layoutParent）。
+ * 读 computed style（不是读 inline style）：`display:contents` 是 renderer 写在内联样式上的，
+ * 但将来若改成类名，读 computed 仍然认得出来。
+ */
+const isContents = (el) => {
+  const s = styleOf(el)
+  return !!s && s.display === 'contents'
+}
+
+/**
  * 跳过 renderer 给槽位出口包的 `display:contents` 外层，拿到真正参与布局的容器。
  * （display:contents 的元素不生成盒子，所以「我的按钮的父节点」不是布局意义上的那一行。）
  */
 export const layoutParent = (el) => {
   let p = el && el.parentElement
   while (p) {
-    const s = styleOf(p)
-    if (s && s.display !== 'contents') return p
+    if (!isContents(p)) return p
     p = p.parentElement
   }
   return null
@@ -338,14 +398,69 @@ export const positionedAncestor = (el) => {
   return null
 }
 
-/** 「设置」按钮的**直接父元素** = DSH 的 triggerRow（连接指示器就并排放在这一行里）。 */
-export const gearRowOf = (gear) => (gear && gear.parentElement) || null
+/**
+ * 「设置」按钮所在的那一行 —— DSH 的 triggerRow。连接状态指示器与桌面更新指示器就并排放在
+ * 这一行里（见文件头「设置那一行」一节），所以「这一行里还有没有别人」决定我们能不能贴右端。
+ *
+ * ⚠ 这里**不能**用 `gear.parentElement`（2026-09-26 用户第三次报「重新连接又改回黄色错位了」的
+ * 根因）。真机上从齿轮往上数是这样几层：
+ *
+ *     settingsArea
+ *       └── div[data-slot="sidebar.settings"]        display:contents   ← UI 包的槽位出口
+ *            └── div.triggerRow                      display:flex;gap:8px  ← 真正的那一行
+ *                 ├── div[data-slot="settings.launcher"] display:contents ← **齿轮的父亲**
+ *                 │    ├── button[aria-haspopup="dialog"]                 ← 齿轮
+ *                 │    └── span[role="tooltip"]                           ← 悬停提示（锚点的下一个兄弟）
+ *                 ├── ConnectionIndicator（橙色的「自动重连中」/ 绿色的「连接成功」）
+ *                 └── DesktopUpdateIndicator
+ *
+ * 依据（从应用产物里读到的 `dsh-client-ui-settings-general` 的 SettingsRoot）：
+ *   `jsxs("div", { className: triggerRow, children: [renderSlot("settings.launcher", …, {
+ *      fallback: jsx(Tooltip, { …, children: jsx("button", { "aria-haspopup": "dialog" }) }) }),
+ *      jsx(ConnectionIndicator, …), jsx(DesktopUpdateIndicator, …)] })`
+ * 也就是：**齿轮被槽位出口包着，槽位出口在 triggerRow 里面**。
+ *
+ * 于是 `gear.parentElement` 拿到的是那个 display:contents 的出口（它没有盒子、也不含指示器）：
+ *   * `noticeCandidates(出口)` 永远是空的 → 橙色指示器既不被藏、也弹不出替代气泡；
+ *   * `visibleSiblingOf(出口, 齿轮)` 只会撞见悬停提示（浮动层，被 isOverlay 跳过）→ 返回 null；
+ *   * 结果：我们照旧把方块贴到那一行右端，而橙色指示器也在那一行右端 —— **就地重叠**
+ *     （正是用户截图里「黄色压住键盘方块」）。
+ * 同一个坑还让组件里那个 MutationObserver 观察错了节点，指示器出现/消失都不会叫醒我们。
+ *
+ * 改用 `layoutParent`（跳过 display:contents）：拿到的是 triggerRow，与 `markGearTip` 打行标记
+ * 用的**同一个元素** —— 两处判据一致，这类「一半对一半错」的分裂症状才不会再来。
+ */
+export const gearRowOf = (gear) => (gear ? layoutParent(gear) : null)
+
+/**
+ * 浮动层判据：`position` 为 fixed / absolute 的元素**不参与**所在行的布局 ——
+ * 它的盒子被拿出文档流，行内其他盒子的排布完全不受它影响，所以它不是「占位的邻居」。
+ *
+ * 为什么需要它（2026-09-26 用户截图「鼠标移到设置上就错位」）：DSH 的悬停提示
+ * （primitives 的 Tooltip）正是这种元素 —— `position:fixed` + 内联 left/top，而且**渲染在
+ * 锚点后面**（不是 portal），鼠标一移上去它就成了「那一行里 gear 之外的一个可见孩子」。
+ * 没有这条判据，`visibleSiblingOf` 会把它当成认不出的邻居 → 我们当场退回文档流 →
+ * 键盘方块跳走、提示落进它腾出来的位置（截图正是这个画面）。
+ * 教训与连接指示器那一轮同源：**那一行里的任何动静都先问「它占不占位」** ——
+ * 占位的才争地盘，不占位的（提示气泡、悬浮层）理都不该理。
+ */
+export const isOverlay = (el) => {
+  const s = styleOf(el)
+  return !!s && (s.position === 'fixed' || s.position === 'absolute')
+}
 
 /**
  * 同一行里 `except` 之外的**可见兄弟**（没有则 null）。
  *
  * 判据用**矩形**而不是 class：DSH 的类名是模块哈希（认不得），而这里需要的事实只有一个 ——
- * 「它占不占位」。宽高都 > 1px 才算占位，于是「渲染成空 div」与「压根没渲染」两种实现都覆盖得到。
+ * 「它占不占位」。宽高都 > 1px 才算占位，于是「渲染成空 div」与「压根没渲染」两种实现都覆盖得到；
+ * 浮动层（fixed/absolute）不占位，见 `isOverlay`。
+ *
+ * 还有两类**不算邻居**的孩子，都得显式跳过（否则「邻居」这个词会被结构细节偷换掉）：
+ *   * `display:contents` 的元素（`isContents`）—— 槽位出口，没有盒子、不占位。齿轮自己就是
+ *     被这样一个出口包着的（见 gearRowOf 的长注释），它当然不是「另一个东西」。
+ *   * **包着 `except` 的那条链上的元素** —— 同上，它不是邻居，是齿轮的包装层。
+ *     （矩形判据本来也能挡掉其中的 display:contents 那层，但包装层未必只有一层，判清楚更稳。）
  *
  * 为什么需要它：DSH 的 triggerRow（实测 `display:flex; gap:8px`，**没写 justify-content**
  * 即默认 flex-start）里除了「设置」按钮，还并排放着一个连接状态指示器
@@ -358,6 +473,13 @@ export const visibleSiblingOf = (row, except) => {
   try { kids = Array.from((row && row.children) || []) } catch (e) { return null }
   for (const el of kids) {
     if (el === except) continue
+    if (isContents(el)) continue
+    if (el && typeof el.contains === 'function') {
+      let wraps = false
+      try { wraps = el.contains(except) } catch (e) { wraps = false }
+      if (wraps) continue
+    }
+    if (isOverlay(el)) continue
     let r = null
     try { r = el.getBoundingClientRect() } catch (e) { continue }
     if (r && r.width > 1 && r.height > 1) return el
@@ -441,6 +563,86 @@ export const narrowGear = (gear, width) => {
   try { gear.style.maxWidth = v } catch (e) {}
 }
 
+// ── 「设置」的悬停提示：改到行上方（2026-09-26，见文件头「鼠标移到设置上」一节）────────
+// DSH 的 Tooltip 默认 side:"right"：left = 锚点右缘 + 10px。设置按钮被我们收窄后那个落点
+// 在侧边栏里、正好压住键盘方块。用户要的位置是「在设置上面」——提示挪到行上方这件事
+// 由 CSS 完成（assets/settings.css 的 [data-omkb-gear-tip]），这里只负责**打标记**：
+// 给行打 GEAR_ROW_ATTR（它要做提示的定位祖先）、给提示打 GEAR_TIP_ATTR。
+
+/**
+ * 找「设置」按钮的悬停提示：primitives 的 Tooltip 把提示渲染成**锚点后面紧挨着的兄弟**。
+ * 依据（产物里 primitives 的实现）：
+ *   `jsxs(Provider, { children: [cloneElement(锚点, …), portal ? createPortal(气泡, body) : 气泡] })`
+ * ——`portal` 没打开时气泡就是**同一个 Fragment 里的下一个兄弟**。设置那颗按钮的 Tooltip
+ * 没传 `portal`（见 SettingsRoot 里 `Tooltip({ disabled, label: t("trigger"), children: <button> })`），
+ * 所以：**齿轮与提示是同一个槽位出口里的兄弟**（`div[data-slot="settings.launcher"]`，
+ * 也就是 `gear.parentElement`，见 gearRowOf 的长注释）。
+ *
+ * 于是从 `gear.nextElementSibling` 往后找第一个 `[role="tooltip"]` 通常一步就中；
+ * 但只认「下一个兄弟」这条链太脆（再多包一层就找不到），所以补一条兜底：在**同一个出口**的
+ * 子树里找提示，且排除落在齿轮自己子树里的那些。两条都找不到 = 此刻没悬停（常态，返回 null）。
+ * @returns 提示元素，或 null（没悬停时它压根不在 DOM 里 —— 这是常态）。
+ */
+export const gearTipOf = (gear) => {
+  if (!gear) return null
+  let el = null
+  try { el = gear.nextElementSibling } catch (e) { return null }
+  while (el) {
+    if (matches(el, '[role="tooltip"]')) return el
+    el = el.nextElementSibling
+  }
+  const outlet = gear.parentElement
+  if (!outlet || typeof outlet.querySelectorAll !== 'function') return null
+  let found = null
+  try {
+    found = Array.from(outlet.querySelectorAll('[role="tooltip"]') || [])
+      .find((node) => { try { return !gear.contains(node) } catch (e) { return true } }) || null
+  } catch (e) { found = null }
+  return found
+}
+
+/**
+ * 给行与提示打标记（每次摆放都调，幂等）：
+ *   * 行打 GEAR_ROW_ATTR → CSS 给它 `position:relative`，提示才拿它当包含块。
+ *     行取 `gearRowOf(gear)` —— 与「找邻居」用的是**同一个函数**（这里曾经一个用
+ *     layoutParent、另一个用 parentElement，于是提示对齐了、邻居却看不见，症状分裂成两半）。
+ *     注意别用 `gear.parentElement`：那是 display:contents 的槽位出口，当不了包含块（没有盒子）。
+ *   * 行上写 `--omkb-gear-tip-left` = 齿轮左端 − 行左端：提示的左缘对齐齿轮。
+ *     行若有内边距，`left:0` 会对不齐 —— 量着写，别猜（本项目的一贯做法）。
+ *   * 提示此刻在 DOM 里就打 GEAR_TIP_ATTR；不在就只等着 —— 它出现时是 childList 变更，
+ *     MutationObserver 会叫醒 place() 再进来打一次。
+ * @returns {boolean} 行标记是否写成功。
+ */
+export const markGearTip = (gear) => {
+  const row = gearRowOf(gear)
+  if (!row || typeof row.setAttribute !== 'function') return false
+  try { row.setAttribute(GEAR_ROW_ATTR, '1') } catch (e) { return false }
+  try {
+    const rr = row.getBoundingClientRect()
+    const gr = gear.getBoundingClientRect()
+    const left = rr && gr ? Math.max(0, Math.round(gr.left - rr.left)) : 0
+    if (typeof row.style.setProperty === 'function') row.style.setProperty('--omkb-gear-tip-left', left + 'px')
+    else row.style['--omkb-gear-tip-left'] = left + 'px'
+  } catch (e) {}
+  const tip = gearTipOf(gear)
+  if (tip) { try { tip.setAttribute(GEAR_TIP_ATTR, '1') } catch (e) {} }
+  return true
+}
+
+/**
+ * 摘掉行上的标记（退回文档流 / 收起成导轨时）。提示节点是 React 的：
+ * 悬停一结束整个被摘掉，GEAR_TIP_ATTR 随节点消失，不用专门清。
+ */
+export const unmarkGearTip = (gear) => {
+  const row = gearRowOf(gear)
+  if (!row) return
+  try { row.removeAttribute(GEAR_ROW_ATTR) } catch (e) {}
+  try {
+    if (typeof row.style.removeProperty === 'function') row.style.removeProperty('--omkb-gear-tip-left')
+    else delete row.style['--omkb-gear-tip-left']
+  } catch (e) {}
+}
+
 const setClass = (el, name, on) => {
   const cl = el && el.classList
   if (!cl) return
@@ -458,7 +660,7 @@ const warnIfNotNarrowed = (gear, want) => {
     if (got > want + 1) {
       narrowWarned = true
       warn(`设置按钮收窄没生效（想要 ${Math.round(want)}px，实际 ${Math.round(got)}px）：`
-        + 'hover 背景可能仍会盖住键盘图标 —— DSH 大概又换了该按钮的布局方式（见 sidebar-action.jsx 头部）')
+        + 'hover 背景可能仍会盖住键盘图标 —— DSH 大概又换了该按钮的布局方式（见 sidebar/action.jsx 头部）')
     }
   } catch (e) {}
 }
@@ -526,6 +728,10 @@ export const placeFootAction = (button, opts = {}) => {
     // 继续静默下去用户只会看到「灰底还盖着图标」。告警不阻断摆放。
     warnIfNotNarrowed(hosts.gear, want)
   }
+  // 「设置」的悬停提示挪到行上方（打标记，CSS 见 assets/settings.css 的 [data-omkb-gear-tip]）。
+  // 提示是悬停才出现的：此刻不在 DOM 也照样打行标记，等它出现时 MutationObserver 叫醒
+  // place() 再补打。收窄没生效/没做都不影响这一步 —— 两件事独立。
+  markGearTip(hosts.gear)
   // notice 带出去：组件据此决定气泡显不显示、显示哪一句（null = 没有提示）。
   return { ...pos, notice }
 }
@@ -536,6 +742,8 @@ export const unpinFootAction = (button) => {
   // 退回文档流之后那一行又归 DSH 安排了，不再有重叠风险：把可能被我们藏起来的连接指示器放回去。
   const hosts0 = findFootHosts(button)
   for (const el of noticeCandidates(hosts0 ? gearRowOf(hosts0.gear) : null)) setNoticeHidden(el, false)
+  // 行标记也摘掉：提示回 DSH 默认的位置（side:right）——我们不再管那一行，就别再改它的东西。
+  unmarkGearTip(button.__omkbGear || (hosts0 && hosts0.gear))
   setClass(button, 'omkb-foot-action--pinned', false)
   for (const k of ['position', 'top', 'right', 'left']) {
     try { button.style[k] = '' } catch (e) {}
@@ -663,7 +871,7 @@ export const disposeConnTip = () => {
 /**
  * 把设置弹窗从本分区切到**别的**分区。
  *
- * 用途：「移除键盘」（见 client/device.js）会把设置页里我们那一行藏起来（nav-icon.js 的
+ * 用途：「移除键盘」（见 client/device.js）会把设置页里我们那一行藏起来（sidebar.js 的
  * setNavRowHidden）。若用户此刻正停在本分区，弹窗里会只剩一块空白内容区 —— 看着像坏了。
  * 找一个别的分区行点掉，用户就落在正常页面上。
  *
@@ -716,6 +924,13 @@ DSVI.footAction = {
   placeTip: placeConnTip,
   syncTip: syncConnTip,
   disposeTip: disposeConnTip,
+  // 「设置」的悬停提示：找它 / 打标记（挪到行上方的那条线），以及浮动层判据。
+  gearTip: gearTipOf,
+  markTip: markGearTip,
+  unmarkTip: unmarkGearTip,
+  isOverlay,
+  // 「不生成盒子」的判据（槽位出口就是这种）：邻居判断与 layoutParent 共用它。
+  isContents,
   candidateLabels
 }
 

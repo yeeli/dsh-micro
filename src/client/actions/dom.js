@@ -338,6 +338,127 @@ export const composerTextarea = () => {
   return visible.length ? visible[visible.length - 1] : null
 }
 
+// ---- 官方语音输入（@deepseek-ai/dsh-experimental-voice-input-bundle）----
+//
+// DSH 官方那个**可选** Bundle 启用后，会把麦克风注册到 `conversation.input.activity` 槽位，
+// 而 renderer 给每个槽位出口打 `data-slot` 锚点（与 `[data-slot="sidebar.settings"]` 同一契约）。
+// 本插件不重造识别链路，而是**桥接**它：按下我们的语音键 = 点一下官方那颗麦克风。
+// 这里的判据全部读自官方产物（`npm pack @deepseek-ai/dsh-experimental-client-ui-voice-input`）。
+//
+// 官方控件的两个形态：
+//   * 折叠态 —— 出口里**只有一个** button，就是麦克风（`aria-label` = 本 locale 的 `t("start")`，
+//       中文「开始录音」/ 英文「Start recording」）。它的 `disabled = !usable`，而 usable 是官方按
+//       `readiness.connected && provider.preparation.phase ∈ {ready,standby,waking}` 算的 ——
+//       也就是「本地模型还没下载并准备完」时它就是灰的。
+//   * 录音态 —— 折叠态整个换成一个 `<div data-voice-activity={phase}>`，里面有「取消」和
+//       「停止并识别」（`aria-label` = `t("stop")`）。**停止按钮只在 phase === 'recording' 时存在**：
+//       请求麦克风权限（requesting）与转写（transcribing）阶段都没有它。
+//
+// 判据优先级（**别猜 CSS module 的哈希 class**：官方产物里是 `ddpbLW_trigger` 这种，hash 随构建变）：
+//   ① `data-voice-activity` —— 官方自己声明的阶段，语言无关，最稳；
+//   ② `data-slot="conversation.input.activity"` —— 只在这个槽位出口里找，不整页乱找；
+//   ③ 文案（中/英）+ 结构（折叠态唯一一颗 / recording 态最后一颗）兜底。
+//
+// 找不到一律**如实返回 null / false**：Bundle 未启用时这个出口可能根本不存在，
+// 由调用方（voice.js）决定降级到浏览器 Web Speech —— 判据不许在这里假装成功。
+
+/** 官方语音输入的槽位出口（Bundle 未启用 / 官方 UI 还没挂上时为 null）。 */
+export const OFFICIAL_VOICE_OUTLET_SEL = '[data-slot="conversation.input.activity"]'
+
+/** 槽位出口元素本身；找不到返回 null。 */
+export const officialVoiceOutlet = () => {
+  if (typeof document === 'undefined') return null
+  try { return document.querySelector(OFFICIAL_VOICE_OUTLET_SEL) } catch (e) { return null }
+}
+
+/**
+ * 官方录音栏当前阶段；**折叠态（未录音）返回 null**（那时那个 div 根本没渲染）。
+ * 取值就是官方自己写在 `data-voice-activity` 上的东西：requesting / recording / transcribing / feedback。
+ * @returns {string|null}
+ */
+export const officialVoicePhase = () => {
+  const outlet = officialVoiceOutlet()
+  if (!outlet) return null
+  let row = null
+  try { row = outlet.querySelector('[data-voice-activity]') } catch (e) { return null }
+  if (!row) return null
+  try { return row.getAttribute('data-voice-activity') || null } catch (e) { return null }
+}
+
+/** 出口里的按钮（数组；拿不到给空数组）。 */
+const officialVoiceButtons = (outlet) => {
+  try { return Array.from(outlet.querySelectorAll('button')) } catch (e) { return [] }
+}
+
+// 官方 aria-label 的两套文案（DSH 界面语言目前是中/英；其余语言由下面的结构判据兜底）。
+const VOICE_START_RE = /^(开始录音|开始听写|start recording)$/i
+const VOICE_STOP_RE = /^(停止并识别|停止转写|stop and transcribe)$/i
+
+/**
+ * 官方那颗麦克风按钮（折叠态的「开始录音」）。找不到返回 null。
+ * 结构优先：折叠态出口里**只有它一颗**；文案与 class 后缀（`_trigger`）只作交叉确认。
+ * 录音态 / 转写态下没有这颗按钮，**会如实返回 null**（别拿它当「官方还在不在」的判据）。
+ */
+export const officialVoiceStartButton = () => {
+  const outlet = officialVoiceOutlet()
+  if (!outlet) return null
+  const btns = officialVoiceButtons(outlet)
+  if (!btns.length) return null
+  const byLabel = btns.find((b) => VOICE_START_RE.test(ariaOf(b)))
+  if (byLabel) return byLabel
+  if (btns.length === 1) return btns[0]
+  return btns.find((b) => {
+    const cls = typeof b.className === 'string' ? b.className : ''
+    return /_trigger\b/.test(cls)
+  }) || null
+}
+
+/**
+ * 官方那颗「停止并识别」按钮。**只在 recording 阶段能拿到**（请求权限 / 转写中都没有），
+ * 所以返回 null 不代表出错 —— 调用方要么等它出现，要么这次就没有可点的停止。
+ */
+export const officialVoiceStopButton = () => {
+  if (officialVoicePhase() !== 'recording') return null
+  const outlet = officialVoiceOutlet()
+  if (!outlet) return null
+  const btns = officialVoiceButtons(outlet)
+  if (!btns.length) return null
+  const byLabel = btns.find((b) => VOICE_STOP_RE.test(ariaOf(b)))
+  if (byLabel) return byLabel
+  // 结构兜底：recording 阶段出口里是 [取消, 波形, 停止]，最后一颗就是停止。
+  return btns[btns.length - 1]
+}
+
+/**
+ * 官方语音此刻**能不能用**：出口在 + 麦克风按钮在 + 没被禁用。
+ * 「按钮灰着」在官方那边就等于「模型还没准备好」，对用户而言同样是「没开启」，
+ * 所以这里一并算作不可用 —— 让 voice.js 顶上，比让按键按下去没反应强。
+ */
+export const officialVoiceReady = () => {
+  const btn = officialVoiceStartButton()
+  if (!btn) return false
+  try {
+    if (btn.disabled === true) return false
+    if (btn.getAttribute('aria-disabled') === 'true') return false
+  } catch (e) { return false }
+  return true
+}
+
+/** 点一下官方麦克风开始录音。真点到了返回 true（权限、录音、转写全归官方管）。 */
+export const clickOfficialVoiceStart = () => {
+  if (!officialVoiceReady()) return false
+  const btn = officialVoiceStartButton()
+  if (!btn) return false
+  try { btn.click(); return true } catch (e) { return false }
+}
+
+/** 点一下官方「停止并识别」。**只在 recording 阶段点得到**；其余阶段返回 false（由调用方等）。 */
+export const clickOfficialVoiceStop = () => {
+  const btn = officialVoiceStopButton()
+  if (!btn) return false
+  try { btn.click(); return true } catch (e) { return false }
+}
+
 // ---- 待确认交互的面板（审批 / 计划确认）：只在「服务拿不到」时当兜底 ----
 
 /**

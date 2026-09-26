@@ -71,8 +71,22 @@ export class AgentController {
   #slots = []
   #pushTimer = null
   #allIdle = null
+  // 跨插件服务**延迟取值**（与 actions/index.js 的 DshOps 同一套写法）：别的客户端插件
+  // 晚于本插件加载，建对象时缓存下来会永远是 undefined。
+  #services = () => undefined
+  #log = (msg) => { try { console.log('[omkb] ' + msg) } catch (e) {} }
+
+  /** @param options.services - (name) => service（取 ctx 上的跨插件服务，如 uiWorkspace）。 */
+  constructor(options = {}) {
+    const o = options || {}
+    if (typeof o.services === 'function') this.#services = o.services
+    if (typeof o.log === 'function') this.#log = o.log
+  }
 
   get slots() { return this.#slots }
+
+  log = (msg) => { this.#log(msg) }
+  #service = (name) => { try { return this.#services(name) } catch (e) { return undefined } }
 
   setSessions = (sess) => { this.sessions = sess }
   setWorkspaces = (ws) => { this.workspaces = ws }
@@ -114,9 +128,6 @@ export class AgentController {
     for (let i = 0; i < 6; i++) slots.push(ordered[i] ? toSlot(ordered[i]) : empty())
     return slots
   }
-
-  // 计算给定 prefs/snapshot 的槽位映射（别名，供外部按需取用）
-  slotsFor = (prefs, snapshot) => this.buildAgentSlots(prefs, snapshot)
 
   // 计算 + 缓存 + 推送 LED
   refresh = (prefs, snapshot) => {
@@ -190,6 +201,21 @@ export class AgentController {
   }
 
   // Agent 键按下（slot 0..5）：打开对应会话；返回是否已处理
+  //
+  // ⚠ **打开会话的入口是 `uiWorkspace.openSession(id)`，不是 `sessions.open(id)`。**
+  // 后者在 DSH 0.1.7-rc.2 已被删掉（`sessions` 服务面只剩 retain / using / retainInfo /
+  // refreshProjections / search / fork / scope / binding），而官方入口在 uiWorkspace 上：
+  // DSH 侧边栏点击会话走的正是 `ctx.uiWorkspace.openSession(id)`
+  // （`SessionTarget = SessionId | SubagentAddress` → 直接给 id 字符串即可）。
+  //
+  // 踩过的坑（用户报「智能体键无法切换会话」）：这里以前只调 `sessions.open`，
+  // 拿不到就**静默** `return false` —— 而调用方（hid-bridge）根本不看返回值，
+  // 于是「按键完全没反应、且一行日志都没有」。所以现在三件事缺一不可：
+  //   ① 先走官方入口 uiWorkspace.openSession；② 再退到老宿主的 sessions.open；
+  //   ③ 都没有 / 抛错 → **记一行日志**再说 false，绝不静默（见 actions/index.js
+  //      的 archive/fork，那两条一直就是这么写的）。
+  //
+  // 另：「这颗键本来没分配会话」不算失败，是正常状态（灯就是灭的），不记日志。
   openSlot = (slot) => {
     const s = this.#slots && this.#slots[slot]
     if (!s || !s.id) return false
@@ -199,14 +225,35 @@ export class AgentController {
     let snap = null
     try {
       snap = this.sessions && this.sessions.list ? this.sessions.list.getSnapshot() : null
-    } catch (e) { return false }
-    const byId = snap && snap.byId
-    if (!byId || !byId[s.id]) return false
-    if (!visibleSessions(snap, archivedIdsOf(this.workspaces)).some((v) => v.id === s.id)) return false
-    if (this.sessions && typeof this.sessions.open === 'function') {
-      try { this.sessions.open(s.id) } catch (e) {}
-      return true
+    } catch (e) {
+      this.log(`智能体键 ${slot}：读不到会话快照（${(e && e.message) || e}），这次按键丢弃`)
+      return false
     }
+    const byId = snap && snap.byId
+    if (!byId || !byId[s.id]) {
+      this.log(`智能体键 ${slot}：槽位里的会话已不在快照里（${s.id}），跳过`)
+      return false
+    }
+    if (!visibleSessions(snap, archivedIdsOf(this.workspaces)).some((v) => v.id === s.id)) {
+      this.log(`智能体键 ${slot}：会话已不可见（归档 / 子代理 / 空白），跳过 ${s.id}`)
+      return false
+    }
+
+    // ① 官方入口（0.1.7-rc.2 起唯一正确的那条）。
+    const ui = this.#service('uiWorkspace')
+    if (ui && typeof ui.openSession === 'function') {
+      try { ui.openSession(s.id); return true } catch (e) {
+        this.log(`智能体键 ${slot}：uiWorkspace.openSession 抛错（${(e && e.message) || e}）`)
+      }
+    }
+    // ② 老宿主退路：0.1.7-rc.2 之前 `sessions` 上有 open（现已删除）。
+    if (this.sessions && typeof this.sessions.open === 'function') {
+      try { this.sessions.open(s.id); return true } catch (e) {
+        this.log(`智能体键 ${slot}：sessions.open 抛错（${(e && e.message) || e}）`)
+      }
+    }
+    this.log(`智能体键 ${slot}：拿不到「打开会话」的入口（既没有 uiWorkspace.openSession，`
+      + `也没有老宿主的 sessions.open），${s.id} 没能打开`)
     return false
   }
 }

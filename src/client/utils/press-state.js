@@ -18,7 +18,7 @@
 // 放在 utils/ 就是因为它**不属于按键功能本身**：它只是「把快照折成视觉状态」的一段纯逻辑，
 // 界面组件拿去用，自检也直接 import 同一份。
 
-import { keyVisual } from '../keypad/layout.js'
+import { keyVisual } from './keycaps.js'
 
 /** 短闪时长（ms）：只在「没有按住信息」时兜底，不是常态。 */
 export const FLASH_MS = 170

@@ -1,39 +1,49 @@
-// dsh-omkb · 宿主侧设置命名空间
-// 设置页（src/client/components/settings-panel.jsx）里的每一行都通过浏览器端的 ctx.settingsScope
-// 写进 `dsh-omkb` 命名空间。命名空间必须先由宿主侧 ctx.settings.register 注册：
-// 否则 settings.describe 不会返回该段，客户端 scope 恒为 unavailable / 不可写，
-// scope.set() 的写入会被静默丢弃（什么都不落盘）。
+// dsh-omkb · 宿主侧设置（DSH 0.1.7-rc.2 契约）
 //
-// 本模块是该命名空间的唯一真源。schema 默认值必须与客户端 DSVI.OMKB_DEFAULTS
-// 保持一致（两侧分别构建、无法共享模块），字段增删请同时改这两处：
-//   - src/core/settings.js        （本文件）
-//   - src/client/components/settings-panel.jsx （DSVI.OMKB_DEFAULTS）
-//
-// 「注册了没有」这件事在客户端是不可见的（未注册时 scope 恒为 unavailable），
-// 自查用 `npm run verify:settings`，线上核对用宿主 settings.describe。
-//
-// ── 接线 API 的两个世代（DSH 0.1.5-rc.3 起改名，必须两条都留着）────────────────
-// DSH ≤0.1.5-rc.3 之前，@deepseek-ai/dsh-settings 导出两个**自由函数**：
+// ── 这一版为什么整块重写（第三次契约漂移）────────────────────────────────────
+// 0.1.5-rc.3 之前：@deepseek-ai/dsh-settings 导出两个自由函数
 //     installSettingsSection(ctx, settingsNamespace('dsh-omkb'), schema, entry, hooks)
-// 0.1.5-rc.3 起包的导出面只剩 { SettingsConflictError, SettingsProvider, redactSecrets }，
-// 命名空间改由**服务方法**注册：
-//     ctx.settings.installSection(owner, 'dsh-omkb', schema, entry, hooks)
-// 两个自由函数被删掉后，旧代码里的 `settingsNamespace(...)` 变成 undefined → 调用即抛
-// 「loaded.settingsNamespace is not a function」→ 命名空间静默不注册 → 设置页写入全被
-// 丢弃（用户看到的就是「改参数保存失败」）。所以这里先探服务方法、再退回包导出，
-// 并把走的是哪条路记进 diagnose().api（/omkb/state 可见），别让这种版本漂移再靠猜。
+// 0.1.5-rc.3：改成服务方法 ctx.settings.installSection(owner, ns, schema, entry, hooks)
+// 0.1.7-rc.2：**installSection 与客户端 settingsScope 一起删掉了**。命名空间不再是
+//   「插件自己注册的东西」，而是**插件在 profile 里那条 loader 条目的 Config**：
+//     · 命名空间名 = 条目 id（我们就是 `dsh-omkb`，见 cordis.patch.yml 的 insert.id）
+//     · schema     = 插件模块导出的 `Config`（schemastery），**每个字段都要 .volatile()**
+//     · 可写性     = 只有标了 volatile 的字段才进设置表单；改它由 loader 就地提交
+//                    （updateVolatile + `loader/volatile-update`），**不会重启插件**
+//     · 客户端     = ctx.configForms.get('dsh-omkb')（settingsScope.bind 没了）
+//   没有 volatile 字段的条目连 describe() 都不会出现（dsh-settings 的 volatileForm
+//   返回 undefined 就整条跳过）——所以「忘了标 volatile」的表现和当年「没注册」一模一样：
+//   设置页能看能改、一保存就丢。
+//
+// 于是本文件的职责只剩两件：**构造那个 schema**、**读回宿主发下来的配置**。
+// 注册动作没有了（导出即注册）。
+//
+// ── 为什么在最外层用 top-level await ────────────────────────────────────────
+// `Config` 必须是一个**现成的** schema 对象（loader 会在注册插件时立刻读
+// `runtime.Config`，`"toJSON" in schema` 才算数），不能再像以前那样「等 apply 里异步
+// 加载依赖、再注册」。而 schemastery 是 DSH 运行时提供的包、插件自己不声明（声明了就会
+// 装出第二份，`toJSON` 的全局 refs 表会互相踩）——只能运行时解析。两条路：
+//   a) 静态 import：Node 会把 `link:` 挂进来的插件解析成项目真实路径，那里没有
+//      node_modules/@deepseek-ai → MODULE_NOT_FOUND（正是 resolverRoots 存在的原因）；
+//   b) 模块最外层 `await import(...)`：loader 用动态 `import()` 加载插件模块
+//      （cordis-plugin-loader 的 `tree.import`），ESM 顶层 await 完全支持。
+// 所以走 b。代价是构建产物里带着 top-level await → vite 的 build.target 必须是 esnext
+// （见 vite.core.config.js，那边有注释说明）。
 
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-/** 命名空间（与客户端 DSVI.NS 相同）。 */
+/**
+ * 命名空间。**必须与 profile 里那条 loader 条目的 id 逐字相同**（我们的
+ * `cordis.patch.yml` 里 `insert: [{ id: dsh-omkb, name: dsh-omkb }]`）。
+ * 客户端 `ctx.configForms.get(DSVI.NS)` 用的也是这个字符串。
+ */
 export const OMKB_NAMESPACE = 'dsh-omkb'
 
 /**
- * 宿主侧默认值 —— schema 默认值与 installSection 的 entry（组合层 / provider 缺失时的
- * 兜底值）共用这一份，避免两处各写一份慢慢漂移。
+ * 默认值 —— schema 默认值与「读不到配置时的兜底」共用这一份，避免两处各写一份慢慢漂移。
  * 必须与客户端 DSVI.OMKB_DEFAULTS 逐字段一致（两侧分别构建、无法共享模块）。
  */
 export const OMKB_DEFAULTS = {
@@ -46,7 +56,6 @@ export const OMKB_DEFAULTS = {
   knob: 'navigate',
   knobCustom: {},
   micKey: false,
-  tapFocus: false,
   guideSeen: false,
   removed: false
 }
@@ -55,28 +64,21 @@ export const OMKB_DEFAULTS = {
 export const AGENT_KEY_MODES = ['pinned', 'recent', 'priority', 'custom']
 /** 旋钮模式。 */
 export const KNOB_MODES = ['navigate', 'reasoning', 'scroll', 'custom']
-/** 自定义旋钮手势。 */
-export const KNOB_GESTURES = ['cw', 'ccw', 'click', 'long']
-/** 自动调暗可选秒数（0 = 关闭）。 */
-export const AUTO_DIM_SECONDS = [0, 30, 60, 120, 300]
 
 const clamp01 = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0.9)
 
 /**
  * DSH 运行时依赖的解析位置。
  *
- * dsh-settings / schemastery 由 DSH 运行时提供，插件包自己不声明它们（也不该声明具体
- * 版本）。麻烦在于「从哪个位置解析」：Node 默认把符号链接解析成**真实路径**，所以开发
- * 态以 `link:` 挂进 profile 的插件，其 import.meta.url 指向项目目录——那里没有
- * node_modules/@deepseek-ai，`createRequire(import.meta.url)` 直接 MODULE_NOT_FOUND。
- * 结果是依赖加载失败 → 命名空间静默不注册 → 设置页写入全部被丢弃
- * （客户端只看到 unavailable，旧代码还会把它显示成「已保存」）。
+ * schemastery 由 DSH 运行时提供，插件包自己不声明它（也不该声明具体版本）。麻烦在于
+ * 「从哪个位置解析」：Node 默认把符号链接解析成**真实路径**，所以开发态以 `link:` 挂进
+ * profile 的插件，其 import.meta.url 指向项目目录——那里没有 node_modules/@deepseek-ai，
+ * `createRequire(import.meta.url)` 直接 MODULE_NOT_FOUND。
  *
- * 因此按「最近 → 最远」依次尝试多个解析根，并把每个根的错误码收集起来：全部失败时
- * 日志能直接指出是哪一环断的，而不是只报一句「缺少 settings 服务」。
+ * 因此按「最近 → 最远」依次尝试多个解析根，并把每个根的错误码收集起来：全部失败时日志能
+ * 直接指出是哪一环断的，而不是只报一句「设置用不了」。
  */
 const DEP_PACKAGES = {
-  settings: '@deepseek-ai/dsh-settings',
   schema: '@deepseek-ai/schemastery'
 }
 
@@ -99,14 +101,14 @@ const resolverRoots = () => {
 /**
  * 按 {@link resolverRoots} 的顺序解析一个包。
  * @param pkg - 包名。
- * @returns {{ok: true, path: string, req: Function, root: string} | {ok: false, failures: string[]}}
+ * @returns {{ok: true, path: string, root: string} | {ok: false, failures: string[]}}
  */
 const resolveDep = (pkg) => {
   const failures = []
   for (const root of resolverRoots()) {
     try {
       const req = createRequire(root.base)
-      return { ok: true, path: req.resolve(pkg), req, root: root.label }
+      return { ok: true, path: req.resolve(pkg), root: root.label }
     } catch (e) {
       failures.push(`${root.label}(${e && e.code ? e.code : (e && e.message) || e})`)
     }
@@ -114,108 +116,76 @@ const resolveDep = (pkg) => {
   return { ok: false, failures }
 }
 
-/**
- * 解析并加载 schema 依赖。失败时返回带原因的失败对象，让调用方优雅退化为
- * 「无持久化」，而不是让整个插件加载失败。
- *
- * 为什么是异步的：宿主会用 Promise.all 并发加载插件，dsh-settings 是 ESM 包，
- * 那一刻可能还没求值完。此时 `require()` 它会抛
- * `ERR_REQUIRE_ESM_RACE_CONDITION: ... not yet fully loaded`——而且这个错误发生在
- * 模块求值期，同步路径上无法重试。`import()` 会等它求值完再给结果，因此这里统一用
- * 动态 import（schemastery 虽然是 CJS，也一起走这条路径，避免 require 拿到半成品导出）。
- *
- * **只有 schemastery 是硬依赖**：命名空间现在通过 `ctx.settings` 服务注册（见本文件头），
- * 服务由 DSH 自己提供，插件不需要 import dsh-settings 包。这个包只在「旧版 DSH」的
- * 退路里才有用（那两个自由函数），所以解析不到它不算致命 —— 若最终两条路都走不通，
- * 失败信息里会写清楚是哪一环。
- * @returns {Promise<{ok: true, z: any, zSource: string, legacy: {settingsNamespace: Function, installSettingsSection: Function} | null, source: string}
- *   | {ok: false, reason: string}>}
- */
-export async function loadSettingsDeps() {
-  const schema = resolveDep(DEP_PACKAGES.schema)
-  if (!schema.ok) {
-    return { ok: false, reason: `解析 DSH 运行时依赖失败：${DEP_PACKAGES.schema} ← ${schema.failures.join(' / ')}` }
-  }
-  const settings = resolveDep(DEP_PACKAGES.settings)
-  // 旧版退路：包里那两个自由函数还在时才算数。新版包解析得到、但导出面已经不含它们，
-  // 于是 legacy 为 null —— 这不是错误，只是说明必须走服务方法。
-  let legacy = null
-  let legacyNote = settings.ok ? '包内无 installSettingsSection（新版导出面）' : `未解析到（${settings.failures.join(' / ')}）`
-  if (settings.ok) {
-    try {
-      const mod = await import(pathToFileURL(settings.path).href)
-      if (typeof mod.installSettingsSection === 'function' && typeof mod.settingsNamespace === 'function') {
-        legacy = { installSettingsSection: mod.installSettingsSection, settingsNamespace: mod.settingsNamespace }
-        legacyNote = '可用'
-      }
-    } catch (e) {
-      legacyNote = `加载失败（${(e && e.message) || e}）`
+/** 解析结果（模块作用域，供 Config 与诊断共用）。 */
+let zMod = null
+let schemaSource = null
+let schemaError = null
+try {
+  const resolved = resolveDep(DEP_PACKAGES.schema)
+  if (!resolved.ok) {
+    schemaError = `解析 DSH 运行时依赖失败：${DEP_PACKAGES.schema} ← ${resolved.failures.join(' / ')}`
+  } else {
+    // 用 import() 而不是 require()：宿主用 Promise.all 并发加载插件，那一刻 ESM 依赖可能
+    // 还没求值完，同步 require 会抛 ERR_REQUIRE_ESM_RACE_CONDITION（而且发生在模块求值期，
+    // 同步路径上无法重试）。顶层 await 会等它求值完。
+    const mod = await import(pathToFileURL(resolved.path).href)
+    zMod = mod.default ?? mod
+    schemaSource = resolved.root
+    if (typeof zMod?.object !== 'function') {
+      schemaError = `解析到 ${resolved.path}（经 ${resolved.root}），但它没有 z.object —— 不是 schemastery？`
+      zMod = null
     }
   }
-  try {
-    const zMod = await import(pathToFileURL(schema.path).href)
-    return {
-      ok: true,
-      z: zMod.default ?? zMod,
-      zSource: schema.root,
-      legacy,
-      legacyNote,
-      source: `${settings.root || '（未解析）'} / ${schema.root}`
-    }
-  } catch (e) {
-    const code = e && e.code ? `${e.code}: ` : ''
-    return { ok: false, reason: `已解析到路径但加载失败：${code}${(e && e.message) || e}` }
-  }
+} catch (e) {
+  schemaError = `已解析到路径但加载失败：${(e && e.code ? e.code + ': ' : '') + ((e && e.message) || e)}`
+  zMod = null
 }
 
-let cachedSchema
 /**
- * 构造命名空间 schema。所有字段都带默认值，因此即使设置文档里没有 `dsh-omkb:` 段，
- * resolved 值也是完整的——客户端回读不会拿到 undefined，宿主也能直接用默认值初始化灯光。
- * @param deps - {@link loadSettingsDeps} 成功返回的依赖对象（必须有可用的 `z`）。
- * @returns {any | null} schemastery schema；依赖不可用时为 null。
+ * 插件导出的设置 schema。loader 读的就是它（`entry.fiber.runtime.Config`）。
+ *
+ * **每个字段都必须 .volatile()**：`dsh-settings.describe()` 只把「有 volatile 字段」的
+ * 条目算进命名空间列表（volatileForm），写入也只接受 volatile 路径（isVolatilePath）；
+ * 漏标一个字段 = 那一行在设置页永远保存失败。反过来，标了 volatile 的字段改动由 loader
+ * 就地提交（`loader/volatile-update`），**不会重启插件**——所以改亮度不会把 BLE 断一次。
+ *
+ * 依赖没解析到时这里是 undefined：条目没有 schema → 命名空间不存在 → 设置页只能读默认值。
+ * 插件其余部分（按键/灯光）照常工作，诊断（/omkb/state 的 settings.error）会说清原因。
  */
-export function buildOmkbSchema(deps) {
-  if (cachedSchema !== undefined) return cachedSchema
-  if (!deps || typeof deps.z?.object !== 'function') {
-    cachedSchema = null
-    return cachedSchema
-  }
-  const { z } = deps
-  cachedSchema = z.object({
+export const Config = zMod
+  ? zMod.object({
     /** 灯光亮度 0..1。 */
-    brightness: z.number().min(0).max(1).default(OMKB_DEFAULTS.brightness),
+    brightness: zMod.number().min(0).max(1).default(OMKB_DEFAULTS.brightness).volatile(),
     /** 空闲自动调暗秒数，0 = 关闭。 */
-    autoDim: z.number().min(0).default(OMKB_DEFAULTS.autoDim),
+    autoDim: zMod.number().min(0).default(OMKB_DEFAULTS.autoDim).volatile(),
     /**
      * 键帽覆盖：动作键 id（ACT06..ACT12）→ 选定的键帽 id（如 'ACT07'）。
      * 值域与客户端 OMKB_KEYCAPS 的 id 一致；留空表示用物理键的出厂标签。
      */
-    actLabels: z.dict(z.string()).default(OMKB_DEFAULTS.actLabels),
+    actLabels: zMod.dict(zMod.string()).default(OMKB_DEFAULTS.actLabels).volatile(),
     /**
-     * 模拟摇杆映射：{ up, right, down, left } → 动作名（客户端 JOY_ACTION.name）。
+     * 模拟摇杆映射：{ up, right, down, left } → 动作名（取值域与出厂值见客户端
+     * src/client/config/default.js 的 JOY_ACTION / JOY_DEFAULTS）。
      * 动作名是开放集合（含技能名），故用自由字典而非枚举；
      * 'none' 表示该方向不绑定任何动作（不能用 null：dict<string> 校验会拒掉）。
      */
-    joystick: z.dict(z.string()).default(OMKB_DEFAULTS.joystick),
+    joystick: zMod.dict(zMod.string()).default(OMKB_DEFAULTS.joystick).volatile(),
     /** 智能体键映射模式。 */
-    agentKey: z.union(AGENT_KEY_MODES).default(OMKB_DEFAULTS.agentKey),
+    agentKey: zMod.union(AGENT_KEY_MODES).default(OMKB_DEFAULTS.agentKey).volatile(),
     /** 自定义分配：槽位(0..5) → 会话 id（键按字符串存储）。 */
-    agentAssign: z.dict(z.string()).default(OMKB_DEFAULTS.agentAssign),
+    agentAssign: zMod.dict(zMod.string()).default(OMKB_DEFAULTS.agentAssign).volatile(),
     /** 旋钮模式。 */
-    knob: z.union(KNOB_MODES).default(OMKB_DEFAULTS.knob),
+    knob: zMod.union(KNOB_MODES).default(OMKB_DEFAULTS.knob).volatile(),
     /** 自定义旋钮分配：{ cw, ccw, click, long } → 动作名。 */
-    knobCustom: z.dict(z.string()).default(OMKB_DEFAULTS.knobCustom),
+    knobCustom: zMod.dict(zMod.string()).default(OMKB_DEFAULTS.knobCustom).volatile(),
     /** 独立麦克风宽键。 */
-    micKey: z.boolean().default(OMKB_DEFAULTS.micKey),
-    /** 轻点聚焦窗口。 */
-    tapFocus: z.boolean().default(OMKB_DEFAULTS.tapFocus),
+    micKey: zMod.boolean().default(OMKB_DEFAULTS.micKey).volatile(),
     /**
      * 首次连接引导看过了没有（客户端 GuideController 在用户跳过/走完时写 true）。
      * 落在这里而不是 localStorage：它是「这台键盘的引导」而不是「这个浏览器的引导」，
      * 换台机器 / 重装浏览器不该再来一遍。重置布局会清掉它（于是下次连上再弹一次）。
      */
-    guideSeen: z.boolean().default(OMKB_DEFAULTS.guideSeen),
+    guideSeen: zMod.boolean().default(OMKB_DEFAULTS.guideSeen).volatile(),
     /**
      * 「这台键盘已被移除」（客户端 DeviceController 在用户确认移除时写 true）。
      *
@@ -225,9 +195,32 @@ export function buildOmkbSchema(deps) {
      * 只记在浏览器里的话，一次刷新（或换浏览器）界面就又冒出来了 —— 用户看到的是
      * 「点了移除没用」。移除时清空的是**其余全部字段**，这个标记自己留着。
      */
-    removed: z.boolean().default(OMKB_DEFAULTS.removed)
+    removed: zMod.boolean().default(OMKB_DEFAULTS.removed).volatile()
   })
-  return cachedSchema
+  : undefined
+
+/**
+ * 把宿主发下来的配置摊平成普通对象。
+ *
+ * volatile 字段在插件拿到的 config 里**不是值，而是一个引用对象**（cosmokit 的
+ * createVolatile：`{ get(), [Symbol.for('cosmokit.volatile.write')] }`），值要靠 `.get()`
+ * 取；标了 volatile 的字段就是这种形状（见 Config）。认不出来的形状原样返回，缺字段补默认
+ * —— 于是调用方拿到的永远是一个**字段齐全的普通对象**，不必自己判 `=== undefined`。
+ * @param config - apply(ctx, config) 收到的配置。
+ * @returns {object} 普通对象形式的偏好（未知字段不保留）。
+ */
+export function readConfig(config) {
+  const src = config && typeof config === 'object' ? config : {}
+  const out = {}
+  for (const key of Object.keys(OMKB_DEFAULTS)) {
+    const v = src[key]
+    if (v === undefined || v === null) out[key] = OMKB_DEFAULTS[key]
+    else if (typeof v === 'object' && typeof v.get === 'function') {
+      const inner = v.get()
+      out[key] = inner === undefined ? OMKB_DEFAULTS[key] : inner
+    } else out[key] = v
+  }
+  return out
 }
 
 /** 硬件侧真正消费的两个字段（其余字段只影响浏览器行为）。 */
@@ -240,121 +233,90 @@ export function readHardwarePrefs(section) {
 }
 
 /**
- * 组装设置命名空间接线所需的 hooks，并暴露「注册命名空间」与「读取当前值」。
+ * schema 里到底标了几个 volatile 字段。
  *
- * 采用「事件推送」而不是「回调闭包」：静态 import 会在模块求值期执行，而 ble/logger
- * 要等 apply() 里才存在，因此 hooks 先把值缓存下来，等 apply() 用 `attach(onChange)`
- * 注册监听后再补发一次。
- * @returns {{ hooks: object, install: Function, diagnose: Function,
- *   consume: Function, attach: Function, read: Function }}
+ * 不去数 OMKB_DEFAULTS 的键数：那样「漏标 volatile」这种错误就永远断言不出来
+ * （整条链恰好死在那一处）。这里读的是**真的 schema**（toJSON → refs 里翻 meta）。
+ * @returns {{total: number, volatile: number}}
  */
-export function createSettingsBridge() {
-  let source = null
-  let listener = null
-  let prefsChanged = false
-  // 命名空间「真的注册上了」的唯一判据：settings 服务的 inject 回调跑过。
-  // 注册入口在回调里调 hooks.setSource(...)，只接线成功（没抛错）还不足以说明
-  // 问题——ctx.inject 是异步的，回调可能一直不触发。
-  let registered = false
-  // 依赖加载是异步的（见 loadSettingsDeps），因此这里是个状态机：
-  // idle → loading → ready | failed。外部通过 diagnose() 观察，不猜。
-  let phase = 'idle'
-  let failure = null
-  let depsSource = null
-  // 实际走的接线入口（DSH 改过这个 API 的形态，出问题时这一项直接指路）。
-  let api = null
-  let registeredVia = null
-  // 两个入口（createSettingsBridge().hooks 与 install 传给注册入口的）
-  // 必须是同一份，否则 registered 会记在不被调用的那份上。
-  const hooks = {
-    setSource: (fn) => { source = fn; registered = true },
-    onChange: () => { prefsChanged = true; if (listener) { try { listener() } catch (e) {} } }
+export function countVolatileFields() {
+  const out = { total: 0, volatile: 0 }
+  if (!Config || typeof Config.toJSON !== 'function') return out
+  let json
+  try { json = Config.toJSON() } catch (e) { return out }
+  const root = json && json.refs ? json.refs[json.uid] : null
+  if (!root || !root.dict) return out
+  for (const uid of Object.values(root.dict)) {
+    const node = json.refs[uid]
+    if (!node) continue
+    out.total += 1
+    if (node.meta && node.meta.volatile === true) out.volatile += 1
   }
-  const fail = (reason) => { phase = 'failed'; failure = reason }
+  return out
+}
+
+/**
+ * 运行时自证：「这套设置到底接上了没有」。
+ *
+ * 判据必须是**别人也能复核的事实**，不是自我感觉：
+ *  · schema 建起来了没有（phase/error）；
+ *  · 字段数与 volatile 数（少标一个 → 那一行永远保存失败）；
+ *  · `settings.describe()` 里有没有我们这条命名空间（served）。
+ * 最后一条要等：我们的 fiber 在 apply 期间还没进入 active，那一刻 describe() 里必然没有
+ * 自己（它只收 state===2 的条目）——所以探测要延后，且只探一次。
+ */
+export function createSettingsProbe() {
+  const startedAt = Date.now()
+  /** 探测延迟：避开「apply 期间自己还没 active」那段（describe 只收 state===2 的条目）。 */
+  const PROBE_DELAY_MS = 1200
+  let service = null
+  let served = null
+  let namespaces = null
+  let probeError = null
   return {
-    hooks,
     /**
-     * 发起接线：等 settings 服务就绪 + 异步加载 schemastery，然后注册 `dsh-omkb` 命名空间。
-     *
-     * 两段都必须异步/延后：
-     *  * settings 服务晚于本插件出现是常态（插件加载顺序不保证）→ 走 `ctx.inject(['settings'])`；
-     *  * 宿主用 Promise.all 并发加载插件，那一刻 ESM 依赖可能还没求值完 → 同步 require 会抛
-     *    ERR_REQUIRE_ESM_RACE_CONDITION（见 loadSettingsDeps）。
-     * 结果通过 diagnose()（宿主挂在 /omkb/state 上）观察。
-     * @param ctx - 宿主插件上下文。
-     * @returns {boolean} 是否已发起接线（不代表已完成）。
+     * 把 settings 服务交给探针（宿主 ctx.inject(['settings']) 里调）。
+     * @param sctx - 带 settings 服务的上下文。
      */
-    install: (ctx) => {
-      if (typeof ctx?.inject !== 'function') {
-        fail('宿主上下文不支持 ctx.inject，无法等待 settings 服务')
-        return false
+    attach: (sctx) => { service = sctx && sctx.settings ? sctx.settings : null },
+    /**
+     * 尝试（一次）把 describe() 里我们那条命名空间记下来。
+     * 服务还没到 / 还没到时间 / 已经探过 → 直接跳过，不抛。
+     * @param ctx - 宿主插件上下文（服务没 attach 时用它兜底取）。
+     */
+    tick: (ctx) => {
+      if (served !== null) return
+      let svc = service
+      if (!svc) {
+        try { svc = ctx && typeof ctx.get === 'function' ? ctx.get('settings') : null } catch (e) { svc = null }
       }
-      if (phase !== 'idle') return phase === 'ready'
-      phase = 'loading'
-
-      /** 依赖就绪 + 服务就绪之后，按 API 世代选一条接线路径。 */
-      const wire = (sctx, loaded) => {
-        if (!loaded.ok) { fail(loaded.reason); return }
-        const schema = buildOmkbSchema(loaded)
-        if (schema === null) { fail('schemastery 可用但没有 z.object，schema 构建失败'); return }
-        const svc = sctx && sctx.settings
-        try {
-          if (svc && typeof svc.installSection === 'function') {
-            // DSH 0.1.5-rc.3+：命名空间是服务方法。
-            // installSection(owner, ns, schema, entry, hooks) —— entry 是组合层 / provider
-            // 缺失时的兜底值，必须给出完整对象（这里与 schema 默认值同源）。
-            svc.installSection(ctx, OMKB_NAMESPACE, schema, OMKB_DEFAULTS, hooks)
-            api = 'ctx.settings.installSection'
-            registeredVia = 'service'
-          } else if (loaded.legacy) {
-            // 旧版 DSH：包里导出的自由函数（ns 需要品牌化）。
-            loaded.legacy.installSettingsSection(
-              ctx,
-              loaded.legacy.settingsNamespace(OMKB_NAMESPACE),
-              schema,
-              OMKB_DEFAULTS,
-              hooks
-            )
-            api = 'dsh-settings.installSettingsSection'
-            registeredVia = 'package'
-          } else {
-            fail(`settings 服务没有 installSection，dsh-settings 包也没有 installSettingsSection（${loaded.legacyNote}）—— 该 DSH 版本没有可用的命名空间注册入口`)
-            return
-          }
-          depsSource = loaded.source
-          phase = 'ready'
-        } catch (e) {
-          fail(`设置命名空间接线失败（${api || '未识别路径'}）：${(e && e.message) || e}`)
-        }
-      }
-
-      const deps = loadSettingsDeps()
+      if (!svc || typeof svc.describe !== 'function') return
+      if (Date.now() - startedAt < PROBE_DELAY_MS) return
       try {
-        ctx.inject(['settings'], (sctx) => {
-          deps.then(
-            (loaded) => wire(sctx, loaded),
-            (e) => fail(`依赖加载异常：${(e && e.message) || e}`)
-          )
-        })
+        const rows = svc.describe() || []
+        namespaces = rows.map((r) => r && r.ns).filter((n) => typeof n === 'string')
+        served = namespaces.includes(OMKB_NAMESPACE)
       } catch (e) {
-        fail(`等待 settings 服务失败：${(e && e.message) || e}`)
-        return false
+        probeError = (e && e.message) || String(e)
       }
-      return true
     },
-    /**
-     * 运行时可观测的诊断快照（宿主把它挂到 /omkb/state，便于不重启终端就判断持久化是否在线）。
-     * `api` 记的是走的哪一代接线入口 —— DSH 改名过这个 API，出问题时这行字直接指路。
-     */
-    diagnose: () => ({ phase, registered, depsSource, api, via: registeredVia, error: failure }),
-    /** 消费一次待处理标记：有变更（或首次）时返回 true。 */
-    consume: () => { const had = prefsChanged; prefsChanged = false; return had },
-    /**
-     * 注册变更监听并立刻补发一次当前值。
-     * @param fn - 设置值变化时的回调（无参）。
-     */
-    attach: (fn) => { listener = fn; listener() },
-    /** @returns 当前 resolved 设置段（无 settings 服务时为 null）。 */
-    read: () => { try { return source ? source() : null } catch (e) { return null } }
+    /** @returns 诊断快照（挂在 /omkb/state 的 settings 上）。 */
+    diagnose: () => {
+      const fields = countVolatileFields()
+      return {
+        // 契约代号：这一版是「条目 Config + volatile」。下次 DSH 再改，这行字直接指路。
+        api: 'Config(volatile)',
+        via: 'config',
+        namespace: OMKB_NAMESPACE,
+        phase: Config ? 'ready' : 'failed',
+        error: schemaError,
+        schemaSource,
+        fields: fields.total,
+        volatile: fields.volatile,
+        served,
+        namespaces,
+        probeError
+      }
+    }
   }
 }

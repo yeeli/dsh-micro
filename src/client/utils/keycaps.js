@@ -1,9 +1,20 @@
-// dsh-omkb · client/src/keypad/layout.js
+// dsh-omkb · client/src/utils/keycaps.js
 // 布局模型：设备键码 ↔ 设置页「键盘布局」里的视觉键。
 //
-// 为什么单独拎一个**纯 JS** 模块：布局既要被 React 渲染（components/keyboard-layout.jsx），
+// 2026-09-26 从 client/keypad/layout.js 迁到这里（目录约定：布局模型是纯数据 + 纯函数，
+// 属于 utils），并按用户要求**改名为 keycaps.js**。
+//
+// ⚠ 名字与内容是有意错位的，别被名字骗了：
+//     本文件            —— 键帽**画在哪一格**（几何/映射：键码 ↔ 视觉键、合并/拆分态、出厂功能翻译）
+//     client/keypad.js  —— 键帽**按下做什么**（行为：键帽表 + 分派器）
+//   两个文件都「关于键帽」，所以两个名字都合理；分工的判据写在 keypad.js 头部。
+//
+// 为什么纯 JS：布局既要被 React 渲染（components/settings/keyboard-layout.jsx），
 // 又要有能被自检 / 探针直接验的判据（JSX 那侧 Node 自检 import 不了）。
 // 模型只写在这里一份，三处（渲染 / 自检 / 探针）都从这里取，别再各写一份。
+//
+// 住 utils 的理由（「utils 只放不涉及功能执行的工具」）：本文件全是纯数据与纯函数，
+// 不碰 ctx、不碰运行时、没有副作用 —— 它算的是「哪一格」，不是「按下干什么」。
 //
 // 设备事实（Codex Micro 官方文档）：底部那颗 **两倍宽的 Mic 键下面有两个开关**，
 // 它们分别上报 ACT10 / ACT11。Codex 里的「使用独立麦克风键」说的就是这件事：
@@ -14,6 +25,12 @@
 //   * 开（micKey=true）：两个开关各自独立 —— **拆成两颗 1 格宽的键**（左右顺序＝读序）。
 //     左开关（ACT10）出厂是 MIC 键；右开关（ACT11）出厂是**自定义键**（未指派 → 按下不执行，
 //     点它选键帽），见 MIC_CUSTOM_CODE 的注释。
+
+// 出厂**按键功能**表住在默认配置里（`../config/default.js` 的 FACTORY_KEY_FUNCS），值是功能名；
+// 这里负责把它翻成键帽 id（界面/DOM 要的是键帽 id，见下）。所以是 import + 本文件再算出映射，
+// 不是 `export … from`。
+import { keycapActions } from '../actions/registry.js'
+import { FACTORY_KEY_FUNCS } from '../config/default.js'
 
 /** Mic 宽键下面的两个开关，数组顺序＝布局里从左到右。 */
 export const MIC_SWITCHES = ['ACT10', 'ACT11']
@@ -32,17 +49,40 @@ export const MIC_MERGED_ID = 'act11'
 export const MIC_CUSTOM_CODE = 'ACT11'
 
 /**
- * 出厂键帽：某颗键**没被改过**时，它自己就是自己的键帽（键帽 id 沿用设备键码）。
- * ACT11 是唯一有讲究的一条 —— 合并态下它和 ACT10 是**同一颗宽键**的两个开关，
- * 出厂键帽取 'ACT10'（MIC）＝「这颗宽键就是麦克风键」。
- * 为什么不写 'ACT11'（它在 keycaps.js 里是指向 ACT10 的历史别名）：别名只该用在
- * **读老存档**那一侧，不该漏进 DOM 与界面 —— 探针量到的 data-omkb-cap 应当是正经键帽 id。
- * 拆分态不走这张表，见 {@link capFor}。
+ * 功能名 → 键帽 id。
+ *
+ * 键帽表（`../keypad.js`）与功能总表（`../actions/registry.js`）的关系是「一颗键帽 = 一个功能」：
+ * 总表每条功能带着自己的 `capId`，那就是它在键帽表里的存储 id。所以这张映射不需要手写，
+ * 从总表派生即可 —— 加/删功能时它自动跟着变（想加一把新键帽，改总表那一条就行）。
+ * 注意新功能的 capId 未必是设备键码（FORK 的 capId 就是 'FORK'），所以**不能让默认表写键帽 id**：
+ * 那样每加一颗新键帽都要回来改默认配置。默认表写功能名，这一层负责翻译。
  */
-export const FACTORY_CAP = {
-  ACT06: 'ACT06', ACT07: 'ACT07', ACT08: 'ACT08', ACT09: 'ACT09',
-  ACT10: 'ACT10', ACT11: 'ACT10', ACT12: 'ACT12'
+const CAP_OF_FUNC = new Map(keycapActions().map((a) => [a.id, a.capId]))
+
+/** 设备键码（大小写不敏感）→ 它在 `FACTORY_KEY_FUNCS` 里登记的出厂功能名。 */
+const factoryFuncName = (code) => FACTORY_KEY_FUNCS[String(code || '').trim().toUpperCase()]
+
+/**
+ * 某颗键**出厂**按下执行什么功能（动作名，即总表的 id）。
+ * @returns {string|null} 动作名；**null = 这颗键没有出厂功能**（键码不在默认表里，比如 6 颗智能体键，
+ *   或默认表里写了个不能当键帽的功能名 —— 后者会被自检 verify_keycaps 判红）。null = 按下什么都不做。
+ */
+export const factoryFuncOf = (code) => {
+  const f = factoryFuncName(code)
+  return CAP_OF_FUNC.has(f) ? f : null
 }
+
+/**
+ * 某颗键**出厂**是哪个键帽（＝界面上画什么图标）。判据只有一处：默认配置里的功能名 + 总表的 capId。
+ *
+ * 为什么返回值必须走 capId 而不是功能名：DOM 上 `data-omkb-cap` 与图标表（components/common/ui.jsx
+ * 的 CAP_ICON）认的都是**键帽 id**。直接返回功能名会让探针量到 `voice` 这种值、图标也取不到。
+ * 顺带解决历史别名：MIC 那颗键帽的 id 是 'ACT10'，所以 ACT11 出厂也会翻成 'ACT10'，而不是
+ * ../keypad.js 里那个只该用于**读老存档**的历史别名。
+ *
+ * @returns {string|null} 键帽 id；null = 没有出厂键帽（拆分态那颗自定义键的初始状态，见 capFor）。
+ */
+export const factoryCapOf = (code) => CAP_OF_FUNC.get(factoryFuncName(code)) || null
 
 /**
  * 一颗物理键**现在**是哪颗键帽 —— 也就是「按下它执行什么」（渲染与动作解析共用这一份判据）。
@@ -58,12 +98,12 @@ export const capFor = (code, prefs = {}) => {
     if (prefs && prefs.micKey) {
       // 拆分态：两颗开关各读各的；左键没设过 → MIC，右键没设过 → 未指派（自定义键）
       if (c === MIC_CUSTOM_CODE) return labels[c] || null
-      return labels[c] || FACTORY_CAP[c] || null
+      return labels[c] || factoryCapOf(c)
     }
     // 合并态：两颗开关共用同一颗宽键，键帽与功能走同一条链（ACT11 优先，历史写入口就是它）
-    return labels.ACT11 || labels.ACT10 || FACTORY_CAP.ACT11
+    return labels.ACT11 || labels.ACT10 || factoryCapOf('ACT11')
   }
-  return labels[c] || FACTORY_CAP[c] || null
+  return labels[c] || factoryCapOf(c)
 }
 
 /**
@@ -119,7 +159,7 @@ export const micRowKeys = (prefs = {}) => {
  *
  * 为什么复用键帽那一格：设置里那一格就是「这颗键是什么」——键帽列表本身就是功能列表
  * （FAST/ARCH/REJ/APPR/MIC/SEND），用户改键帽时想的是「把这颗键改成发送」，
- * 只改显示不改行为会被当成「设置不反应」（见 ./index.js 的 resolve）。
+ * 只改显示不改行为会被当成「设置不反应」（见 ../keypad.js 的 resolve）。
  * Mic 两颗开关在合并态共用同一颗宽键，取值链与键帽完全一致（ACT11 优先、ACT10 兜底）。
  * @param {string} code 设备键码（ACT06..ACT12，大小写不敏感）。
  * @param {boolean} split 是否拆分态（micKey 打开时两颗开关各自独立）。

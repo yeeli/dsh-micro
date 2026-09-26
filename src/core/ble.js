@@ -28,14 +28,15 @@
 //      → 管**跨拍**的重复（宿主的结论与浏览器那份带 350ms 防抖的快照错开一拍到达，内容相同）。
 //      这一层是用户实测「还是会发送两条」之后补的：只做①挡不住跨拍的那一对。
 // **进程要走了就把两组灯全部按灭**：设备会保留最后收到的灯效，不关的话就是「app 关了、键盘还亮着」。
-// 两个落点：插件卸载（dispose）与**进程级退出**（Ctrl+C/SIGTERM/SIGHUP，见 ./exit-guard.js 的
+// 两个落点：插件卸载（dispose）与**进程级退出**（Ctrl+C/SIGTERM/SIGHUP，见 ./guard.js 的
 // blackout 回调 —— 那条路常常等不到 dispose）。灭灯**必须同步写出去**，所以它走 #sendThstatus
 // 而不是合并闸门（「exit」钩子里微任务根本不会跑）。**断开连接（close）时刻意不做**灭灯
 // —— 断开随时会发生、也随时会重连，在那里关灯换来的只是「重连之后黑一片」。
 
 import { createRequire } from 'node:module'
 import { JOYSTICK_METHOD, parseJoystick } from './joystick.js'
-import { createExitGuard } from './exit-guard.js'
+import { createExitGuard } from './guard.js'
+import { logSink } from './log.js'
 
 const require = createRequire(import.meta.url)
 
@@ -200,7 +201,7 @@ export class BleController {
   #diagnostics = null
   #dimTimer = null
   /**
-   * 进程退出安全网（见 ./exit-guard.js）。
+   * 进程退出安全网（见 ./guard.js）。
    * **只有真的打开了设备才会 install()**：手上没有句柄就完全不碰进程信号，
    * 宿主启动失败时也就不会因为我们而变成「退不掉」。
    */
@@ -235,10 +236,11 @@ export class BleController {
   #desiredAgents = [] // 浏览器下发的期望灯态（设备字段 + 会话 id 元数据）
   #slotSessions = [] // 槽位下标 → 会话 id
   /**
-   * 「同拍合并」的两个暂存位（见 #renderAgents）。
+   * 「同拍合并」的暂存位（见 #renderAgents）。
    *
    *   `#pendingAgents`   —— 算好但还没写出去的那一份参数（null = 没东西待写）
    *   `#agentsScheduled` —— 当前这一拍是否已经排过写入（排过就只覆盖内容，不再排第二次）
+   *   `#pendingForce`    —— 这一份是不是**结论**驱动的（是则不许被内容去重挡下）
    *
    * 为什么要有它（用户 2026-09-25 要求：**会话信息返回给键盘设备时，一次不许发多条**）：
    * 同一个事件循环拍里会有好几个来源都要重画灯态 —— 宿主的 `agent/error` 与 `agent/status`
@@ -248,6 +250,34 @@ export class BleController {
    */
   #pendingAgents = null
   #agentsScheduled = false
+  /**
+   * 待写的这一份是不是**结论**驱动的 —— 是则**必须真发出去**，不许被内容去重挡下。
+   *
+   * 为什么要有它（用户 2026-09-26 第四次报：「如果上一次是发送失败，这一次发送又失败
+   * 就不会发送 thstatus 了 —— 状态只回复当前会话的状态，其它会话 st 都为 0」）：
+   * `#lastThstatus` 的内容去重回答的是「**设备此刻是不是已经这个样子了**」。对**常态灯态**
+   * （浏览器推的期望态）这个问题问得对 —— 浏览器重推一份一模一样的快照，设备没必要听第二遍。
+   *
+   * 但对**结论**它问错了：一个结论是**事件**，不是「此刻的样子」。而红色恰好是**宿主独占**的
+   * （`#errorColor`，浏览器那份改不动它），于是「又失败一次」算出来的 6 槽内容与上一次
+   * **逐字节相同** → 被当成重复挡下 → 设备根本不知道又失败了一次。用户实测的正是这一条。
+   * 真机实测的槽位（`npm run probe:agentslots`）：4 个可见会话全是空闲 → 除了出结论的那一颗键，
+   * 其余槽位的 `st/c/b/e` **一个字都不变**，所以两次失败的报文必然逐字节相同。
+   *
+   * 只给 **error** 这条路打开（见 `#latchOutcome`）。为什么 success 不需要、也不该：
+   *   · 成功的颜色要**等浏览器更正**（运行中的蓝 → 空闲的白），此刻多下发一次就可能多一条
+   *     错颜色的中间态（那正是 §8f 要堵的东西）；
+   *   · 它每次的颜色本来就与上次不同（蓝→白），内容去重根本挡不住它，用不着开这个口子。
+   * 「**颜色由谁定**」又一次决定了能不能等、能不能去重 —— 与 `#outcomeWindowMs` 同一条纪律。
+   *
+   * 它跟着**内容**走（谁后到谁赢）—— 与 `#pendingAgents` 同一套语义：写这一份的调用方是不是结论，
+   * 就记成什么。曾经写成「**或**上去」（`if (force) this.#pendingForce = true`，理由：同一拍里结论
+   * 算出的内容若被浏览器那份覆盖，这一条仍然算结论），反证时发现**行为上分辨不出**：
+   * 本文件里其余会重画灯态的入口（浏览器 POST / HID 输入 / 1s 的调暗检查 / open 重放）全都来自
+   * I/O 回调或定时器，而写入排在**同一个事件循环拍的微任务**里 —— 「这一拍里结论被别的渲染覆盖」
+   * 构造不出来。按「**不留无法反证的分支**」改成直接赋值（同 `#browserSeq` 那一课的规矩）。
+   */
+  #pendingForce = false
   /**
    * 上一次**真正写出去**的那条 `v.oai.thstatus` 长什么样（JSON 字符串，用来比对内容）。
    *
@@ -261,6 +291,48 @@ export class BleController {
    * `close()` 清空 —— 「链路断了」是唯一必须忘掉「上次发过什么」的时刻（重连要重放）。
    */
   #lastThstatus = null
+  /**
+   * **结果态的等待窗口**（毫秒）—— 「跑完一轮」「重新开跑」这类结果态**不立刻下发**，
+   * 先等一个窗口，到点再回头看浏览器那条来了没有。
+   *
+   * 为什么要有它（用户 2026-09-26 第一次报「在会话中 thstatus 还是发两次」）：
+   * 「会话状态变了」这件事有**两条速率不同的通道**。宿主的事件（`agent/turn-stopping` 等）是即时的；
+   * 浏览器那份期望灯态带 **350ms 防抖**，而且要等会话列表变化才重算 —— 同一个物理时刻的事，
+   * 它要晚 350ms 以上才到。于是「跑完一轮」变成两条：宿主先用**上一拍的颜色**（运行中的蓝）
+   * 写一条 st=2，350ms 后浏览器那条把颜色更正成空闲的白 —— 内容不同，`#lastThstatus` 的
+   * 内容去重挡不住（它只挡「一模一样」）。实测一次「跑完一轮」设备收到 3 条：
+   * 蓝·运行中 → 蓝·成功 → 白·成功，中间那条是纯粹的抢跑。
+   *
+   * ⚠ **窗口到点 ≠ 可以写**（用户 2026-09-26 第二次报「会话中 thstatus 又发两次」）：
+   * 第一版只是把写入往后推一个固定窗口，暗含「浏览器那条总会落在窗口内」—— 而它站不住：
+   *   · `pushLeds` 的 350ms 防抖是**重新计时**的（`clearTimeout` + 新 `setTimeout`），
+   *     会话在跑时列表频繁变化 → 那条 POST 被无限往后推，「会话中」正是它最容易超时的时刻；
+   *   · 页面切到后台，Chrome 还会把定时器节流到 1s 以上。
+   * 于是窗口一到点就写了「**旧颜色** + 新 st」，浏览器那条到了再把颜色更正 → 还是两条。
+   * 现在改成**等浏览器那条真的到**（看那份待写内容有没有被消费掉），窗口只是「回头看一眼」的
+   * 检查点；它一直不来（页面关了）才由 `#outcomeMaxMs` 兜底。
+   * 窗口大小因此不再需要「比对方长」，它只决定**多久检查一次**。
+   *
+   * **诊断面不受影响**：`#state.agents` / `#state.outcomes` 仍在**同一拍同步**更新 ——
+   * 读它的人（GET /omkb/state、自检）不该被「什么时候写设备」左右。
+   *
+   * 0 = 立即写（自检用；`DSH_OMKB_OUTCOME_MS` 覆盖）。
+   */
+  #outcomeWindowMs = 500
+  /**
+   * 等浏览器那条的**硬上限**（毫秒）—— 从**首次**开窗算起，不因期间又来结论而重排。
+   *
+   * 为什么必须有：「等对方」的判据对面可能**永远不来**（页面关了 / 崩了 / 被挂起）。
+   * 没有上限就变成「灯一直不变」，那是用户明确反对的另一头。
+   * 为什么是 2s：正常路径下浏览器那条 350ms~1s 内必到（防抖 + 渲染 + 后台节流），
+   * 2s 已是「这次真的不会来了」的量级；再长只会让「页面关了」的场景更迟钝。
+   * `DSH_OMKB_OUTCOME_MAX_MS` 覆盖（自检要调小，否则每节都得多等 2 秒）。
+   */
+  #outcomeMaxMs = 2000
+  /** 当前这轮结果态**首次**开窗的时刻（0 = 没在等）。算 `#outcomeMaxMs` 的起点，**不重排**。 */
+  #outcomeSince = 0
+  /** 结果态窗口的定时器（null = 窗口没开）。见 #outcomeWindowMs / #deferAgentsWrite。 */
+  #outcomeTimer = null
   /**
    * 槽位下标 → { sid, kind }，**结果态**（kind: 'error' | 'success'）。
    *
@@ -286,12 +358,18 @@ export class BleController {
     this.#diagnostics = typeof diagnostics === 'function' ? diagnostics : null
     const probe = Number(process.env.DSH_OMKB_PROBE_MS)
     if (Number.isFinite(probe) && probe >= 0) this.#probeMs = probe
+    // 结果态窗口（见 #outcomeWindowMs）：自检设 0 退回「同拍合并后立刻写」的老路径。
+    const outcome = Number(process.env.DSH_OMKB_OUTCOME_MS)
+    if (Number.isFinite(outcome) && outcome >= 0) this.#outcomeWindowMs = outcome
+    // 等浏览器那条的硬上限（见 #outcomeMaxMs）：自检调小，否则每节都得多等 2 秒。
+    const outcomeMax = Number(process.env.DSH_OMKB_OUTCOME_MAX_MS)
+    if (Number.isFinite(outcomeMax) && outcomeMax > 0) this.#outcomeMaxMs = outcomeMax
     this.#dimTimer = setInterval(() => this.#autoDimCheck(), 1000)
     this.#dimTimer.unref()
     // 安全网只**建**不装：装的动作在 open() 成功之后（没设备就别碰进程信号）。
     // release 指向 close()：它是幂等的，重复调用安全。
     // blackout 指向 blackout()：退出（Ctrl+C 等）前必须先把灯关掉 —— 灯是设备自己记着的，
-    // 进程一走没人替我们关；而宿主未必来得及走到 dispose()（见 ./exit-guard.js 顶部那一节）。
+    // 进程一走没人替我们关；而宿主未必来得及走到 dispose()（见 ./guard.js 顶部那一节）。
     // ⚠ blackout 必须排在 release **之前**执行（由安全网保证），否则句柄先没了就写不出去。
     this.#exitGuard = createExitGuard({
       release: () => this.close(),
@@ -300,10 +378,12 @@ export class BleController {
     })
   }
 
-  // 日志同时打到 Cordis logger 和终端 stdout/stderr，方便从命令行用 `dsh web` 调试
-  #log = (...a) => { try { this.#logger?.['info']?.(...a) } catch (e) {}; console.log('[omkb]', ...a) }
+  // 日志同时打到 Cordis logger 和「我们自己那一份」（开发版 = 终端 stdout/stderr，方便
+  // 从命令行用 `dsh web` 调试；**正式版 = 只写 $DSH_HOME/logs/dsh-omkb.log**，终端安静）。
+  // 去向由 ./log.js 的 logSink 定（构建期常量 __OMKB_RELEASE__，见那边的注释）。
+  #log = (...a) => { try { this.#logger?.['info']?.(...a) } catch (e) {}; logSink.info(...a) }
 
-  #warn = (...a) => { try { this.#logger?.['warn']?.(...a) } catch (e) {}; console.error('[omkb]', ...a) }
+  #warn = (...a) => { try { this.#logger?.['warn']?.(...a) } catch (e) {}; logSink.warn(...a) }
 
   get state() { return this.#state }
 
@@ -360,7 +440,9 @@ export class BleController {
 
   // 处理一条完整的 JSON 通知行，如 {"method":"v.oai.hid","params":{"k":"AG00"}}
   #handleLine = (line) => {
-    console.log(line);
+    // 入站帧**原样**回显：开发版照旧打终端（`console.log(line)`，**不带** [omkb] 前缀）；
+    // 正式版落进日志文件的 `[rx]` 级别（排查「设备到底说了什么」时只有它靠得住）。
+    logSink.raw(line)
     const raw = line.trim()
     if (!raw) return
     let msg
@@ -540,10 +622,6 @@ export class BleController {
         return
       }
       const list = nodehid.devices()
-      //this.#log('枚举到 HID 设备数:', list.length)
-      //for (const d of list) {
-      //  this.#log('  -', d.product, '|', d.manufacturer, '| 0x' + (d.vendorId || 0).toString(16).padStart(4, '0') + ':' + (d.productId || 0).toString(16).padStart(4, '0'), '| usagePage=0x' + (d.usagePage || 0).toString(16))
-      //}
       const cand = list.find(this.#matches)
       if (!cand) {
         this.#log(
@@ -559,7 +637,7 @@ export class BleController {
       this.#state.open = true
       // ---- 从这里开始我们真的握着一个会持有事件循环的句柄 ----
       // 装上退出安全网：宿主启动失败/优雅退出卡住时，Ctrl+C 仍然能把进程带走
-      // （见 ./exit-guard.js 顶部：为什么不能像以前那样在信号回调里同步 close）。
+      // （见 ./guard.js 顶部：为什么不能像以前那样在信号回调里同步 close）。
       this.#exitGuard?.install()
       // 连上后停止自动重连定时器
       if (this.#reconnectTimer) { clearInterval(this.#reconnectTimer); this.#reconnectTimer = null }
@@ -622,6 +700,14 @@ export class BleController {
     // 链路都没了，补写只会多一行「设备未连接，忽略写回」的 warn。重连时 open() 会重新
     // #renderAgents() 重放，所以不会漏掉灯态。
     this.#pendingAgents = null
+    // 「是不是结论」也一起作废：它属于被丢掉的那一份待写内容，留着会让**下一条**无关灯态
+    // 平白绕过内容去重（那个暂存位的两半必须同生同灭，见 #pendingForce）。
+    this.#pendingForce = false
+    // 还没到点的结果态窗口也一起撤掉（见 #outcomeWindowMs）：链路都没了，到点再算一次
+    // 只会多一行「设备未连接，忽略写回」的 warn —— 重连时 open() 会重放灯态，不会漏。
+    // 用 #cancelOutcomeWindow 而不是只清定时器：它顺手把「这轮从什么时候开始等」也归零，
+    // 两个字段本来就该同生同灭（见它的注释）。
+    this.#cancelOutcomeWindow()
     // 顺手忘掉「上次写出去的灯态长什么样」（内容去重的账，见 #lastThstatus）：链路断过之后
     // 设备那份画面不再可信（它可能自己重启过 / 被人手动改过），重连时 `#renderAgents()` 必须
     // **真的重放一次**，不能被内容比对挡掉。
@@ -830,16 +916,35 @@ export class BleController {
    * 内容与**上一次真正写出去的**完全一致时直接跳过，并记一行日志。
    * 比对的是**规范化之后**的参数，所以「先失败、随后浏览器补一份陈旧快照」这种重复也认得出来
    * —— 它算出来的红灯与宿主刚写出去的逐字节相同（见 `#lastThstatus` 的注释）。
-   * @returns {boolean} 是否真的写了（内容没变时为 false，这不是错误）。
+   *
+   * ⚠ **只有常态灯态才吃这套去重**。`force`（= 宿主的结论，见 `#pendingForce`）为真时，
+   *   内容再一样也**必须发**：结论是**事件**，「设备此刻已经是红色」并不等于「设备已经知道
+   *   又失败了一次」。用户 2026-09-26 第四次报的「连续两次失败，第二次不发」就是被这条挡下的。
+   * @param params - `#thstatusParams` 规范化过的 6 槽参数。
+   * @param force - true = 结论态，跳过内容比对直接发。
+   * @returns {boolean} 是否真的写了（内容没变且非结论时为 false，这不是错误）。
    */
-  #writeThstatus = (params) => {
+  #writeThstatus = (params, force = false) => {
     const key = JSON.stringify(params)
     if (key === this.#lastThstatus) {
-      this.#log('灯态与上次写出去的完全相同 → 跳过重复写回')
-      return false
+      if (!force) {
+        this.#log('灯态与上次写出去的完全相同 → 跳过重复写回')
+        return false
+      }
+      // 结论态照发 —— 这一行是给「又失败一次，终端里却什么都没有」留的证据。
+      this.#log('这一条是结论态 → 内容与上次相同也照发（内容去重只挡常态灯态）')
     }
     const ok = this.#sendRpc('v.oai.thstatus', params)
-    if (ok) this.#lastThstatus = key
+    if (ok) {
+      this.#lastThstatus = key
+      // 写出去的这一条也留痕 —— 用户在终端里能**直接数条数**。
+      //
+      // 为什么值得多这一行（用户 2026-09-26 第三次报「点击发送后还是两条」）：当时唯一的
+      // 现象描述就是「设备收到两条」，而宿主侧**写出去的没有日志、只有被跳过的有** ——
+      // 想核对「到底是两条还是一条」只能去嗅探 BLE。加上这行之后，同一次操作在终端里
+      // 出现几行「→ 写 thstatus」，设备就真的收到了几条（上面那行「跳过重复」是它的补集）。
+      this.#log(`→ 写 thstatus${force ? '（结论）' : ''}：${params.map((p) => `${p.id}:st${p.st}/#${p.c.toString(16).padStart(6, '0')}${p.e ? '' : '(灭)'}`).join(' ')}`)
+    }
     return ok
   }
 
@@ -878,7 +983,7 @@ export class BleController {
    * 两个落点 ——
    *   · `dispose()`：插件卸载（宿主优雅关闭 / 重载）；
    *   · **退出安全网**（exit-guard）：Ctrl+C / SIGTERM / SIGHUP 这类进程级退出，
-   *     宿主未必来得及走到 `dispose()`（见 ./exit-guard.js 顶部「退出前必须灭灯」）。
+   *     宿主未必来得及走到 `dispose()`（见 ./guard.js 顶部「退出前必须灭灯」）。
    *
    * 幂等：重复调用只是把同一份「全灭」再写一遍，弄不坏任何状态（插件可能被卸载两次、
    * 安全网也可能在 exit 钩子上再调一次）。
@@ -924,20 +1029,79 @@ export class BleController {
   // （GET /omkb/state、自检）不该被一个微任务的时序影响。
   //
   // 反过来，**灭灯不走这里**（见 #sendThstatus 的注释）：退出路径必须同步写出去。
-  #renderAgents = () => {
+  //
+  // @param defer - 排到结果态窗口之后（见 #deferAgentsWrite），只给结果态用。
+  // @param force - 这一份是**结论** → 写出去时不吃内容去重（见 #pendingForce）。
+  #renderAgents = (defer = false, force = false) => {
     if (!this.#desiredAgents.length) return false
     const params = this.#thstatusParams(this.#composeAgents())
+    // ⚠ 下面两行**同步**更新，与「什么时候写设备」无关：读诊断面的人（GET /omkb/state、
+    //   自检）不该被一个写设备的时机左右。defer 只推迟 #pendingAgents 的落地。
     this.#state.agents = params
     // 排查用：哪些键此刻挂着结果态（红/成功）、分别是哪个会话。它们是**不会自己消失**的，
     // 所以「灯的颜色没人解释」时，先来这里看是谁挂的。
     this.#state.outcomes = [...this.#outcome].map(([slot, t]) => ({ slot, sid: t.sid, kind: t.kind }))
     this.#pendingAgents = params
-    if (!this.#agentsScheduled) {
+    // 「是不是结论」跟着**内容**一起记（谁后到谁赢，与 #pendingAgents 同一套语义，见 #pendingForce）。
+    this.#pendingForce = force
+    if (defer) this.#deferAgentsWrite()
+    else if (!this.#agentsScheduled) {
       this.#agentsScheduled = true
       queueMicrotask(this.#flushAgents)
     }
     return true
   }
+
+  /**
+   * 把待写的那份灯态排到**一个窗口之后**（见 `#outcomeWindowMs`）—— 只给**结果态**用
+   * （`#latchOutcome` / `clearOutcome`），常态灯态照旧走同拍合并后立刻写。
+   *
+   * 窗口内再来多少次都只是覆盖 `#pendingAgents`（谁后到谁赢，算的都是「此刻应该是什么样」），
+   * 到点只写一条。**已经在窗口里就直接返回，起点不重排** —— 否则连续事件会把写入无限往后推，
+   * 变成「一直不亮」。
+   *
+   * 窗口为 0（自检 / `DSH_OMKB_OUTCOME_MS=0`）时走的还是老路径：同拍合并后立刻写。
+   * 这样「结果态延后」这件事不会把「同拍只发一条」那套既有语义搅乱。
+   */
+  #deferAgentsWrite = () => {
+    if (this.#outcomeWindowMs <= 0) {
+      if (!this.#agentsScheduled) {
+        this.#agentsScheduled = true
+        queueMicrotask(this.#flushAgents)
+      }
+      return
+    }
+    if (this.#outcomeTimer) return
+    if (!this.#outcomeSince) this.#outcomeSince = Date.now()
+    this.#outcomeTimer = setTimeout(this.#afterOutcomeWindow, this.#outcomeWindowMs)
+    // 绝不因为一条灯效把进程留住（窗口到点前进程就该能走；那时灯也没人看了）。
+    this.#outcomeTimer.unref?.()
+  }
+
+  /**
+   * 窗口到点：**回头看一眼浏览器那条来了没有** —— 只有来了（或等过头了）才把灯写出去。
+   *
+   * 怎么知道它来了：**看 `#pendingAgents` 还在不在**。浏览器那条一到就走
+   * `#applyAgents` → `#renderAgents()`（非 defer）→ 微任务把终态写下去，这一份随即被消费掉；
+   * 所以「到点后 `#pendingAgents` 还在」= 这期间没有任何东西写过灯。此刻写出去的是
+   * 「旧颜色 + 新 st」，等浏览器到了还得再写一条，设备就收到两条 —— 那正是用户报的病。
+   * 于是**继续等**，等到 `#outcomeMaxMs` 才认输兜底。
+   *
+   * ⚠ 曾经这里还比过一个「浏览器推送序号」（`#browserSeq` / `#outcomeSeq`）。反证时发现
+   *   **摘掉它行为完全不变** —— 因为「浏览器推过」的充分表现就是上面那份待写内容被消费掉，
+   *   序号是第二份判据、多一个可以不同步的字段。按「不留无法反证的分支」删掉了。
+   */
+  #afterOutcomeWindow = () => {
+    this.#outcomeTimer = null
+    const patientLeft = Date.now() - this.#outcomeSince < this.#outcomeMaxMs
+    if (this.#pendingAgents && patientLeft) {
+      this.#deferAgentsWrite()
+      return
+    }
+    // 认输：连同窗口一起撤掉（`#flushAgents` 里的 #cancelOutcomeWindow），别留孤儿。
+    this.#flushAgents()
+  }
+
 
   /**
    * 把当前这一拍攒下的那一份灯态写出去（**最多一条**，且内容与上次相同就跳过）。
@@ -949,10 +1113,38 @@ export class BleController {
    */
   #flushAgents = () => {
     this.#agentsScheduled = false
+    // 这一轮等待到此结束（灯已经有人写了）→ **窗口也一起撤掉**。
+    //
+    // ⚠ 必须是「一起」：只清 `#outcomeSince` 而不清 `#outcomeTimer`，会留下一个**孤儿窗口**。
+    //   它到点时算 `patientLeft = Date.now() - 0 < 上限` —— 恒为 false → 直接 `#flushAgents()`
+    //   把手上那份 `#pendingAgents` 写出去；而那份是 flush **之后**新来的（defer 路径设的、
+    //   本该等浏览器那条），于是「旧颜色 + 新 st」抢跑一条，浏览器到了再写一条 = 设备收到两条。
+    //   用户 2026-09-26 第三次报的「点击发送后还是两条」就是它（见 verify_blackout §8g）。
+    this.#cancelOutcomeWindow()
     const params = this.#pendingAgents
+    // 「是不是结论」与内容一起消费掉（同一个暂存位的两半）。
+    const force = this.#pendingForce
     this.#pendingAgents = null
+    this.#pendingForce = false
     if (!params) return false
-    return this.#writeThstatus(params)
+    return this.#writeThstatus(params, force)
+  }
+
+  /**
+   * 撤掉还没到点的结果态窗口，并清掉「这一轮从何时算起」。
+   *
+   * 谁清 `#outcomeSince` 谁就得清 `#outcomeTimer` —— 这两个字段是**同一件事的两半**：
+   * 窗口活着 = 这一轮还在等浏览器那条。只清一个就会留下孤儿窗口，它到点时按「已经等过头了」
+   * 处理，把不该写的待写内容抢跑写出去（见 `#flushAgents` 与 §8g）。
+   *
+   * ⚠ 这条曾经被当成「删掉也没有断言变红」的冗余代码删过一次 —— 那是**当时漏了场景**：
+   *   §8f 覆盖的是「开窗后没有新的结果态变化」，而 orphan 要的是
+   *   「开窗 → 浏览器那条到（flush）→ **又来一次结果态变化**（点击发送 / clearOutcome）」。
+   *   §8g 补上之后，删掉它立刻红 3 条。**别再删了。**
+   */
+  #cancelOutcomeWindow = () => {
+    if (this.#outcomeTimer) { clearTimeout(this.#outcomeTimer); this.#outcomeTimer = null }
+    this.#outcomeSince = 0
   }
 
   /**
@@ -991,7 +1183,19 @@ export class BleController {
     // 同槽位后写覆盖先写：失败之后重试成功，红灯该被成功盖掉（反过来则说明重试又失败了，
     // 那个也是新的结论）。两颗键对应同一会话时一起设。
     for (const slot of slots) this.#outcome.set(slot, { sid: sessionId, kind })
-    this.#renderAgents()
+    // ⚠ 两种结论的**颜色来源不同**，所以「抢跑」的代价也不同：
+    //   · error 的红是**宿主自己定的**（#errorColor），浏览器那份改不动它 —— 抢跑那条与浏览器
+    //     那条**逐字节相同**，内容去重会挡下，根本发不出第二条；而红灯越早亮越好（用户要求
+    //     「失败后一直红着」）→ **立即写**。
+    //   · success 的颜色**等浏览器更正**（跑完一轮：运行中的蓝 → 空闲的白）。此刻写出去的是
+    //     「旧颜色 + 新 st」，浏览器到了还得再写一条 → 必须等它（见 #outcomeWindowMs）。
+    //
+    // 第三个实参 = force（见 #pendingForce）：**只有失败**才打开内容去重的口子。
+    // 上面那条「两者算出来的内容相同」的对偶事实就是理由 —— 对**成功**来说内容每次都不同
+    // （蓝→白），去重根本挡不住它、也用不着开口子；对**失败**来说内容必然相同（红是宿主
+    // 独占的，其余槽位一个字节都不动），于是「又失败一次」会被静默吞掉（用户实测：
+    // 连续两次发送失败，第二次终端里没有「→ 写 thstatus」）。一个结论必须让设备知道一次。
+    this.#renderAgents(!bad, bad)
     this.#log(bad
       ? `会话运行失败 → 槽位 ${slots.join(',')} 转红灯（保持到该会话重新运行）`
       : `会话跑完一轮 → 槽位 ${slots.join(',')} 报成功（保持到该会话重新运行）`)
@@ -1037,7 +1241,8 @@ export class BleController {
       hit = true
     }
     if (!hit) return false
-    this.#renderAgents()
+    // defer 同上：此刻浏览器那份多半还写着「空闲」，等它把「运行中」推来再一起写。
+    this.#renderAgents(true)
     this.#log(`会话 ${sessionId} 重新开始运行 → 收掉结果灯`)
     return true
   }
@@ -1088,6 +1293,9 @@ export class BleController {
       if (at !== -1 && !next.has(at)) next.set(at, t)
     }
     this.#outcome = next
+    // 这条写出去就是**终态**（带着结果态 + 浏览器刚更正的颜色）：结果态窗口到点时再算一遍
+    // 内容相同，会被 #writeThstatus 去重挡下；此时 #pendingAgents 也已被这一拍消费掉，
+    // 窗口到点直接空转返回 —— 所以这里不需要显式去取消它（没有它行为也一样，见 #outcomeWindowMs）。
     this.#renderAgents()
   }
 
@@ -1186,7 +1394,7 @@ export class BleController {
     // **进程要走了就把灯关掉**（用户 2026-09-25 要求）。这里是灭灯的落点之一：插件被卸载
     // = 我们不再管这台设备了，而设备不会因为 BLE 断开自己熄灭 —— 它会一直亮着最后那幅画面
     // （Agent 键亮着、氛围灯亮着），看起来就像「app 都关了，键盘还亮着」。
-    // **另一个落点是退出安全网**（Ctrl+C/SIGTERM/SIGHUP，见 ./exit-guard.js）—— 宿主优雅关闭
+    // **另一个落点是退出安全网**（Ctrl+C/SIGTERM/SIGHUP，见 ./guard.js）—— 宿主优雅关闭
     // 那条路未必走得到这里（用户实测「Ctrl+C 之后灯还亮着」）。
     // 断开（close）时故意不做这件事，见那里的注释。
     // 必须排在 close() **之前**：唯一出口 #sendRpc 要先看到活着的句柄才写得出去。

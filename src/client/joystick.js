@@ -8,27 +8,25 @@
 //   左 = 撤销（undo，应用里的编辑撤销）  右 = 重做（redo，重做被撤销的编辑）
 //   上 = 切换规划模式                    下 = 切换侧边栏
 //
+// ⚠ 动作名表 `JOY_ACTION` 与出厂映射 `JOY_DEFAULTS` 都住在 **config/default.js**（默认配置的
+// 唯一声明处，用户 2026-09-26 要求把摇杆的出厂功能也收进去）；这里 import 进来之后**原样再导出**
+// ——设置弹窗（components/modals/joystick.jsx）与自检过去都从本文件取它们，多一条 import 路径
+// 只会多一处「从哪拿」的问题。真正的取值域说明、怎么改默认值，看 config/default.js 的 ④ 一节。
+//
 // 这个文件只做**映射与分派**：方向 → 动作名 → 调 DshOps 的哪个方法。
 // 动作本身怎么落到 DSH 上（输入机 undo/redo、layout 服务、/plan 命令通道、滚动容器）
 // 全在 ./actions/index.js —— client 目录下唯一直接操作 DSH 的地方，别在这里再摸一次服务。
 // 唯一不走门面的是「语音」：那是浏览器能力（Web Speech），由注进来的 voice 控制器管。
+
+import { JOY_ACTION, JOY_DEFAULTS } from './config/default.js'
+
+export { JOY_ACTION, JOY_DEFAULTS }
 
 /** 四个方向（顺序即设置页弹窗的显示顺序）。 */
 export const JOY_DIRS = ['up', 'right', 'down', 'left']
 
 /** 未绑定：写进设置里的字面量（宿主 schema 是 dict<string>，不能存 null）。 */
 export const JOY_NONE = 'none'
-
-/** 已接线的系统动作名（设置页可选；显示名即存储值）。 */
-export const JOY_ACTION = {
-  /** 左方向默认：应用里撤销（undo）。 */
-  BACK: '撤销',
-  /** 右方向默认：应用里重做（redo）。 */
-  FORWARD: '重做',
-  SIDEBAR: '切换侧边栏',
-  PLAN: '切换规划模式',
-  SCROLL_BOTTOM: '滚动到底部'
-}
 
 /**
  * 老存档里的动作名（改名前存的就是这两个词）。
@@ -42,14 +40,6 @@ export const normalizeJoyAction = (name) => {
   if (typeof name !== 'string') return name
   const trimmed = name.trim()
   return JOY_LEGACY[trimmed] || trimmed
-}
-
-/** 出厂默认映射：设置里没存过 `joystick`（或某方向缺失）时用它兜底。 */
-export const JOY_DEFAULTS = {
-  up: JOY_ACTION.PLAN,
-  right: JOY_ACTION.FORWARD,
-  down: JOY_ACTION.SIDEBAR,
-  left: JOY_ACTION.BACK
 }
 
 /**

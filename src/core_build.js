@@ -12,6 +12,18 @@ const outDir = path.join(root, 'tmp-host')
 const outFile = path.join(root, 'lib', 'index.js')
 const configFile = path.join(root, 'vite.core.config.js')
 
+// ---- 正式版开关（2026-09-26）----
+// `node src/core_build.js --release`（= `npm run build:core:prod`）产出**正式版**产物：
+// `[omkb]` 日志只写 `$DSH_HOME/logs/dsh-omkb.log`，终端一行都不打（见 src/core/log.js）。
+// 不传 = 开发版，日志照旧打终端（调试用）。
+//
+// 往下传的方式是**环境变量**：vite 把本项目的 vite.core.config.js 加载在**同一个进程**里，
+// 那边读 `process.env.DSH_OMKB_RELEASE` 决定 `define`（见那个文件）。用 `--release` 而不是
+// 在 npm script 里写 `DSH_OMKB_RELEASE=1 node …`，是为了不依赖 shell 的赋值语法，
+// 也让「这次构建是哪一种」在 package.json 里一眼可见。
+const RELEASE = process.argv.includes('--release')
+if (RELEASE) process.env.DSH_OMKB_RELEASE = '1'
+
 async function main() {
   await build({
     configFile,
@@ -28,7 +40,7 @@ async function main() {
 
   fs.writeFileSync(outFile, esm, 'utf8')
   fs.rmSync(outDir, { recursive: true, force: true })
-  console.log(`[omkb/build] 已生成 ${outFile}`)
+  console.log(`[omkb/build] 已生成 ${outFile}（${RELEASE ? '正式版：日志写文件，终端安静' : '开发版：日志打终端'}）`)
 }
 
 main().catch((e) => {

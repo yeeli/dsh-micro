@@ -7,9 +7,9 @@
 // npm run verify 里钉住。
 //
 // 放这里的门槛与 utils/ 其它文件一致：无 DOM、无 DSVI、无控制器状态。
-// （下面 import 的 agents.js / keypad/layout.js 只取**模块级常量**，不碰任何实例。）
+// （下面 import 的 agents.js / utils/keycaps.js 只取**模块级常量**，不碰任何实例。）
 import { AGENT_COLOR_RGB, AGENT_STATUS } from '../agents.js'
-import { KEY_LAYOUT } from '../keypad/layout.js'
+import { KEY_LAYOUT } from './keycaps.js'
 
 /**
  * 引导的三屏。
@@ -93,7 +93,7 @@ export const GUIDE_AGENT_SWATCH = [
 ]
 
 /**
- * 视觉键 id → 示意配色的表，直接喂给布局的预览模式（见 keyboard-layout.jsx 的 preview）。
+ * 视觉键 id → 示意配色的表，直接喂给布局的预览模式（见 settings/keyboard-layout.jsx 的 preview）。
  * @returns {Object<string, string>} 例：{ 'r1-2': '#304ffe', ... }
  */
 export const agentSwatchByVisualId = () => {

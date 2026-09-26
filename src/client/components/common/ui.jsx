@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/components/ui.jsx
+// dsh-omkb · client/src/components/common/ui.jsx
 // 设置页的**共用零件**：键的壳（Key）、SVG 包装（SvgIcon）、键帽的脸（CAP_ICON + KeyFace）。
 //
 // **一份图标表喂两处**：布局里的键、以及「编辑按键」弹窗里的候选。以前弹窗用的是
@@ -6,7 +6,7 @@
 // 和他在键盘上看到的东西对不上，选完还得自己脑补。现在两边都是同一个组件、同一张表，
 // 挑的就是按下去会变成的样子。
 //
-// 键帽 id → 图标的对应关系由 keypad/keycaps.js 给（那里是纯 JS，`icon` 只是一个名字），
+// 键帽 id → 图标的对应关系由 keypad.js 给（那里是纯 JS，`icon` 只是一个名字），
 // 名字 → 路径的映射在这层做（只有渲染层才该产出 JSX）。
 //
 // ---------- 文字放哪：布局不带、弹窗带（2026-09-24）----------
@@ -15,8 +15,8 @@
 // 而那一行字是 `position:absolute` 且只在 `.omkb-key--act` 里定得住 —— `.omkb-cap` 不是
 // 定位祖先，候选的名字全被甩到遮罩底部叠成一堆，跟键对不上号。
 // 现在的分工：**布局 = 真键盘的样子（只有图标）**，**「编辑按键」弹窗 = 键下面写名字**
-// （见 keycap-modal.jsx 的 .omkb-cap-name）。要加文字就在布局/弹窗那一层加，别再塞回键面里。
-import { CUSTOM_ICON, keycapOf } from '../keypad/keycaps.js'
+// （见 modals/keycap.jsx 的 .omkb-cap-name）。要加文字就在布局/弹窗那一层加，别再塞回键面里。
+import { CUSTOM_ICON, keycapOf } from '../../keypad.js'
 
 /** 设置页里「一颗键」的壳：布局里的键、弹窗里的候选、按键特效都挂在这上面。 */
 export const Key = ({ children, onClick, className = '', ...rest }) => {
@@ -136,8 +136,8 @@ export const CAP_ICON = {
 /**
  * 一颗键的面：按**键帽**（而不是物理键码）画图标，`capId` 为 null 就是「自定义」（虚框 + 加号）。
  * **只画图标、不带文字**：名字由调用方决定放哪儿 —— 布局里不放（真键盘上也只有图标），
- * 「编辑按键」弹窗里放在键下面（见 keycap-modal.jsx）。
- * @param capId - 键帽 id（keypad/keycaps.js）；null/未知 = 未指派。
+ * 「编辑按键」弹窗里放在键下面（见 modals/keycap.jsx）。
+ * @param capId - 键帽 id（keypad.js）；null/未知 = 未指派。
  */
 export const KeyFace = ({ capId }) => {
   const cap = keycapOf(capId)

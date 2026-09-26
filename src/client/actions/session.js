@@ -12,6 +12,15 @@
 //     （折叠规则照抄 dsh-client-ui-plan 的 PlanChip）。
 //   * 命令通道（/plan 这类）服务名可能是 `remote.commands`（typert 的嵌套服务），也可能只挂在
 //     `remote` 上 —— 两个都试，别只认一个。
+//   * 「当前会话是哪条」的唯一判据在 utils/session-list.js 的 currentSessionIdIn（本文件的
+//     currentSessionIdOf 只是它的一层壳）：快照的 `current` 在 0.1.7-rc.2 里**不存在**，
+//     要认 `retainedBy.mainView`。
+//
+// ⚠ 判据从 `utils/session-list.js` 拿，**不要**从 `../core.js` 拿：core.js 顶层 import React
+//   （peerDependency），这个文件的价值就是「node 里塞个假快照就能断言」——
+//   2026-09-26 从 core.js 拿过一次，verify:knob 等几套自检当场 ERR_MODULE_NOT_FOUND: react。
+
+import { currentSessionIdIn } from '../utils/session-list.js'
 
 /**
  * 读当前会话的 plan 投影（键 `plan`，形态 { active, pending }）。
@@ -39,20 +48,58 @@ export const planActiveOf = (sessions, sessionId) => {
   } catch (e) { return null }
 }
 
-/** 当前会话 id（sessions.list 快照的 current）。 */
+/** 当前会话 id（判据只有一处：utils/session-list.js 的 currentSessionIdIn，见那里的长注释）。 */
 export const currentSessionIdOf = (sessions) => {
   if (!sessions || !sessions.list) return null
-  try {
-    const s = sessions.list.getSnapshot()
-    if (s && s.current) return s.current
-  } catch (e) {}
-  return null
+  try { return currentSessionIdIn(sessions.list.getSnapshot()) } catch (e) { return null }
 }
 
 /** 某个会话的作用域（conversation.input.for 要它）。 */
 export const sessionScopeOf = (sessions, sid) => {
   if (!sessions || !sid) return undefined
   try { return typeof sessions.scope === 'function' ? sessions.scope(sid) : undefined } catch (e) { return undefined }
+}
+
+// ---------------- 归档被拒绝时的说法（纯函数，可单测） ----------------
+//
+// 归档的契约（取自从产物里读到的 DSH 自己的流程）：`uiWorkspace.archiveSession(sessionId)`
+// 在**会话还有活动在跑**时会失败，抛出的错误上带
+//   `rpcError.code === 'workspace/session-active'`，`rpcError.details.activity` 说明是什么在跑。
+// DSH 自己的侧边栏遇到它就先弹确认框，用户点了才用 `{ stopActivity: true }` 重试
+// （`archiveSession(sessionId, { stopActivity: true })`）。
+//
+// 本插件**不替用户停活**（停掉正在跑的任务是不可逆的，得由人决定），所以只把这件事说清楚：
+// 「被拒绝了、因为还有活动在跑」。以前这里只记一行 `e.message`，用户看到的是「按了没反应」。
+//
+// 错误的形状不止一种（服务端 RPC 错误、普通 Error），所以两个位置都找一遍：错误自己身上的
+// `rpcError`，以及被 `cause` 包着的那个。
+
+/**
+ * 认「归档被宿主拒绝了」这件事。
+ * @param error - 捕获到的异常。
+ * @returns {{code: string, activity: (string|null)}|null} 拒绝详情；不是这种拒绝 → null。
+ */
+export const archiveRefusalOf = (error) => {
+  if (!error || typeof error !== 'object') return null
+  const rpc = error.rpcError || (error.cause && error.cause.rpcError) || null
+  if (!rpc || rpc.code !== 'workspace/session-active') return null
+  const details = rpc.details || {}
+  const activity = details.activity
+  return { code: rpc.code, activity: typeof activity === 'string' && activity ? activity : null }
+}
+
+/**
+ * 归档失败时该说的一句话（人话，带下一步）。
+ * @param error - 捕获到的异常。
+ * @returns {string}
+ */
+export const archiveFailureText = (error) => {
+  const refusal = archiveRefusalOf(error)
+  if (refusal) {
+    const what = refusal.activity ? `（${refusal.activity}）` : ''
+    return `归档被拒绝：当前会话还有活动在跑${what} —— 等它跑完再按，或到 DSH 侧边栏里用「停止并归档」`
+  }
+  return `归档失败：${(error && error.message) || error}`
 }
 
 /**

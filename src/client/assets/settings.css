@@ -95,6 +95,9 @@
 .omkb-status--err{color:var(--dsw-alias-state-error-primary)}
 .omkb-status--idle{color:var(--dsw-alias-label-secondary)}
 .omkb-hint{font-size:12px;color:var(--dsw-alias-state-warn-label);margin-top:8px;line-height:1.5}
+/* 设置页里「这一页只演示、不触发功能」的说明（闸门见 hid-bridge 的 enterSim）。
+ * 贴在键盘插图正上方、居中；用告警色是刻意的 —— 用户按了键没反应时，这行字是唯一解释。 */
+.omkb-sim-hint{text-align:center;margin:12px 0 0}
 .omkb-slider{width:160px;accent-color:var(--dsw-alias-brand-primary)}
 .omkb-val{font-size:12px;color:var(--dsw-alias-label-secondary);min-width:34px;text-align:right}
 /* ---------- 电量（设置页「电池」那一行；只在设备连上时出现）----------
@@ -141,9 +144,6 @@
 @keyframes omkb_toast_spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.omkb-toast{animation:none}.omkb-toast__spin{animation-duration:1.6s}}
 
-.omkb-layout{display:flex;flex-direction:column;gap:12px;align-items:center;padding:14px 0 6px}
-.omkb-lrow{display:flex;gap:12px;justify-content:center;align-items:center}
-
 .omkb-page-wrap {
   display: flex;
   align-items: center;
@@ -184,7 +184,7 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
-/* 真机按键时布局里对应键的按压特效（纯视觉，见 components/keyboard-layout.jsx 的 useHidSignals）：
+/* 真机按键时布局里对应键的按压特效（纯视觉，见 components/settings/keyboard-layout.jsx 的 useHidSignals）：
    按下 = 陷下去 + 内阴影 + 底色变暗；松开时用上面的回弹曲线弹回来。 */
 .omkb-key--pressed {
   transform: translateY(3px) scale(0.95);
@@ -231,11 +231,46 @@
 .omkb-circle-knob-inner {
   width: 72px;
   height: 72px;
+  /* 定位祖先：转动指示的环与蓝点都画在它里面（见下面 .omkb-knob-ring / .omkb-knob-dot） */
+  position: relative;
   border-radius: 50%;
   background: #f1f1ef;
   box-shadow: 0 6px 14px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -4px 8px rgba(0,0,0,0.08);
   border: 1px solid rgba(0, 0, 0, 0.06);
 }
+
+/* ---------- 旋钮的「转动指示」（2026-09-25，判据见 utils/knob-state.js）----------
+ * 设备转动 / 按下旋钮时，圆盘上亮起一圈淡蓝描边，蓝点落在**这次转动的方向**上：
+ * 顺时针 → 右侧 3 点（90°），逆时针 → 左侧 9 点（-90°）。活性窗口过期后两者一起淡出 ——
+ * 静止时与以前完全一样，看不见环也看不见点。
+ * 几何：盘半径 36、环宽 2 → 内缘 34；点到圆心 27 + 点半径 6 = 33，外缘贴着环内侧
+ * （KNOB_DOT_R，见 components/settings/keyboard-layout.jsx）。 */
+.omkb-knob-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid #a8c8f8;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.omkb-knob-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #7ba7f5;
+  opacity: 0;
+  /* 兜底角度 = 静止位（左侧）。组件每次都写 inline 角度，transition 让它在左右之间滑过去 ——
+   * 所以这里**不能**省：写成点停在圆心会让第一次转动时蓝点从中心飞出去。 */
+  transform: translate(-50%, -50%) rotate(-90deg) translateY(-27px);
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.18s ease;
+}
+
+.omkb-control-base.omkb-knob--active .omkb-knob-ring { opacity: 1; }
+.omkb-control-base.omkb-knob--active .omkb-knob-dot { opacity: 1; }
 
 .omkb-joystick-dot {
   width: 72px;
@@ -298,7 +333,7 @@
   aspect-ratio: unset;
 }
 
-/* 预览模式（首次连接引导里的键盘插图，见 components/guide-modal.jsx）：
+/* 预览模式（首次连接引导里的键盘插图，见 components/modals/guide.jsx）：
  * 只画不响应 —— 整张插图对指针透明（连 :active 的按压回弹也不要），背景交还给外层卡片。 */
 .omkb-page-wrap--preview{background:transparent}
 .omkb-page-wrap--preview .omkb-key{cursor:default;pointer-events:none}
@@ -310,7 +345,7 @@
  * 层级夹在本插件自己的弹窗（9999 / 二级 10002）之上、保存提示（10050）之下：
  * 引导是整屏遮罩，必须在所有设置弹窗之上；但保存提示只出现在设置页里，
  * 万一同时出现也不该被引导盖住。
- * 注意：**没有**「点遮罩关闭」——引导一旦关掉就永久记住「看过了」（见 guide-modal.jsx 顶部），
+ * 注意：**没有**「点遮罩关闭」——引导一旦关掉就永久记住「看过了」（见 modals/guide.jsx 顶部），
  * 误点一次等于再也看不到，所以出口只有右上角 × / 跳过 / 走完两步。 */
 .omkb-guide-overlay{z-index:10040}
 .omkb-guide{position:relative;width:min(600px,94vw);max-height:92vh;overflow:auto;padding:18px 18px 0;display:flex;flex-direction:column}
@@ -334,7 +369,7 @@
 /* ---------- 侧边栏底部：设置按钮旁边的方形键盘入口 ----------
  * 展开态：36×36 方块，**覆盖定位**贴到「设置」那一行的右端（与齿轮同一行并列），
  * 因此它不占文档流，底栏不会为它多出一行。top/right 由 JS 现场量出来写在 style 上
- * （见 components/sidebar-action.jsx 的 placeFootAction）：DSH 的类名是模块哈希、行高还会随
+ * （见 components/sidebar/action.jsx 的 placeFootAction）：DSH 的类名是模块哈希、行高还会随
  * 展开/收起变化，量着放才稳。量不到就退回文档流（仍可用，只是多占一行）。
  * 收起成 56px 导轨时留在流里：36×36 居中，正好落在齿轮正上方（与 DSH 自己的导轨按钮同规格）。 */
 .omkb-foot-action{box-sizing:border-box;position:relative;width:36px;height:36px;color:var(--dsw-alias-label-primary);cursor:pointer;background:0 0;border:none;border-radius:10px;flex:none;align-items:center;justify-content:center;margin:0;padding:0;font-family:inherit;display:flex;overflow:hidden}
@@ -345,7 +380,7 @@
 .omkb-foot-action--pinned{position:absolute;z-index:1;margin:0}
 /* 导轨态：留在文档流，居中（footerActions 是横向 flex，这里只有它一个）。 */
 .omkb-foot-action--rail{align-self:center;margin:0 0 4px}
-/* 「键盘已断开」的红点（判据在 utils/device.js 的 isDeviceOffline，见 sidebar-action.jsx）。
+/* 「键盘已断开」的红点（判据在 utils/device.js 的 isDeviceOffline，见 sidebar/action.jsx）。
  * 画在按钮**内圈**：按钮是 overflow:hidden（画到框外会被裁掉），而按钮 36px、图标 20px 居中，
  * 所以贴着内圈右上角 = 看起来正落在图标右上。描边用底层的颜色给红点垫开一点，
  * 免得它跟图标的线条糊在一起（`corner-shape` 由 core.js 的 omkb- 兜底规则抵掉，这里是正圆）。
@@ -360,11 +395,15 @@
  * （第二版用户截图：「这个错误更加严重了」）。
  * 现行处置：**把那个指示器藏起来**（宿主 DOM 上打 data-omkb-conn-hide，React 重渲染也顶不掉），
  * 改用这个气泡展示同一句话 —— 那一行恢复成「只有一个设置按钮」，覆盖定位照常；
- * 提示没丢，点气泡还能「立即重连」（= 点那颗被藏起来的指示器，见 sidebar-action.jsx）。
+ * 提示没丢，点气泡还能「立即重连」（= 点那颗被藏起来的指示器，见 sidebar/action.jsx）。
  * 深色 + 小尾巴是用户指定的样式（与原生 tooltip 一致），明暗两套主题下都用深色。
+ * ⚠ 2026-09-26 用户第三次报「重新连接又改回黄色错位了」：**这套气泡一直没显示出来**，
+ *   因为 `gearRowOf` 取的是 `gear.parentElement`（display:contents 的槽位出口），
+ *   压根找不到那个指示器 —— 于是它既没被藏、气泡也没弹，就地压住方块。根因与修法见
+ *   sidebar/action.jsx 的 `gearRowOf`（改用 layoutParent）。CSS 这边没问题，别改。
  * 节点挂在 body 上、position:fixed：① 不被 footer 那一行的 overflow 裁掉；
  * ② 不在 React 管的子树里，React 重渲染不会把它顶掉（它压根管不着这个节点）。
- * top/right 由 JS 现场量（sidebar-action.jsx 的 placeConnTip），这里只管长相。
+ * top/right 由 JS 现场量（sidebar/action.jsx 的 placeConnTip），这里只管长相。
  * 小尾巴是个真元素（不是 ::after）：位置要按方块中心算，真元素写 inline style 更省事。 */
 [data-omkb-conn-hide]{display:none!important}
 .omkb-conn-tip{position:fixed;z-index:60;box-sizing:border-box;display:block;max-width:calc(100vw - 20px);padding:6px 10px;border-radius:10px;background:#1f2124;color:#fff;font-size:12.5px;line-height:18px;white-space:nowrap;box-shadow:0 6px 18px rgba(0,0,0,.28);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .12s ease}
@@ -372,3 +411,32 @@
 .omkb-conn-tip__text{display:block;overflow:hidden;text-overflow:ellipsis}
 .omkb-conn-tip__tail{position:absolute;top:100%;right:11px;width:0;height:0;border:6px solid transparent;border-bottom:0;border-top-color:#1f2124;font-size:0;line-height:0;pointer-events:none}
 .omkb-conn-tip--below .omkb-conn-tip__tail{top:auto;bottom:100%;border-top:0;border-bottom:6px solid #1f2124}
+
+/* ── 「设置」的悬停提示：挪到行上方 + 补一根朝下的小尾巴（2026-09-26）────────────
+ * DSH 的 Tooltip（dsh-client-ui-primitives）默认 side:"right"：`left = 锚点右缘 + 10px`、
+ * 竖直居中。「设置」按钮被我们收窄之后，那个落点在侧边栏里面、正好压住键盘方块。
+ * 用户要的位置是「在设置上面」——这里把它改到**行上方**：
+ *   * 行打 data-omkb-gear-row（sidebar/action.jsx 的 markGearTip）→ position:relative 做包含块；
+ *   * 提示打 data-omkb-gear-tip → 改成 absolute、贴着行上缘、左缘对齐齿轮。
+ * ⚠ 内联 left/top 是 DSH 的 JS 写的（悬停时算一次、ResizeObserver 每次重算都重写），
+ *   不带 !important 压不住；transform 也要清 —— [data-side=right] 自带 translateY(-50%)。
+ * ⚠ `calc(100% + 8px)` 里的 8 = sidebar/action.jsx 的 TIP_ABOVE_GAP，两处数字改要一起改。
+ * 标记只在「我们贴右端」的展开态打（unpin 时摘掉）：收起成导轨 / 退回文档流时提示回 DSH 默认。
+ *
+ * 小尾巴（::after）：用户给的样式图就是「深色圆角气泡 + 下方一个小三角」（工具提示的标准形状）。
+ * 一个悬在行上方的气泡没有尾巴，看起来就像「一块压在那里的东西」——正是上一轮报的那个画面。
+ * DSH 自己的 bubble 没有尾巴（它的实现是一句话 + 快捷键，没有装饰节点），所以我们自己补一根。
+ * 颜色用 DSH 的 tooltip 令牌（跟主题走），别写死深色。::after 不会被裁：bubble 的 CSS 里没有
+ * overflow:hidden（`.{bubble}` 只有 display/position/padding/圆角这些）。
+ * `left:14px` = 齿轮左缘往右 14px，正落在齿轮图标（20px、左内边距约 10px）那一片上。 */
+[data-omkb-gear-row]{position:relative}
+[data-omkb-gear-tip]{position:absolute!important;left:var(--omkb-gear-tip-left,0)!important;right:auto!important;top:auto!important;bottom:calc(100% + 8px)!important;transform:none!important}
+[data-omkb-gear-tip]::after{content:'';position:absolute;top:100%;left:14px;width:0;height:0;border:6px solid transparent;border-bottom:0;border-top-color:var(--dsw-alias-tooltip-bg,#1f2124);font-size:0;line-height:0;pointer-events:none}
+
+/* ── 第三方插件依赖（设置页底部；清单来自 config/default.js 的 PLUGIN_DEPS，**常驻渲染**，
+ * 清单为空时给一行占位提示 —— 见 settings/panel.jsx）──
+ * 徽标复刻 .omkb-batt__tag 的胶囊造型，但用绿/红两态表达「已安装 / 未安装」。
+ * 绿色/红色取 DSH 设计令牌的状态色，跟随主题（不写死色值，避免暗色主题下看不清）。 */
+.omkb-plugin-badge{font-size:11px;line-height:1;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:4px 8px;white-space:nowrap}
+.omkb-plugin-badge--on{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}
+.omkb-plugin-badge--off{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}

@@ -23,7 +23,7 @@
     "client": {
       "inject": [
         "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-renderer",
         "@deepseek-ai/dsh-client-ui-settings",
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-conversation"
@@ -34,7 +34,7 @@
   "peerDependencies": {
     "react": "^18.2.0",
     "@deepseek-ai/dsh-client-runtime": "*",
-    "@deepseek-ai/dsh-client-ui-slots": "*",
+    "@deepseek-ai/dsh-client-ui-renderer": "*",
     "@deepseek-ai/dsh-client-ui-settings": "*",
     "@deepseek-ai/dsh-client-locale": "*",
     "@deepseek-ai/dsh-client-ui-conversation": "*"
@@ -43,6 +43,11 @@
     "build:client": "node src/client_build.js",
     "build:core": "node src/core_build.js",
     "build": "npm run build:core && npm run build:client",
+    "build:core:prod": "node src/core_build.js --release",
+    "build:client:prod": "node src/client_build.js --release",
+    "build:prod": "npm run build:core:prod && npm run build:client:prod",
+    "verify:structure": "node test/verify_structure.js",
+    "verify:logging": "node test/verify_logging.js",
     "verify:settings": "node test/verify_settings.js",
     "verify:exit": "node test/verify_exit_guard.js",
     "verify:agents": "node test/verify_agents.js",
@@ -55,8 +60,11 @@
     "verify:monitor": "node test/verify_monitor.js",
     "verify:navicon": "node test/verify_nav_icon.js",
     "verify:keycaps": "node test/verify_keycaps.js",
+    "verify:officialvoice": "node test/verify_official_voice.js",
     "verify:actions": "node test/verify_actions.js",
-    "verify": "npm run lint && npm run verify:settings && npm run verify:exit && npm run verify:agents && npm run verify:led && npm run verify:blackout && npm run verify:joy && npm run verify:knob && npm run verify:layout && npm run verify:press && npm run verify:keypad && npm run verify:keycaps && npm run verify:actions && npm run verify:sidebar && npm run verify:idle && npm run verify:monitor && npm run verify:navicon && npm run verify:guide && npm run verify:device",
+    "verify": "npm run lint && npm run verify:structure && npm run verify:logging && npm run verify:settings && npm run verify:exit && npm run verify:agents && npm run verify:led && npm run verify:blackout && npm run verify:joy && npm run verify:knob && npm run verify:layout && npm run verify:press && npm run verify:keypad && npm run verify:keycaps && npm run verify:officialvoice && npm run verify:actions && npm run verify:sidebar && npm run verify:idle && npm run verify:monitor && npm run verify:navicon && npm run verify:guide && npm run verify:device && npm run verify:sim && npm run verify:knobdot",
+    "verify:sim": "node test/verify_sim.js",
+    "verify:knobdot": "node test/verify_knob_dot.js",
     "verify:guide": "node test/verify_guide.js",
     "probe": "node test/ui_probe.mjs",
     "probe:foot": "node test/ui_probe.mjs test/probes/foot.mjs",
@@ -74,6 +82,8 @@
     "probe:levels": "node test/ui_probe.mjs test/probes/reasoning-levels.mjs",
     "lint": "node --check lib/index.js && node --check src/core/index.js && node --check lib/client.js",
     "probe:voice": "node test/ui_probe.mjs test/probes/voice-guard.mjs",
+    "probe:officialvoice": "node test/ui_probe.mjs test/probes/official-voice.mjs",
+    "probe:agentslots": "node test/ui_probe.mjs test/probes/agent-slots.mjs",
     "watch:device": "node test/omkb_watch.mjs",
     "probe:ring": "node test/ui_probe.mjs test/probes/reasoning-ring.mjs",
     "probe:ringshot": "node test/ui_probe.mjs test/probes/reasoning-ring-shot.mjs --shot /tmp/omkb-ring.png --clip 912,510,272,180 --scale 3",
@@ -91,7 +101,9 @@
     "probe:guide": "node test/ui_probe.mjs test/probes/guide.mjs --shot /tmp/omkb-guide.png",
     "probe:device": "node test/ui_probe.mjs test/probes/device.mjs",
     "verify:device": "node test/verify_device.js",
-    "probe:offline": "node test/ui_probe.mjs test/probes/offline.mjs"
+    "probe:offline": "node test/ui_probe.mjs test/probes/offline.mjs",
+    "probe:sim": "node test/ui_probe.mjs test/probes/sim.mjs",
+    "probe:knobdot": "node test/ui_probe.mjs test/probes/knob-dot.mjs"
   },
   "devDependencies": {
     "vite": "^5.4.0"

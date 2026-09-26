@@ -5,7 +5,7 @@
 //   旋钮 → enc 差值=旋转、knobPress 计数=按下（走进 ./knob.js 的模式分派）；
 //   摇杆 → joyPush+joyDir（老宿主回退 joyT/joy）走进 ./joystick.js 的方向映射。
 //
-// ⚠️ 语音**只由显式动作**触发：动作键 ACT10/ACT11（见 ./keypad/index.js），或设置页里把某个
+// ⚠️ 语音**只由显式动作**触发：动作键 ACT10/ACT11（见 ./keypad.js），或设置页里把某个
 // 摇杆方向 / 旋钮手势显式绑成「语音」。这里**没有**任何「认不出来就当麦克风键」的兜底
 // ——早期版本有这个兜底，于是任何客户端没能归属的事件（摇杆推完立刻松手、旋钮长按、
 // 设备上其它没接线的键）都会莫名其妙打开语音输入。认不出来就只记一条诊断（diagnose()），
@@ -16,6 +16,11 @@
 // 已经加过了），于是「t 变了但没有可识别字段」被误判成麦克风键。所以：
 //   enc 带符号累计（差值=步数）/ knobPress 计数 / joyPush 计数 + joyDir 最近有效方向，
 //   各自独立、不受其它事件影响，也不会因为「事件在两次轮询之间开始又结束」而丢失。
+//
+// **设置页打开时只演示不执行**（2026-09-25）：我们的设置分区挂载期间调 enterSim()，
+// 此后按键 / 旋钮 / 摇杆一律不落到控制器上，只有布局里的按压特效照演（那条走 subscribe）。
+// 闸门开在「调用控制器」那一层（见 #dispatch），归属与计数器基线照常推进 —— 于是关掉设置页
+// 之后不会把这段时间的操作补发出来。智能体键（AG00..AG05）与**松开收尾**都不受闸门管。
 //
 // **按住 vs 点按**：宿主除了各计数器，还给 `down`（当前按住的键名全量快照）+ `keyAct`（本次边沿）。
 // 按下走上面的计数器通道（run()），**松开走 down 的差集**（release()）——
@@ -45,7 +50,7 @@ export const TAP_HOLD_MS = 400
 
 export class HidBridge {
   agents = null
-  /** 按键控制器（./keypad/index.js）：键码 → 动作。 */
+  /** 按键控制器（./keypad.js）：键码 → 动作。 */
   keypad = null
   knob = null
   joystick = null
@@ -67,6 +72,8 @@ export class HidBridge {
   #warned = new Set()
   /** 状态快照的订阅者（设置页的布局特效）——与动作分派无关，见 subscribe()。 */
   #subs = new Set()
+  /** 「只演示不执行」的闸门深度（0 = 正常工作）；设置页打开我们的分区时由它持有，见 enterSim()。 */
+  #sim = 0
 
   // 注意：这里**不收** voice。语音只能由显式动作（ACT10/ACT11 或设置页里绑定的动作）
   // 触发，桥接层拿不到也不该拿到语音控制器——少一条隐式通路，就少一类误触发。
@@ -109,6 +116,57 @@ export class HidBridge {
     if (typeof fn !== 'function') return () => {}
     this.#subs.add(fn)
     return () => { this.#subs.delete(fn) }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 「只演示不执行」：设置页（我们的分区）打开时，设备照样被读、布局照样演，
+  // 但**按键 / 旋钮 / 摇杆一律不落到控制器上** —— 用户在设置页里试按键，不该真的
+  // 切会话、切规划模式、发消息、批准审批（用户 2026-09-25 要求）。
+  //
+  // 为什么闸门开在「调用控制器」那一层，而不是在 poll() 开头整段跳过：事件的归属与
+  // 各输入源的计数器基线**必须照常推进**（见 #dispatch）。智能体键（AG00..AG05）
+  // **不受闸门管**：按下去仍然真的打开会话（用户明确要求的一部分）。
+  // ---------------------------------------------------------------------------
+
+  /** 当前是否处于「只演示不执行」（诊断与自检读它）。 */
+  get simulating() { return this.#sim > 0 }
+
+  /**
+   * 进入「只演示不执行」，返回**释放函数**（幂等）。
+   * 用深度计数而不是布尔：持有者可能不止一个，`useEffect(() => hid.enterSim(), [])`
+   * 的清理函数正好就是那个释放函数 —— 挂载进、卸载出，天然成对。
+   * @returns {() => void} 释放（重复调用无副作用）。
+   */
+  enterSim = () => {
+    this.#sim += 1
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      this.#sim = Math.max(0, this.#sim - 1)
+    }
+  }
+
+  /**
+   * 真实动作的唯一出口 —— **闸门落下时（simulating）这里什么都不做**。
+   *
+   * 为什么基线要照常推进：enc / knobPress / joyPush / t 都是**累加计数器**，且每条都带
+   * MAX_CATCHUP 补执行。若抑制期间让它们原地不动，关掉设置页后的第一帧就会把「在设置页里
+   * 转过的圈、推过的杆、按过的键」一次性补发出去 —— 那正是用户最不想要的一幕。
+   * 所以：**归属与计数照常，只有最后一跳被丢掉**。
+   *
+   * 松开（#release）**故意不过这道闸门**：那是给已经开着的按住型动作收尾（语音按住说话），
+   * 不是「触发功能」。在这里吞掉松开，会让「在设置页里按住麦克风键再松手」留下一个
+   * 永不停止的录音。
+   *
+   * @param fn - 真正要落地的那一跳。
+   * @returns {boolean} 是否真的执行了（调用方据此决定要不要连带启动快按兜底）。
+   */
+  #dispatch = (fn) => {
+    if (this.#sim > 0) return false
+    if (typeof fn !== 'function') return false
+    fn()
+    return true
   }
 
   #emit = (s) => {
@@ -165,10 +223,11 @@ export class HidBridge {
         const slot = typeof s.agent === 'number' ? s.agent : -1
         const act = s.act || null
         if (slot >= 0 && this.agents && typeof this.agents.openSlot === 'function') {
+          // 智能体键**不过闸门**：设置页打开时按 AG00..AG05 仍然真的打开会话（用户明确要求）。
           this.agents.openSlot(slot)
         } else if (act && this.keypad && typeof this.keypad.run === 'function') {
-          this.keypad.run(act)
-          this.#guardTap(s, act)
+          // 设置页打开时只演示：run 被闸门吞掉 → 也不启动快按兜底（没有 run 就没有录音要收尾）
+          if (this.#dispatch(() => this.keypad.run(act))) this.#guardTap(s, act)
         } else if (knobSeen || joySeen || KNOB_KEYS.has(s.key)) {
           // 旋钮/摇杆的上报同样会让 t 自增（宿主 #bump）：它们上面已经处理过了，
           // 这里只是承认这次自增有主，不是「认不出来」。
@@ -186,6 +245,9 @@ export class HidBridge {
    * 为什么用差集而不是宿主另发一个「松开了谁」的字段：**快照即真相** ——
    * 差集天然处理「两颗键分别松开」「设备断开」这类情况，也不怕轮询漏帧（漏了也只是延后一拍）。
    * 老宿主没有 down（undefined）→ 整段跳过，行为退回引入它之前（客户端仍然兼容）。
+   *
+   * ⚠ 松开**不受「只演示不执行」闸门管**（见 #dispatch）：它是收尾。若在这里也吞掉，
+   * 「在设置页里按住麦克风键、然后松手」就永远等不到 stop，留下一个停不下来的录音。
    */
   #consumeReleases = (s) => {
     const list = Array.isArray(s.down) ? s.down : null
@@ -255,7 +317,7 @@ export class HidBridge {
         this.#lastJoyPush = joyPush
         const dir = typeof s.joyDir === 'string' && s.joyDir ? s.joyDir : joy
         if (dir && this.joystick && typeof this.joystick.handle === 'function') {
-          for (let i = 0; i < n; i++) this.joystick.handle(dir)
+          this.#dispatch(() => { for (let i = 0; i < n; i++) this.joystick.handle(dir) })
         }
         seen = true
       }
@@ -268,12 +330,12 @@ export class HidBridge {
         if (joyT !== this.#lastJoyT) {
           this.#lastJoyT = joyT
           // 回中事件（joy=null）只推进基线，没有动作要执行
-          if (joy && this.joystick && typeof this.joystick.handle === 'function') this.joystick.handle(joy)
+          if (joy && this.joystick && typeof this.joystick.handle === 'function') this.#dispatch(() => this.joystick.handle(joy))
           seen = true
         }
       } else if (joy !== this.#lastJoy) {
         // 连 joyT 都没有的老宿主：靠「每次轮询都刷新 joy 基线」达到同样效果
-        if (joy && this.joystick && typeof this.joystick.handle === 'function') this.joystick.handle(joy)
+        if (joy && this.joystick && typeof this.joystick.handle === 'function') this.#dispatch(() => this.joystick.handle(joy))
         seen = true
       }
     }
@@ -299,7 +361,7 @@ export class HidBridge {
       this.#lastEnc = enc
       if (this.knob && typeof this.knob.step === 'function') {
         const n = Math.min(Math.abs(d), 50)
-        for (let i = 0; i < n; i++) this.knob.step(d > 0 ? 1 : -1)
+        this.#dispatch(() => { for (let i = 0; i < n; i++) this.knob.step(d > 0 ? 1 : -1) })
       }
       seen = true
     }
@@ -325,7 +387,9 @@ export class HidBridge {
     return seen
   }
 
-  #knobPress = () => { if (this.knob && typeof this.knob.press === 'function') this.knob.press() }
+  #knobPress = () => {
+    this.#dispatch(() => { if (this.knob && typeof this.knob.press === 'function') this.knob.press() })
+  }
 
   #noteUnhandled = (s) => {
     const rec = { at: Date.now(), t: s.t, key: s.key || null }

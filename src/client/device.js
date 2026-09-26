@@ -5,7 +5,7 @@
 // 三条边界：
 //
 //  * **电量不在这里。** 它是 /omkb/state 的一个电平字段，设置页自己就在轮询那个端点
-//    （1s 一次，见 components/settings-panel.jsx），再经这里转一手只是多一条通路。
+//    （1s 一次，见 components/settings/panel.jsx），再经这里转一手只是多一条通路。
 //    这里只订阅 `open` 一个字段 —— 移除之后的恢复判据只需要它；顺带把「听到过宿主说话没有」
 //    记成 `known`，给侧边栏那个「已断开」的红点用（判据在 utils/device.js 的 isDeviceOffline）。
 //
@@ -67,9 +67,6 @@ export class DeviceController {
 
   /** 设置作用域（entry.js 的 UI 段）。 */
   setScope = (scope) => { this.#scope = scope || null }
-
-  /** 默认值（entry.js 灌 DSVI.OMKB_DEFAULTS；与设置页/宿主同一份）。 */
-  setDefaults = (defaults) => { if (defaults && typeof defaults === 'object') this.#defaults = defaults }
 
   /** 偏好快照（entry.js 的 refresh effect 每次变化都灌）。 */
   setPrefs = (prefs) => {

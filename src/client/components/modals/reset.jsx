@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/components/reset-modal.jsx
+// dsh-omkb · client/src/components/modals/reset.jsx
 // 「重置布局」确认弹窗。
 //
 // 重置是**破坏性**的（用户一颗一颗调出来的键帽、摇杆映射会被一次清空），所以动手前
@@ -7,7 +7,7 @@
 //
 // 持久化：确认后走与设置页其它控件同一条写入路径（unset → 回落 schema 默认），
 // 并回读校验 —— 也就是说它是**落盘**的，重启后仍然是出厂设置（而不是只改了这一屏）。
-// 落地的代码在 settings-panel.jsx 的 resetLayout()。
+// 落地的代码在 settings/panel.jsx 的 resetLayout()。
 const RESET_GROUPS = [
   {
     title: '键盘布局',

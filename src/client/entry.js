@@ -1,24 +1,30 @@
 // dsh-omkb · client/src/entry.js
 // 客户端插件入口：按依赖序实例化各控制器并挂到 DSVI.services，再注册 slots / locale /
-// settingsScope / 全局 LED 刷新 effect。
+// 设置表单（configForms）/ 全局 LED 刷新 effect。
 // 每一段装配相互隔离（try/catch + 显式报错），避免某一段抛错拖垮整个 apply，
 // 从而保住 hid 轮询 / 按键分派不因 UI 或偏好装配失败而失效。
 import { DSVI } from './core.js'
 import { VoiceController } from './voice.js'
 import { AgentController } from './agents.js'
-import { KeypadController } from './keypad/index.js'
+import { KeypadController } from './keypad.js'
 import { KnobController } from './knob.js'
 import { JoystickController } from './joystick.js'
 import { HidBridge } from './hid-bridge.js'
 import { GuideController } from './guide.js'
 import { DeviceController } from './device.js'
 import { DshOps, levelRows, parseLevelFromLabel, currentLevelIndex, openReasoningLevels, closeReasoningLevels, ringTo, commitLevel, findReasoningTrigger, scrollStepSize, findScrollContainer, scrollToBottomDir, focusCollect, isTextEntry, ACTIONS, runAction, keycapActions, knobActions } from './actions/index.js'
-import { OmkbSettingsSection } from './components/settings-panel.jsx'
-import { VoiceInputButton } from './components/voice-button.jsx'
-import { OmkbSidebarAction, FOOT_ACTION_ID, FOOT_ACTION_SLOT } from './components/sidebar-action.jsx'
-import { installNavIconPatch, setNavRowHidden, NAV_ICON_SIZE } from './nav-icon.js'
+import { OmkbSettingsSection } from './components/settings/panel.jsx'
+import { VoiceInputButton } from './components/common/voice-button.jsx'
+import { OmkbSidebarAction, FOOT_ACTION_ID, FOOT_ACTION_SLOT } from './components/sidebar/action.jsx'
+import { installNavIconPatch, setNavRowHidden, NAV_ICON_SIZE } from './sidebar.js'
 
-DSVI.inject = ['slots', 'locale', 'settingsScope', 'sessions', 'workspaces'];
+// 依赖的客户端服务。**服务名要跟着 DSH 走**：
+// `settingsScope` 在 0.1.7-rc.2 被删（整个设置域换成了 configForms + 共享 describe 镜像），
+// 留在列表里 = 整条客户端入口永远 pending（web boot 报
+// 「dsh-omkb: pending (waiting for service: settingsScope)」）——不是设置页坏掉，是**整个插件
+// 的界面与按键分派一起不激活**。这份列表与设置一节都不许凭印象改：改动点以
+// `ctx.configForms.get(NS)` 为准（见下面 UI 段）。
+DSVI.inject = ['slots', 'locale', 'configForms', 'sessions', 'workspaces'];
 
 const err = (tag, e) => { try { console.error('[omkb] 装配失败 ' + tag + ':', e) } catch (_) {} }
 
@@ -30,7 +36,9 @@ DSVI.apply = (ctx) => {
   let voice = null, agents = null, keypad = null, knob = null, joystick = null, hid = null, ops = null, guide = null, device = null
   try {
     voice = new VoiceController();
-    agents = new AgentController();
+    // services 必须**延迟取值**（同下面 DshOps 那条）：uiWorkspace 晚于本插件加载，
+    // 而智能体键要它才能打开会话（`uiWorkspace.openSession`，见 agents.js openSlot）。
+    agents = new AgentController({ services: (name) => (typeof ctx.get === 'function' ? ctx.get(name) : undefined) });
     agents.setSessions(ctx.sessions);
     // workspaces 提供归档会话集合（侧边栏隐藏谁，键盘灯就不该亮谁）。
     agents.setWorkspaces(ctx.workspaces);
@@ -75,6 +83,11 @@ DSVI.apply = (ctx) => {
     //   __dshOmkb.services.joystick.run('切换规划模式')   // 单独试一个动作
     //   __dshOmkb.services.ops.togglePlan()             // 直接调 DSH 操作（跳过按键/摇杆/旋钮）
     //   __dshOmkb.services.hid.diagnose()               // 有没有「认不出来被忽略」的按键
+    //   __dshOmkb.services.voice.diagnose()             // 语音会走/正在走哪条链路（route）、是否正在进行（active）
+    //   document.querySelector('[data-slot="conversation.input.activity"]')
+    //                                                   // 官方语音 UI 在不在（不在 = Bundle 没启用）
+    //   __dshOmkb.services.hid.simulating               // true = 设置页开着（只演示，不触发功能）
+    //   __dshOmkb.services.hid.enterSim()               // 手验：进入只演示模式（返回释放函数）
     //   __dshOmkb.services.guide.diagnose()             // 首次连接引导为什么没弹（/ 弹过了）
     //   __dshOmkb.services.guide.replay()               // 手验引导三屏（不必真拔插设备）
     //   __dshOmkb.services.device.diagnose()            // 界面为什么收起/显示（移除的状态）
@@ -107,11 +120,14 @@ DSVI.apply = (ctx) => {
     catch (e) { err('device', e) }
   }
 
-  // 4) 设置页（locale + settingsScope + sessions），失败不影响按键/灯光
+  // 4) 设置页（locale + configForms + sessions），失败不影响按键/灯光
   try {
     ctx.effect(() => ctx.locale.register(DSVI.NS, DSVI.locales), `${DSVI.NS}: locale`);
     const t = ctx.locale.bind(DSVI.NS);
-    const scope = ctx.settingsScope.bind({ namespace: DSVI.NS });
+    // 设置表单：0.1.7-rc.2 起唯一入口。`get(命名空间)` 返回与旧 scope 同形的一件东西
+    // （getSnapshot/subscribe/set/unset/mutate），命名空间就是宿主那条 loader 条目的 id
+    // —— 宿主没导出 Config 时它恒为 unavailable，写入被丢弃（设置页会如实报「保存失败」）。
+    const scope = ctx.configForms.get(DSVI.NS);
     const sessions = ctx.sessions;
     // 引导的「看过没有」就住在设置里（guideSeen）：给了 scope 它才敢弹 —— 记不住就不打扰
     // （见 guide.js 的 #canRemember）。scope 拿不到时整段会抛，那时引导保持「不弹」。
@@ -132,7 +148,7 @@ DSVI.apply = (ctx) => {
           if (knob) { knob.setMode(p.knob || 'navigate'); knob.setCustom(p.knobCustom || {}) }
           // 摇杆方向映射（设置页「模拟摇杆」里选的四个动作）
           if (joystick) joystick.setMapping(p.joystick)
-          // 按键功能：键帽那一格同时决定「按下执行什么」（见 keypad/index.js 的 resolve）。
+          // 按键功能：键帽那一格同时决定「按下执行什么」（见 keypad.js 的 resolve）。
           // 不灌进来会一直按出厂默认走，用户改了键帽却看不见行为变化。
           if (keypad) keypad.setKeyMap(p.actLabels, !!p.micKey)
           if (agents) agents.refresh(p, list ? list.getSnapshot() : null);
@@ -161,7 +177,15 @@ DSVI.apply = (ctx) => {
         id: 'omkb',
         order: 60,
         label: () => t('nav'),
-        inject: () => ({ scope, t, sessions, workspaces: ctx.workspaces })
+        inject: () => ({
+          scope,
+          t,
+          sessions,
+          // 注意：**不再注入 services 检测函数**。设置页底部「第三方插件」卡以前靠它现场判
+          // 「某插件装没装」（ctx.get(服务名) 存不存在），2026-09-26 起改成读配置
+          // （src/client/config/default.js 的 PLUGIN_DEPS，静态、不检测系统）。
+          workspaces: ctx.workspaces
+        })
       }, OmkbSettingsSection);
       return () => { dispose() };
     });

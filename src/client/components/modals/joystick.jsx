@@ -1,10 +1,10 @@
-// dsh-omkb · client/src/components/joystick-modal.jsx
+// dsh-omkb · client/src/components/modals/joystick.jsx
 // 「模拟摇杆」配置弹窗：给四个方向各挑一个动作（二级弹窗里搜索/挑选）。
 //
 // 方向的顺序 / 动作名 / 出厂默认都来自摇杆控制器（../joystick.js），这里只补界面文案：
 // 两边各写一份默认值必然漂移——按键可能在设置页被打开之前就被推动了。
 import { useState } from 'react'
-import { JOY_ACTION, JOY_DEFAULTS, JOY_DIRS as JOY_DIR_KEYS, JOY_NONE } from '../joystick.js'
+import { JOY_ACTION, JOY_DEFAULTS, JOY_DIRS as JOY_DIR_KEYS, JOY_NONE } from '../../joystick.js'
 
 const JOY_DIR_LABEL = { up: '上', right: '右', down: '下', left: '左' }
 const JOY_DIR_ARROW = { up: '↑', right: '→', down: '↓', left: '←' }

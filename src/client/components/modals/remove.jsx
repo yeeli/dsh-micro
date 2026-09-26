@@ -1,8 +1,8 @@
-// dsh-omkb · client/src/components/remove-modal.jsx
+// dsh-omkb · client/src/components/modals/remove.jsx
 // 「移除键盘」确认弹窗。
 //
 // 这是一次**破坏性**操作（清空全部偏好 + 把设置页分区与侧边栏入口一起收起来），所以动手前
-// 先把后果一条条摆出来，而不是点一下就没了 —— 与「重置布局」同一个规矩（见 reset-modal.jsx）。
+// 先把后果一条条摆出来，而不是点一下就没了 —— 与「重置布局」同一个规矩（见 modals/reset.jsx）。
 //
 // 与重置的区别（文案里说清楚，否则用户分不清这两个按钮）：
 //   重置布局 = 键帽/摇杆/旋钮回到出厂值，**界面还在**；
