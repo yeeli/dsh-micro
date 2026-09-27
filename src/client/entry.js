@@ -18,12 +18,12 @@ import { VoiceInputButton } from './components/common/voice-button.jsx'
 import { OmkbSidebarAction, FOOT_ACTION_ID, FOOT_ACTION_SLOT } from './components/sidebar/action.jsx'
 import { installNavIconPatch, setNavRowHidden, NAV_ICON_SIZE } from './sidebar.js'
 
-// 依赖的客户端服务。**服务名要跟着 DSH 走**：
-// `settingsScope` 在 0.1.7-rc.2 被删（整个设置域换成了 configForms + 共享 describe 镜像），
-// 留在列表里 = 整条客户端入口永远 pending（web boot 报
-// 「dsh-omkb: pending (waiting for service: settingsScope)」）——不是设置页坏掉，是**整个插件
-// 的界面与按键分派一起不激活**。这份列表与设置一节都不许凭印象改：改动点以
-// `ctx.configForms.get(NS)` 为准（见下面 UI 段）。
+// 声明式依赖：**只列这里真的整份离不开的服务**（缺一个，runner 就让整个客户端入口
+// 停在这一行，web boot 会报 `dsh-omkb: pending (waiting for service: …)`——不是设置页
+// 坏掉，是界面与按键分派一起不激活）。
+// 「可能没有、没有也要能跑」的服务一律**不进列表**，改用 `ctx.get(name)` 现场可选查找
+// （0.1.7-rc.2 的 runner 明确把它当可选取用：`ctx.get` 不要求声明，直读 `ctx.xxx` 才要求）。
+// uiWorkspace / layout / conversation / remote.commands 都走这条路，见下面各处注释。
 DSVI.inject = ['slots', 'locale', 'configForms', 'sessions', 'workspaces'];
 
 const err = (tag, e) => { try { console.error('[omkb] 装配失败 ' + tag + ':', e) } catch (_) {} }
@@ -38,12 +38,13 @@ DSVI.apply = (ctx) => {
     voice = new VoiceController();
     // services 必须**延迟取值**（同下面 DshOps 那条）：uiWorkspace 晚于本插件加载，
     // 而智能体键要它才能打开会话（`uiWorkspace.openSession`，见 agents.js openSlot）。
-    agents = new AgentController({ services: (name) => (typeof ctx.get === 'function' ? ctx.get(name) : undefined) });
+    agents = new AgentController({ services: (name) => ctx.get(name) });
     agents.setSessions(ctx.sessions);
     // workspaces 提供归档会话集合（侧边栏隐藏谁，键盘灯就不该亮谁）。
     agents.setWorkspaces(ctx.workspaces);
-    let conversation = null;
-    try { conversation = typeof ctx.get === 'function' ? ctx.get('conversation') : (ctx.conversation || null) } catch (e) {}
+    // conversation 不在 inject 里（它由 ui-conversation 提供，但缺了也不该拖住整个入口），
+    // 所以走可选查找；拿不到就是 null，下面按「没有对话服务」降级。
+    const conversation = ctx.get('conversation') || null;
     if (conversation) agents.setConversation(conversation);
     // DSH 功能门面：按键/摇杆/旋钮要执行的每一个 DSH 操作都从它走（见 actions/）。
     // services 必须是**延迟取值**的函数：layout / remote.commands 由别的客户端插件提供，
@@ -51,7 +52,7 @@ DSVI.apply = (ctx) => {
     ops = new DshOps({
       sessions: ctx.sessions,
       conversation,
-      services: (name) => (typeof ctx.get === 'function' ? ctx.get(name) : undefined)
+      services: (name) => ctx.get(name)
     });
     keypad = new KeypadController({ voice, ops });
     knob = new KnobController({ voice, ops });
@@ -60,7 +61,7 @@ DSVI.apply = (ctx) => {
     // 不让它碰语音控制器，就从结构上堵死「认不出来的事件 → 误开语音」那类问题。
     hid = new HidBridge({ agents, keypad, knob, joystick });
     // 首次连接引导：**只读** /omkb/state 的 `open`，不参与任何按键分派（见 guide.js 顶部）。
-    // 设置作用域要等下面 UI 段才拿得到，所以先建实例、那边再 setScope。
+    // 设置表单要等下面 UI 段才拿得到，所以先建实例、那边再 setScope。
     guide = new GuideController({ hid });
     // 设备级状态（「这台键盘被移除了没有」）：同样只订阅广播读 `open`。清空偏好要用到
     // 默认字段清单 —— 直接给它设置页那份（DSVI.OMKB_DEFAULTS 与宿主 schema 逐字段对齐）。
@@ -73,30 +74,7 @@ DSVI.apply = (ctx) => {
       openReasoningLevels, closeReasoningLevels, ringTo, commitLevel, scrollStepSize,
       findScrollContainer, scrollToBottomDir, focusCollect, isTextEntry
     };
-    // 功能总表（actions/registry.js）也挂到调试句柄上：设备没在手边时，
-    //   __dshOmkb.actions.list()                    // 现在有哪些功能（谁绑在哪颗键上）
-    //   __dshOmkb.actions.run('fork')               // 直接试一个功能，不必真按硬件
-    //   __dshOmkb.actions.keycaps() / .knob()       // 键帽候选 / 旋钮下拉里能选到的那些
     DSVI.actions = { list: () => ACTIONS, run: runAction, keycaps: keycapActions, knob: knobActions };
-    // 浏览器控制台调试句柄：不推杆也能验动作（设备没在手边时尤其有用）——
-    //   __dshOmkb.services.joystick.getMapping()        // 看四个方向当前绑了什么
-    //   __dshOmkb.services.joystick.run('切换规划模式')   // 单独试一个动作
-    //   __dshOmkb.services.ops.togglePlan()             // 直接调 DSH 操作（跳过按键/摇杆/旋钮）
-    //   __dshOmkb.services.hid.diagnose()               // 有没有「认不出来被忽略」的按键
-    //   __dshOmkb.services.voice.diagnose()             // 语音会走/正在走哪条链路（route）、是否正在进行（active）
-    //   document.querySelector('[data-slot="conversation.input.activity"]')
-    //                                                   // 官方语音 UI 在不在（不在 = Bundle 没启用）
-    //   __dshOmkb.services.hid.simulating               // true = 设置页开着（只演示，不触发功能）
-    //   __dshOmkb.services.hid.enterSim()               // 手验：进入只演示模式（返回释放函数）
-    //   __dshOmkb.services.guide.diagnose()             // 首次连接引导为什么没弹（/ 弹过了）
-    //   __dshOmkb.services.guide.replay()               // 手验引导三屏（不必真拔插设备）
-    //   __dshOmkb.services.device.diagnose()            // 界面为什么收起/显示（移除的状态）
-    //   __dshOmkb.services.device.setPrefs({ removed: true }) // 手验「移除后收起」（**不落盘**）
-    //   __dshOmkb.actions.run('fork')                   // 手验任意功能按键（不必真按设备）
-    //   __dshOmkb.knobTools.levelRows()                 // 推理等级列表当前有哪几档
-    //   __dshOmkb.knobTools.ringTo(null, 2)             // 手验「把蓝环移到第 3 档」
-    //   document.querySelector('[data-omkb-knob]')      // 蓝环现在落在谁身上
-    //   __dshOmkb.knobTools.focusCollect()              // 旋钮旋转会依次停在哪些控件上
     try { if (typeof window !== 'undefined') window.__dshOmkb = DSVI } catch (e) {}
   } catch (e) { err('controllers', e) }
 
@@ -124,9 +102,9 @@ DSVI.apply = (ctx) => {
   try {
     ctx.effect(() => ctx.locale.register(DSVI.NS, DSVI.locales), `${DSVI.NS}: locale`);
     const t = ctx.locale.bind(DSVI.NS);
-    // 设置表单：0.1.7-rc.2 起唯一入口。`get(命名空间)` 返回与旧 scope 同形的一件东西
-    // （getSnapshot/subscribe/set/unset/mutate），命名空间就是宿主那条 loader 条目的 id
-    // —— 宿主没导出 Config 时它恒为 unavailable，写入被丢弃（设置页会如实报「保存失败」）。
+    // 设置表单：0.1.7-rc.2 起唯一入口。命名空间就是宿主那条 loader 条目的 id（dsh-omkb），
+    // 表单面跟着旧 scope 的形状（getSnapshot/subscribe/set/unset/mutate）—— 宿主没把
+    // schema 登记上时它恒为 unavailable，写入被丢弃（设置页会如实报「保存失败」）。
     const scope = ctx.configForms.get(DSVI.NS);
     const sessions = ctx.sessions;
     // 引导的「看过没有」就住在设置里（guideSeen）：给了 scope 它才敢弹 —— 记不住就不打扰
@@ -182,8 +160,8 @@ DSVI.apply = (ctx) => {
           t,
           sessions,
           // 注意：**不再注入 services 检测函数**。设置页底部「第三方插件」卡以前靠它现场判
-          // 「某插件装没装」（ctx.get(服务名) 存不存在），2026-09-26 起改成读配置
-          // （src/client/config/default.js 的 PLUGIN_DEPS，静态、不检测系统）。
+          // 「某插件装没装」，2026-09-26 起改成读配置（src/client/config/default.js 的
+          // PLUGIN_DEPS，静态、不检测系统）。
           workspaces: ctx.workspaces
         })
       }, OmkbSettingsSection);

@@ -1,6 +1,6 @@
 // dsh-omkb · client/src/core.js
-// 共享运行时（由原 runtime.js 并入）：命名空间常量、样式、通用图标，
-// 以及所有模块共享的 `DSVI` 容器（持有 react）。ESM 化后各模块显式从此导入。
+// 共享运行时：命名空间常量、样式、通用图标，以及所有模块共享的 `DSVI` 容器（持有 react）。
+// ESM 化后各模块显式从此导入。
 import React from 'react'
 export const react = React
 

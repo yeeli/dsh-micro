@@ -16,19 +16,13 @@
 import { createBleReader } from './ble.js'
 import { Config, createSettingsProbe, readConfig, readHardwarePrefs } from './settings.js'
 import { createMonitorProbe, openPrivacyPane } from './monitor.js'
+import { registerServerRoutes } from './server/index.js'
 import { logSink } from './log.js'
 
 // 设置命名空间 = 插件在 profile 里那条 loader 条目的 Config（见 ./settings.js 顶部）。
 // 导出即注册：loader 读 `entry.fiber.runtime.Config`，客户端用
 // `ctx.configForms.get('dsh-omkb')` 读写同一个命名空间。
 export { Config }
-
-const ARCHIVE_PATH = '/omkb/archive'
-/** 输入监控授权检测（仅 macOS；见 ./monitor.js 顶部注释里「为什么这么做」）。 */
-const MONITOR_PATH = '/omkb/monitor'
-/** 打开系统设置的隐私面板（浏览器不能 spawn，只能由宿主代劳）。 */
-const PRIVACY_PATH = '/omkb/open-privacy'
-const JSON_HEAD = { 'content-type': 'application/json; charset=utf-8' }
 
 export const name = 'dsh-omkb'
 
@@ -61,9 +55,6 @@ export function apply(ctx, config) {
   // 「整个 dsh 卡死杀不掉」）。所以顺序必须是：先挂清理，再握资源。
   // 连带地，这些 dispose* 变量都得先声明 —— 否则 dispose 提前触发会在闭包里踩 TDZ。
   let disposeRoute = null
-  let disposeArchive = null
-  let disposeMonitor = null
-  let disposePrivacy = null
   ctx.on('dispose', () => {
     // 原来是一句裸的 `console.log('dispose')`（连 [omkb] 前缀都没有）：走日志出口，
     // 正式版才不至于在插件卸载时往终端漏一行。
@@ -75,9 +66,6 @@ export function apply(ctx, config) {
     // （宿主可能来不及走到这里），见 ./guard.js 顶部「退出前必须灭灯」。
     ble.dispose()
     if (disposeRoute) { try { disposeRoute() } catch (e) {} }
-    if (disposeArchive) { try { disposeArchive() } catch (e) {} }
-    if (disposeMonitor) { try { disposeMonitor() } catch (e) {} }
-    if (disposePrivacy) { try { disposePrivacy() } catch (e) {} }
   })
 
   ble.open()
@@ -117,18 +105,27 @@ export function apply(ctx, config) {
     }
   }), 'omkb: agent turn done → LED status')
 
-  // ---- 该会话重新开跑 → 收掉上面那个结果态 ----
+  // ---- 该会话重新开跑 → 只收掉上面那个结果态，**不额外发报文** ----
   // 为什么订阅 agent/status 而不是等浏览器下发的 st=1：那是 agent loop 的**相位变化**
   // （setPhase → status 从 idle 变 running 才发，ds-agent-loop 里有「同值不许重发」的不变量），
   // 语义就是「这个会话又干活了」。而浏览器那份快照带 350ms 防抖，失败那一刻它手里往往还写着
   // 「这个会话在跑」——把它当判据会让红灯刚亮就被抹掉，正是这次要修的病。
   // 用户中断不会重新触发 running（相位已经回到 idle），所以中断过的会话结果态照旧保留。
+  //
+  // ⚠ **规则 2 暂时停用**（2026-09-27 用户要求：「clearOutcome 先不要，这个也会导致发送多条」）。
+  //   原本这一跳还会让 `clearOutcome` 发一条「6 槽 st 全空闲」的清除报文，但 `running` 相位在
+  //   「发一条消息」时也会来 → 那条清除报文 + 随后的浏览器那份（蓝·st=1）= 一次操作设备收到两条。
+  //   现在 `clearOutcome` 只把结论从内部表里撤掉（红灯交由浏览器下一次推送重算时自然消失），
+  //   设备画面由**浏览器那条推送**更正 —— 一场重试因此只剩一条。
+  //
+  // 只认 `running`：**idle 那一跳不发**（用户明确要求）。它是相位回落，紧跟在本轮的
+  // turn-stopping/error 之后，刚写过的那份内容已经是最新的；再写一条只会让设备收到重复内容。
   // 只在真收掉了东西时打日志：多数 agent/status 与灯无关，不该刷屏。
   ctx.effect(() => ctx.on('agent/status', ({ agent, status }) => {
     try {
       if (status !== 'running') return
       const id = agent && agent.id
-      if (ble.clearOutcome(id)) logger.info(`[omkb] 会话 ${id} 重新开始运行 → 收掉结果灯（红/成功）`)
+      if (ble.clearOutcome(id)) logger.info(`[omkb] 会话 ${id} 重新开始运行 → 收掉结果灯（红/成功，不额外发报文）`)
     } catch (e) {
       logger.warn('[omkb] 结果灯收尾异常:', e && e.message ? e.message : e)
     }
@@ -180,104 +177,14 @@ export function apply(ctx, config) {
     timer.unref?.()
   }
 
-  // webServer 是依赖注入服务，必须通过 ctx.inject 声明后才能访问。
-  ctx.inject(['webServer'], (wctx) => {
-    disposeRoute = ble.registerRoute(wctx.webServer)
-
-    // ---- 输入监控授权状态（仅 macOS）----
-    // 浏览器侧读不到系统权限，必须由宿主去问系统；检测方式与三态语义见 ./monitor.js。
-    // 走独立路由而不是塞进 /omkb/state：检测要 spawn 一个 osascript，而 state 是每秒被
-    // 轮询的同步快照（塞进去会把每次轮询都变成一次进程启动）。
-    const monitor = createMonitorProbe()
-    try {
-      disposeMonitor = wctx.webServer.register({
-        kind: 'exact',
-        path: MONITOR_PATH,
-        handler: (req, res) => {
-          if (req.method !== 'GET' && req.method !== 'POST') {
-            res.writeHead(405, JSON_HEAD)
-            res.end(JSON.stringify({ error: 'method not allowed' }))
-            return
-          }
-          const force = /[?&]force=1/.test(String(req.url || ''))
-          monitor.read(force).then(
-            (r) => { res.writeHead(200, JSON_HEAD); res.end(JSON.stringify(r)) },
-            (e) => { res.writeHead(500, JSON_HEAD); res.end(JSON.stringify({ supported: false, granted: null, detail: (e && e.message) || String(e) })) }
-          )
-        }
-      })
-    } catch (e) {
-      logger.warn('[omkb] 输入监控路由注册失败:', e && e.message ? e.message : e)
-    }
-
-    // 「打开系统设置」按钮：浏览器不能启动进程，由宿主执行 open。
-    try {
-      disposePrivacy = wctx.webServer.register({
-        kind: 'exact',
-        path: PRIVACY_PATH,
-        handler: (req, res) => {
-          if (req.method !== 'POST') {
-            res.writeHead(405, JSON_HEAD)
-            res.end(JSON.stringify({ error: 'method not allowed' }))
-            return
-          }
-          let body = ''
-          req.on('data', (c) => { body += c })
-          req.on('end', () => {
-            let pane = 'listen'
-            try { pane = (JSON.parse(body || '{}').pane) || 'listen' } catch (e) {}
-            openPrivacyPane(pane).then((ok) => {
-              res.writeHead(ok ? 200 : 500, JSON_HEAD)
-              res.end(JSON.stringify({ ok }))
-            })
-          })
-        }
-      })
-    } catch (e) {
-      logger.warn('[omkb] 系统设置跳转路由注册失败:', e && e.message ? e.message : e)
-    }
-
-    // 归档：走宿主的 workspaceRegistry（官方「已归档聊天」机制，见 dsh-tauri-session）。
-    // 服务可能因宿主版本缺失，这里不强依赖——可用才注册路由。
-    let ws = null
-    try {
-      ws = (typeof wctx.get === 'function' && wctx.get('workspaceRegistry')) || wctx.workspaceRegistry || null
-    } catch (e) {
-      ws = null
-    }
-    if (ws && typeof ws.archiveSession === 'function') {
-      disposeArchive = wctx.webServer.register({
-        kind: 'exact',
-        path: ARCHIVE_PATH,
-        handler(req, res) {
-          if (req.method !== 'POST') {
-            res.writeHead(405, JSON_HEAD)
-            res.end(JSON.stringify({ error: 'method not allowed' }))
-            return
-          }
-          let body = ''
-          req.on('data', (c) => { body += c })
-          req.on('end', () => {
-            try {
-              const { sessionId } = JSON.parse(body || '{}')
-              if (!sessionId) {
-                res.writeHead(400, JSON_HEAD)
-                res.end(JSON.stringify({ error: 'missing sessionId' }))
-                return
-              }
-              Promise.resolve(ws.archiveSession(sessionId)).then(
-                () => { res.writeHead(200, JSON_HEAD); res.end(JSON.stringify({ ok: true })) },
-                (e) => { res.writeHead(500, JSON_HEAD); res.end(JSON.stringify({ error: e && e.message ? e.message : String(e) })) }
-              )
-            } catch (e) {
-              res.writeHead(400, JSON_HEAD)
-              res.end(JSON.stringify({ error: e && e.message ? e.message : String(e) }))
-            }
-          })
-        }
-      })
-    } else {
-      logger.warn('[omkb] 宿主未提供 workspaceRegistry.archiveSession，归档键不可用')
-    }
-  })
+  // ---- 全部 /omkb/* 路由（7 条）都交给 server/ 汇总注册 ----
+  // server/index.js 是「宿主与 webserver 通信」的唯一入口：它负责在 ctx.inject(['webServer'])
+  // 的上下文里把 state/config/reconnect/agents/monitor/open-privacy/archive 七条路由挂上去，
+  // 并返回一个统一 disposer。业务体（灯态、归档、权限检测）仍在各自模块里，这里只递材料。
+  // 输入监控检测器要在 apply 期间建一次（带缓存），路由与后续调用共用同一个实例。
+  const monitor = createMonitorProbe()
+  {
+    const server = registerServerRoutes(ctx, { ble, monitor, openPrivacy: openPrivacyPane, logger })
+    disposeRoute = server.dispose
+  }
 }

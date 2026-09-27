@@ -22,22 +22,21 @@
     },
     "client": {
       "inject": [
-        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-renderer",
         "@deepseek-ai/dsh-client-ui-settings",
-        "@deepseek-ai/dsh-client-locale",
-        "@deepseek-ai/dsh-client-ui-conversation"
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-api-workspace-controller"
       ],
       "platform": "web"
     }
   },
   "peerDependencies": {
-    "react": "^18.2.0",
-    "@deepseek-ai/dsh-client-runtime": "*",
-    "@deepseek-ai/dsh-client-ui-renderer": "*",
-    "@deepseek-ai/dsh-client-ui-settings": "*",
-    "@deepseek-ai/dsh-client-locale": "*",
-    "@deepseek-ai/dsh-client-ui-conversation": "*"
+    "react": "^18.2.0"
   },
   "scripts": {
     "build:client": "node src/client_build.js",

@@ -12,7 +12,7 @@
 // **那个红不会自己变回白色**（用户 2026-09-25 要求），要等该会话重新运行才收掉 ——
 // 所以客户端这里也不许「顺便下发一次就把红冲掉」。这里要做的只是把每槽的会话 id
 // 一起下发，宿主才定位得到该亮哪颗键。
-import { archivedIdsOf, byRecency, visibleSessions } from './core.js'
+import { archivedIdsOf, byRecency, currentSessionIdIn, visibleSessions } from './core.js'
 
 // 槽位状态（字符串）—— **只在浏览器内部用**：给槽位的 `status` 字段与首次连接引导的图例当 key。
 // 下发给设备的是**另一套**：整数状态码 `AGENT_STATE`（见下）。两套并存是有意的 ——
@@ -71,6 +71,9 @@ export class AgentController {
   #slots = []
   #pushTimer = null
   #allIdle = null
+  // 内容级去重的账本 =「**宿主此刻持有的**那份请求体」。**只有发成功才更新**；null = 还没成功发过。
+  // ⚠ 失败**不重置**它 —— 理由见 pushLeds 里的推演（清账会让「切回原状态」白发一条）。
+  #lastSentBody = null
   // 跨插件服务**延迟取值**（与 actions/index.js 的 DshOps 同一套写法）：别的客户端插件
   // 晚于本插件加载，建对象时缓存下来会永远是 undefined。
   #services = () => undefined
@@ -139,7 +142,10 @@ export class AgentController {
     const all = this.listSessions(snapshot)
     const allIdle = !all.some((s) => s && s.running)
     this.#allIdle = allIdle
-    this.pushLeds(slots, prefs && prefs.brightness, allIdle)
+    // 「谁是当前会话」= 主视图正在看的那一条（DSH 官方判据 `retainedBy.mainView > 0`，
+    // 见 utils/session-list.js）。**只有浏览器算得出来**，所以必须随灯态一起报给宿主 ——
+    // 宿主拿它决定「6 颗键里只有哪一颗能报非空闲的 st」（规则 1，见 src/core/ble.js 的 #currentSession）。
+    this.pushLeds(slots, prefs && prefs.brightness, allIdle, currentSessionIdIn(snapshot))
     return slots
   }
 
@@ -155,16 +161,26 @@ export class AgentController {
   //          （跑完一轮）定位到具体某颗键；
   //   st  —— 状态码（int，见 AGENT_STATE）：设备侧直接按它做灯效，不必反推颜色。
   //          这里只发 IDLE/RUNNING，成功/失败由宿主叠加。
-  // 颜色只在这里决定（失败的红色也由本表下发），宿主只负责「什么时候点亮红色、什么时候收掉」。
+  //
+  // ⚠ **这里下发的 st 是「每个槽位自己的状态」，不是最终写给设备的那份**（2026-09-26 起）：
+  //   「st 只报当前会话、其它会话为空闲」这条线规则（规则 1/2）由**宿主**在唯一的落笔点
+  //   `#stOfSlot` 里压平 —— 一份判据住在一处，才不会出现「客户端算一半、宿主算一半」。
+  //   浏览器这份保持**如实**（谁在跑就报 1），它表达的是「期望灯态」。
+  //   颜色只在这里决定（失败的红色也由本表下发），宿主只负责「什么时候点亮红色、什么时候收掉」。
   // ⚠ 宿主**不看**这里下发的 st 去收回红灯：本表带 350ms 防抖，失败那一刻它常常还写着
   //   running（见 src/core/ble.js 的 #outcome）。
   //
-  // 请求体里另外带 `allIdle`：宿主据此做「所有会话空闲 → 超时关灯」。
+  // 请求体里另外带两样宿主需要的信息：
+  //   allIdle —— 宿主据此做「所有会话空闲 → 超时关灯」；
+  //   current —— **谁是「当前会话」**（主视图正在看的那条，DSH 官方判据 retainedBy.mainView）。
+  //              只有浏览器算得出来，而宿主没有它就压不平 st（规则 1）。**永远发这个字段**：
+  //              `null` 是「知道，但主视图此刻没有会话」，与「老客户端压根没发」是两件事
+  //              （宿主用 `#currentKnown` 区分，见那边注释）。
   //
   // ⚠ 设备契约只要这几个字段（id/c/b/e/st）。曾经还发过 s/sk/sa 三个，**从头到尾恒为 0**
   //   （没有任何一行代码给过它们别的值），2026-09-25 按用户要求删掉 —— 留着它们只会让
   //   读协议的人以为「这几个字段有用，只是暂时没接上」。要加回新字段，先想清楚谁产出。
-  pushLeds = (slots, brightness, allIdle) => {
+  pushLeds = (slots, brightness, allIdle, current) => {
     const b = Math.max(0, Math.min(1, brightness == null ? 0.9 : brightness))
     const th = (slots || []).slice(0, 6).map((s, i) => {
       if (!s || !s.id) {
@@ -184,19 +200,41 @@ export class AgentController {
     const body = JSON.stringify({
       slots: th,
       errorColor: this.AGENT_COLORS.error,
+      current: typeof current === 'string' && current ? current : null,
       // 只在拿到明确结论时上报；undefined 会让宿主把它当「未上报」（老客户端语义）。
       ...(typeof allIdle === 'boolean' ? { allIdle } : {})
     })
     if (this.#pushTimer) { clearTimeout(this.#pushTimer); this.#pushTimer = null }
     this.#pushTimer = setTimeout(() => {
       this.#pushTimer = null
-      if (typeof fetch === 'function') {
-        fetch('/omkb/agents', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body
-        }).catch(() => {})
-      }
+      if (typeof fetch !== 'function') return
+      // ---- 内容级去重（用户 2026-09-27：「切换 session 的时候发送一条 thstatus，不要多发」）----
+      // 切一个会话会把 refresh 连触发几次（sessions / workspaces / scope 三路订阅 + 首屏那一次），
+      // 内容相同的那些没必要再打一遍 HTTP —— 宿主那边虽然也有内容去重，但少发一次就少一次日志
+      // 噪音、也少一次「看起来像多发」的误判。
+      // ⚠ 判定放在**真正要发的那一刻**（而不是排定时器时）：排定时器时被覆盖掉的那些 body
+      //   本来就没发出去，不能记进账本，否则「X → Y → X」这种回落会被误跳过。
+      if (body === this.#lastSentBody) return
+      // 账本 `#lastSentBody` 表达的是「**宿主此刻持有的样子**」，所以只有**发成功**才更新。
+      //
+      // ⚠ 失败时**不碰**账本 —— 这一行不是遗漏，是语义（曾经写成「失败清成 null」，是错的）。
+      //   推演：账本 = A（A 上次发成功，宿主手里就是 A）→ 发 B **失败**（B 没到宿主，宿主仍是 A）
+      //   → 用户又切回 A。此时
+      //     · 不清账（现在）：账本还是 A，`A === A` → **跳过**，正确（宿主本来就是 A）；
+      //     · 清成 null（旧写法）：`A !== null` → **又发一条 A**，而宿主手里就是 A —— 白发一条。
+      //   「又发一条」正是用户 2026-09-27 要修的病，所以清账是帮倒忙。
+      //   至于「失败会让同一份内容被永久跳过」—— 那担心是多余的：另一份内容 Y 的判据是
+      //   `Y !== 账本`，账本里只可能躺着「上次成功的那份」，Y 永远不会被它挡住。
+      //   宿主侧同处完全一致（`#writeThstatus`：`if (ok) 记账`，失败分支不碰账本）——
+      //   两边同源，才不会出现「浏览器以为宿主知道、宿主其实不知道」。
+      fetch('/omkb/agents', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body
+      }).then(
+        () => { this.#lastSentBody = body },
+        () => {} // 失败：不碰账本（理由见上）
+      )
     }, 350)
   }
 
