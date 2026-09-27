@@ -45,6 +45,7 @@
     "build:core:prod": "node src/core_build.js --release",
     "build:client:prod": "node src/client_build.js --release",
     "build:prod": "npm run build:core:prod && npm run build:client:prod",
+    "watch": "node src/watch_build.js",
     "verify:structure": "node test/verify_structure.js",
     "verify:logging": "node test/verify_logging.js",
     "verify:settings": "node test/verify_settings.js",
