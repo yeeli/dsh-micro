@@ -1,10 +1,14 @@
-// dsh-omkb · host_build.js
-// 用 Vite 把 src/host/ 打包成 ESM，写出到 lib/index.js，构建后清理 tmp-host。
-// 用法：node src/host_build.js   （或 npm run build:host）
+// dsh-omkb · core_build.js
+// 用 Vite 把 src/core/ 打包成 ESM，写出到 lib/index.js，构建后清理 tmp-host。
+// 用法：node src/core_build.js   （或 npm run build:core）
+//
+// ⚠ **构建前会先做一次全量源码检查**（见 src/check_code.js，2026-09-27）：
+//   语法错误绝不进产物，检查不过就中止，lib/ 里留着上一份能用的产物。
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'vite'
+import { runCheck, report } from './check_code.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
@@ -25,6 +29,17 @@ const RELEASE = process.argv.includes('--release')
 if (RELEASE) process.env.DSH_OMKB_RELEASE = '1'
 
 async function main() {
+  // ---- 构建前检查（2026-09-27）----
+  // 放在最前面是有意的：**检查不过就不该动 lib/**。若先打包再检查，坏产物已经写出去了，
+  // 而插件加载的正是 lib/ —— 那就成了「构建报错、设备上却已经是坏的」。
+  // ⚠ 这一层只抓语法。未定义变量、拼错的属性名之类属于运行期问题，由 test/verify_* 覆盖。
+  const checked = await runCheck({ targets: ['src/core', 'src/core_build.js'], label: 'core' })
+  if (!report(checked)) {
+    console.error('[omkb/build] 已中止构建（core 源码检查未通过，lib/index.js 保持上一份）')
+    process.exitCode = 1
+    return
+  }
+
   await build({
     configFile,
     logLevel: 'error'

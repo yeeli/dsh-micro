@@ -4,6 +4,15 @@
 //   pnpm watch              启动前先完整构建一次
 //   pnpm watch --no-initial 只监听，启动时不构建
 //   pnpm watch --release    按正式版口径构建（透传给两个 build 脚本）
+//   pnpm watch --no-smoke   不跑构建后的冒烟自检（见下）
+//
+// ── 一轮 = 检查 + 构建 + 冒烟自检 ──────────────────────────────────────────
+//   ① **语法检查**在构建脚本内部（`src/check_code.js`）—— 有语法错就不产出坏 lib/；
+//   ② **构建**交给 core_build.js / client_build.js；
+//   ③ **冒烟自检**（`src/smoke_check.js`）在构建之后：语法检查挡不住「变量名打错、
+//      忘了 import、空指针」这类**只有真跑到那一行才会抛**的错误 —— 跑几套关键自检
+//      把它们拽到明面上（本地约 5–8 秒）。**崩溃**会让那一轮标红，但**不退出监听**：
+//      用户多半正改到一半，改好保存即自动重跑。
 //
 // ── 为什么不用 `vite build --watch` ────────────────────────────────────────
 // 本项目的产物**不是 vite 直接写出来的**：core_build.js / client_build.js 各自在 vite 跑完之后
@@ -25,6 +34,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { runSmoke } from './smoke_check.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
@@ -32,6 +42,7 @@ const SRC = path.join(ROOT, 'src')
 
 const RELEASE = process.argv.includes('--release')
 const NO_INITIAL = process.argv.includes('--no-initial')
+const NO_SMOKE = process.argv.includes('--no-smoke')
 const DEBOUNCE_MS = Number(process.env.OMKB_WATCH_DEBOUNCE ?? 250) || 250
 
 // 关心哪些扩展名（其余一律不看：.DS_Store、编辑器交换文件、临时文件都在这里被挡掉）
@@ -124,7 +135,18 @@ async function tick() {
 
   const t0 = Date.now()
   for (const name of targets) await run(name)
-  log(`  完成，耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s`)
+  const buildMs = Date.now() - t0
+
+  // 构建后跑冒烟自检：语法检查（在构建脚本里）只能挡住语法错误，而「变量名打错 /
+  // 忘了 import / 空指针」要到真跑那一行才抛（见 src/smoke_check.js 的真实事故）。
+  // 失败**不退出监听** —— 用户多半正改到一半。
+  if (!NO_SMOKE) {
+    const strip = (m) => String(m).replace('[omkb/smoke] ', 'smoke ')
+    const ok = await runSmoke({ log: (m) => log(strip(m)), error: (m) => log(strip(m)) })
+    if (!ok) log('  ⚠ 冒烟自检发现**崩溃**（代码跑不起来）—— 监听继续，改好保存即自动重跑')
+  }
+
+  log(`  完成，耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s（构建 ${(buildMs / 1000).toFixed(1)}s）`)
 
   running = false
   if (pending.size > 0) tick() // 攒过一轮了，不用再等防抖
@@ -158,6 +180,9 @@ process.on('SIGINT', stop)
 process.on('SIGTERM', stop)
 
 log(`监听 ${path.relative(ROOT, SRC)}/** 与两个 vite 配置（防抖 ${DEBOUNCE_MS}ms，Ctrl+C 退出）`)
+log(NO_SMOKE
+  ? '构建前查语法；冒烟自检已用 --no-smoke 关闭'
+  : '构建前查语法，构建后跑冒烟自检（--no-smoke 可关）')
 if (RELEASE) log('口径 = **正式版**（产物不打日志），与 pnpm build:prod 一致')
 
 if (NO_INITIAL) {

@@ -6,10 +6,14 @@
 // CJS-in-factory：Vite CJS 产物使用 require/module/exports；把它放进 factory 函数体
 // 执行，则 factory 的 require 形参与局部 module/exports 恰好覆盖这些名字，
 // CJS 里的 require('react') 会解析到 loader 注入的 react（react 不打包）。
+//
+// ⚠ **构建前会先做一次全量源码检查**（见 src/check_code.js，2026-09-27）：
+//   语法错误绝不进产物，检查不过就中止，lib/ 里留着上一份能用的产物。
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'vite'
+import { runCheck, report } from './check_code.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
@@ -28,6 +32,16 @@ const RELEASE = process.argv.includes('--release')
 if (RELEASE) process.env.DSH_OMKB_RELEASE = '1'
 
 async function main() {
+  // ---- 构建前检查（2026-09-27）----
+  // 与 core_build.js 同一套口径（见 src/check_code.js）：语法错误不进产物，检查不过就中止。
+  // `.jsx` 走 jsx loader、`.js` 走严格 js loader —— 所以「在 .js 里写了 JSX」也会在这里被拦下。
+  const checked = await runCheck({ targets: ['src/client', 'src/client_build.js'], label: 'client' })
+  if (!report(checked)) {
+    console.error('[omkb/build] 已中止构建（client 源码检查未通过，lib/client.js 保持上一份）')
+    process.exitCode = 1
+    return
+  }
+
   await build({
     configFile,
     logLevel: 'error'
