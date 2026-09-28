@@ -28,6 +28,26 @@ export class LedEngine {
   #transport = null
   #logger
   #errorColor = 0xff0000 // 默认红；浏览器可用 payload.errorColor 覆盖（调色板在 src/client/agents.js
+  /**
+   * 「跑完一轮」的成功色（用户 2026-09-28）：**绿**。默认 0x00ff00，浏览器可用
+   * `payload.successColor` 覆盖（与 #errorColor 同一套：调色板归客户端，宿主不另立一份）。
+   *
+   * ⚠ 与红灯的**三处不同**（别顺手对称过去）：
+   *   ① 只给**当前会话**那一槽（用户原话「当前会话反馈成功状态后…」）—— 红灯不吃这道闸门；
+   *   ② **不常驻** —— 亮 `#successHoldMs` 就到点回落成浏览器下发的空闲色（红灯要等到会话重新运行）；
+   *   ③ 是**看得见的一帧**，所以它必须真的写出去（见 #latchOutcome 里 success 的 defer 口径）。
+   */
+  #successColor = 0x00ff00
+  /**
+   * 成功绿灯亮多久（毫秒）—— 到点自动回落到浏览器下发的期望色（用户 2026-09-28 选定「固定时长」，默认 3 秒）。
+   *
+   * `DSH_OMKB_SUCCESS_HOLD_MS` 覆盖；**0 = 关掉绿灯**（成功不再改色，回到这条改动之前的行为）。
+   * 关掉这一档是给自检用的：那几套盯的是「一次只发一条 / st 只响一次」，与颜色无关，
+   * 开着绿灯只会让每一处 success 断言多改一个色值。绿灯本身的行为在 verify_led_error 里单独验。
+   */
+  #successHoldMs = 3000
+  /** 槽位下标 → 成功绿灯的回落定时器（见 `#successHoldMs`）。到点把该槽的 success 收掉再重画。 */
+  #successTimers = new Map()
 
   // ---------- 浏览器下发的期望灯态 ----------
   // 槽位里带上会话 id（sid），宿主靠它把 agent/error 这类事件定位到具体那颗键。
@@ -208,6 +228,9 @@ export class LedEngine {
     // 等浏览器那条的硬上限（见 #outcomeMaxMs）：自检调小，否则每节都得多等 2 秒。
     const outcomeMax = Number(process.env.DSH_OMKB_OUTCOME_MAX_MS)
     if (Number.isFinite(outcomeMax) && outcomeMax > 0) this.#outcomeMaxMs = outcomeMax
+    // 成功绿灯亮多久（见 #successHoldMs）：自检设 0 = 关掉绿灯（那几套只关心条数与 st）。
+    const hold = Number(process.env.DSH_OMKB_SUCCESS_HOLD_MS)
+    if (Number.isFinite(hold) && hold >= 0) this.#successHoldMs = hold
     this.#dimTimer = setInterval(() => this.#autoDimCheck(), 1000)
     this.#dimTimer.unref()
   }
@@ -649,9 +672,8 @@ export class LedEngine {
   /**
    * 期望灯态 + 结果态 ⇒ 实际灯态（6 槽，**下发前**那一份）。
    *
-   * 颜色：结论态里只有失败换色（红灯），成功**不动颜色** —— 跑完一轮是正常态，不该抢眼，
-   * 交给浏览器那条跟进把它带回白。（曾经成功也换成绿色，用户看了一眼就否了。）
-   * 状态码：全交给 `#stOfSlot`（两道闸门压在一处）。
+   * 颜色：全交给 `#colorOf` —— 失败转红（常驻）、成功转绿（当前会话 + 只亮一会儿）、
+   * 其余用浏览器下发的期望色。状态码：全交给 `#stOfSlot`（三道闸门压在一处）。
    */
   #composeAgents = () => this.#desiredAgents.map((s, i) => {
     const out = this.#outcome.get(i)
@@ -660,11 +682,29 @@ export class LedEngine {
     return {
       id: i,
       st: this.#stOfSlot(mine, sid),
-      c: mine && mine.kind === 'error' ? this.#errorColor : s.c,
+      c: this.#colorOf(mine, sid, s.c),
       b: s.b,
       e: s.e
     }
   })
+
+  /**
+   * 结论态该用哪个颜色 —— `mine` 是这一槽挂着的结论（没有则用浏览器那份 `fallback`）。
+   *
+   *   · **失败 → 红**（`#errorColor`），**不吃「当前会话」闸门**：那颗键在侧边栏哪儿都得红着，
+   *     那是「这个会话上次失败了」的事实，与你看不看它无关（第七轮口径，verify_led_error §6）。
+   *   · **成功 → 绿**（`#successColor`），**只给当前会话**（用户 2026-09-28 原话）+ **只亮一会儿**
+   *     （到点由 `#successHoldMs` 的定时器把结论收掉，见 `#armSuccessHold`）。
+   *
+   * 绿灯这道闸门与喇叭（`#stOfSlot`）是同一个判据：**你看不见的那个会话跑完了，不该在你眼前闪一下**
+   * —— 切过去也不补（那时结论早已到点收掉）。
+   */
+  #colorOf = (mine, sid, fallback) => {
+    if (!mine) return fallback
+    if (mine.kind === 'error') return this.#errorColor
+    if (!(this.#successHoldMs > 0)) return fallback // 绿灯关着（见 #successHoldMs）
+    return this.#isCurrentSession(sid) ? this.#successColor : fallback
+  }
 
   /**
    * 画面指纹 —— 「这一幅画长什么样」，与**它长在哪颗键上**无关（第四道防线，见 `#lastPicture`）。
@@ -693,18 +733,60 @@ export class LedEngine {
     this.#stOnce = this.#isCurrentSession(sessionId)
       ? { sid: sessionId, st: bad ? AGENT_ST.ERROR : AGENT_ST.SUCCESS }
       : null
+    // **成功绿灯的回落**（见 `#successHoldMs`）：亮一段就自己收掉；失败没有这一步（红灯常驻）。
+    // 成功来了就先撤掉这几槽上还挂着的回落定时器，再由 #armSuccessHold 重新起一个。
+    if (bad) this.#cancelSuccessHold(sessionId)
+    else this.#armSuccessHold(sessionId)
     // 失败要**立刻亮**（defer:false），成功等浏览器那条跟进（defer:true，见 #deferAgentsWrite）。
     // 结论都带 force（见 #pendingForce），但只有 error 会走到「内容相同也照发」那一支。
     this.#renderAgents({ defer: !bad, force: bad, from: bad ? 'reportError' : 'reportSuccess' })
     this.#log(bad
       ? `会话运行失败 → 槽位 ${slots.join(',')} 转红灯（保持到该会话重新运行）`
-      : `会话跑完一轮 → 槽位 ${slots.join(',')} 报成功（保持到该会话重新运行）`)
+      : `会话跑完一轮 → 槽位 ${slots.join(',')} 转绿灯（${this.#successHoldMs > 0 ? `${this.#successHoldMs}ms 后回落空闲` : '绿灯关着，颜色不变'}）`)
     return true
   }
 
   reportError = (sessionId) => this.#latchOutcome(sessionId, 'error')
 
   reportSuccess = (sessionId) => this.#latchOutcome(sessionId, 'success')
+
+  /**
+   * 起一个「成功绿灯亮多久」的定时器（见 `#successHoldMs`）—— 到点把该会话的 success 收掉再重画。
+   *
+   * ⚠ **按会话 id 记，不按槽位**：会话列表重排会让结论**换键**（`applyAgents` 里整表重建
+   *   `#outcome`），按槽位记的定时器到点会找不到自己那条结论 —— 绿灯就永远不回落了。
+   * ⚠ 到点那一刻只认「这些槽**现在**还挂着这个会话的 success」：期间会话重新运行
+   *   （`clearOutcome`）、又失败了一次（`#latchOutcome` 会 `#cancelSuccessHold`）都算别人说了算。
+   * ⚠ 定时器**必须 unref**（本项目的硬约定）：一条灯效不该把进程留住。
+   * ⚠ 到点后重画走的是 `#renderAgents` 的**常态**那一支（不 defer、不 force）：这次回落只是
+   *   「把绿灯换成浏览器下发的期望色」，不是一条新的结论 —— 内容没变就该被去重挡下。
+   */
+  #armSuccessHold = (sessionId) => {
+    this.#cancelSuccessHold(sessionId)
+    if (!(this.#successHoldMs > 0)) return
+    const t = setTimeout(() => {
+      this.#successTimers.delete(sessionId)
+      let hit = false
+      for (const [slot, cur] of [...this.#outcome]) {
+        if (cur.sid !== sessionId || cur.kind !== 'success') continue
+        this.#outcome.delete(slot)
+        hit = true
+      }
+      if (!hit) return // 期间被收掉 / 换成了失败 → 已经有人说了算
+      this.#renderAgents({ from: '成功绿灯到点回落空闲' })
+      this.#log(`会话 ${sessionId} 的成功绿灯到点 → 回落成浏览器下发的期望色`)
+    }, this.#successHoldMs)
+    t.unref?.()
+    this.#successTimers.set(sessionId, t)
+  }
+
+  /** 撤掉这个会话的成功回落定时器（结论被更新/收掉、或插件卸载）。没起过就什么都不做。 */
+  #cancelSuccessHold = (sessionId) => {
+    const t = this.#successTimers.get(sessionId)
+    if (!t) return
+    clearTimeout(t)
+    this.#successTimers.delete(sessionId)
+  }
 
   clearOutcome = (sessionId) => {
     if (typeof sessionId !== 'string' || !sessionId) return false
@@ -714,6 +796,7 @@ export class LedEngine {
       this.#outcome.delete(slot)
       hit = true
     }
+    if (hit) this.#cancelSuccessHold(sessionId) // 会话重新运行 → 那颗绿灯连同它的回落定时器一起作废
     // 只更新诊断面，**不渲染、不写设备**（原因见上面的注释）。
     this.#state.outcomes = [...this.#outcome].map(([slot, t]) => ({ slot, sid: t.sid, kind: t.kind }))
     if (hit) this.#log(`会话 ${sessionId} 重新开始运行 → 收掉结果灯（不再额外发清除报文）`)
@@ -735,6 +818,9 @@ export class LedEngine {
       // 于是红灯变成一颗看不见的灯（比报错更难查）。
       const c = payload.errorColor
       if (typeof c === 'number' && Number.isInteger(c) && c >= 0 && c <= 0xffffff) this.#errorColor = c
+      // 成功色同一套（见 #successColor）：畸形值一律忽略，保留宿主默认的绿。
+      const sc = payload.successColor
+      if (typeof sc === 'number' && Number.isInteger(sc) && sc >= 0 && sc <= 0xffffff) this.#successColor = sc
       // 「所有会话都空闲」→ 自动调暗的计时起点；有会话重新开始运行 → 立刻把灯点回来。
       // 老客户端不发这个字段（数组形态的老请求更是没有），此时 #allIdle 保持 null = 未知，
       // 自动调暗退回「无按键活动」判据。
@@ -793,7 +879,13 @@ export class LedEngine {
     // 就**一条都不发** —— 而且必须**在渲染之前**早退：诊断面 `#state.agents` 也停在旧键位上，
     // 那正是设备手里那份（verify_blackout §8j / §8l t7 钉的就是这条）。
     const params = this.#thstatusParams(this.#composeAgents())
-    if (this.#pictureKey(params) === this.#lastPicture) {
+    // ⚠ `!this.#pendingAgents` 这一半是 2026-09-28 加成功绿灯时补的：有**待写内容**在排队时，
+    //   `#lastPicture` 指的是「刚算好、还没交出去」的那一幅，不是设备手里那一幅 —— 此时早退
+    //   只会让这份待写内容一直等到结果态窗口的**硬上限**（2s）才落地。绿灯是「跑完一轮」的
+    //   即时反馈，晚 2 秒等于没有；而且不早退也不会多写一条（排队的和重算的是同一幅画面，
+    //   写完再来的重复由 `#writeThstatus` 的去重挡下）。
+    //   排队为空时语义一字不变：同一幅画面只换了键位 → 一条都不发（§8j / §8l t7）。
+    if (!this.#pendingAgents && this.#pictureKey(params) === this.#lastPicture) {
       this.#log('同一幅画面只换了键位 → 一条都不发（键位留到下一次真实变化一起带过去）')
       return
     }
@@ -822,8 +914,9 @@ export class LedEngine {
     this.#lastPicture = null
   }
 
-  /** 插件卸载（进程要走了）：停掉自动调暗定时器。句柄与安全网由 transport 收尾。 */
+  /** 插件卸载（进程要走了）：停掉自动调暗定时器与所有成功回落定时器。句柄与安全网由 transport 收尾。 */
   dispose = () => {
     if (this.#dimTimer) { clearInterval(this.#dimTimer); this.#dimTimer = null }
+    for (const sid of [...this.#successTimers.keys()]) this.#cancelSuccessHold(sid)
   }
 }
