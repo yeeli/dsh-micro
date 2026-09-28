@@ -28,48 +28,41 @@ export class LedEngine {
   #transport = null
   #logger
   #errorColor = 0xff0000 // 默认红；浏览器可用 payload.errorColor 覆盖（调色板在 src/client/agents.js
-  #successColor = 0x00ff00
 
   // ---------- 浏览器下发的期望灯态 ----------
   // 槽位里带上会话 id（sid），宿主靠它把 agent/error 这类事件定位到具体那颗键。
   #desiredAgents = [] // 浏览器下发的期望灯态（设备字段 + 会话 id 元数据）
   #slotSessions = [] // 槽位下标 → 会话 id
   /**
-   * **当前会话** = 主视图正在看的那一条（DSH 官方判据 `retainedBy.mainView > 0`；客户端由
-   * `src/client/utils/session-list.js` 的 `currentSessionIdIn` 算出来，随 POST /omkb/agents
-   * 的 `current` 字段报上来）。
-   *
    * **当前会话** = 主视图正在看的那一条（DSH 官方判据 `retainedBy.mainView > 0`；**只有浏览器算得
-   * 出来** —— 由 `utils/session-list.js` 的 `currentSessionIdIn` 算出，随 `current` 字段报上来）。
+   * 出来** —— 由 `src/client/utils/session-list.js` 的 `currentSessionIdIn` 算出，随 POST
+   * /omkb/agents 的 `current` 字段报上来）。
    *
    * ⚠ **规则 1**：`st` 只报当前会话占的那颗键，其余槽位一律 `IDLE`，**颜色照旧**（别的会话在跑
    * 就还是蓝的，那由 `c` 说）。判据压平在 `#stOfSlot`，全项目**只此一处**。
-   * （规则 2「会话重新运行 → 6 槽 st 全空闲」自 2026-09-27 起停用，形态留着待恢复。）
+   * （规则 2「会话重新运行 → 6 槽 st 全空闲」自 2026-09-27 起停用：`clearOutcome` 一条报文都不发。）
+   *
+   * ⚠ **`null` 不覆盖本字段**：浏览器在**主视图重渲染的间隙**会报一次 `current: null`，把它也当成
+   * 「当前会话 = 没有」会让 6 槽 `st` 压成空闲、真实 id 报回来再变回去 = 多发两条；切会话的日志也会
+   * 被打成 A → null → B 两条。所以这里**只装真实会话 id**，`null` =「不知道 / 暂时没有」，排布按
+   * 上一次那条来。（诊断面另用 `state.agentsCurrent` 如实报**这一拍报上来的原始值**，两者一起才
+   * 说得清「知道但没有」与「压根不知道」。）
    *
    * ⚠ `#currentKnown` 区分两种「没有」——**缺 ≠ 空**：`false` = 老客户端压根没报这个字段 →
-   * **不替它压平**（逐槽照旧，与改动前逐字节一致）；`true` + `null` = 报了、只是主视图此刻没会话
-   * → 6 槽全空闲。
+   * **不替它压平**（逐槽照旧，与改动前逐字节一致）；`true` + `null` = 报了、只是还没有（或没有）
+   * 当前会话 → 没有一槽算当前会话。
    *
    * 详见技能 §2「st 只报当前会话」。
    */
   #currentSession = null
   #currentKnown = false
   /**
-   * 上一次**报过的真实会话 id**（`null` 报告不覆盖它）—— 只服务**日志**那一行「切会话：X → Y」。
-   *
-   * ⚠ 「切会话」只认**两个真实会话 id 之间**：浏览器在主视图重渲染的**间隙**会短暂报一次 `null`，
-   * 把它也算变化，一次真实切换就被打成 A → null → B **两条**。所以 `null` =「不知道 / 暂时没有」，
-   * 不是一次用户切换。「写不写设备」现在全由**内容**说了算，本字段不参与任何写判定。
-   *
-   * 详见技能 §2「`#currentSeen`」。
-   */
-  #currentSeen = null
-  /**
    * 「同拍合并」的暂存位（三道防线的第一道，见 `#renderAgents`）。
    *
    *   `#pendingAgents`   —— 算好但还没写出去的那一份参数（null = 没东西待写）
    *   `#agentsScheduled` —— 当前这一拍是否已经排过写入（排过就只覆盖内容，不再排第二次）
    *   `#pendingForce`    —— 这一份是不是**结论**驱动的（是则不许被内容去重挡下）
+   *   `#pendingFrom`     —— 这一份是**谁**排的（只进日志，见下）
    *
    * ⚠ 同一拍里多个来源都会重画（宿主的 error/status 连着来、`allIdle` 翻转顺手唤醒亮度），
    * 逐条写 = 设备一口气收到好几条 `thstatus`（每条要切成 5 帧 63 字节的 HID 报告）。
@@ -90,6 +83,17 @@ export class LedEngine {
    */
   #pendingForce = false
   /**
+   * 这一份待写报文是**谁**排的（`applyAgents` / `reportError` / `reportSuccess` / `leds` 之类）。
+   *
+   * ⚠ 只用于**日志**：用户 2026-09-27 要求「增加一个日志，用来查看是哪个方法调用了它」——
+   * 设备上多出一条 `thstatus` 时，先说得出是谁发的。常态路径的写入发生在微任务 / 定时器里，
+   * 栈上只剩 `#flushAgents`（拿 `new Error().stack` 冒充出处必然指向它），所以出处必须**跟内容一起**
+   * 从调用点带过来。
+   * ⚠ 与 `#pendingAgents` / `#pendingForce` **同生同灭**：`#renderAgents` 里一起设、`#flushAgents`
+   * 里一起消费、`resetOnDisconnect()` 里一起作废（少一处就会把出处漏给下一条无关灯态）。
+   */
+  #pendingFrom = null
+  /**
    * 上一次**真正写出去**的那条 `v.oai.thstatus` 长什么样（JSON 字符串，用来比对内容）。
    *
    * ⚠ 第二道防线：同拍合并只管**同一拍**，挡不住同一份内容**跨拍**被推两次（宿主结论与浏览器
@@ -98,6 +102,29 @@ export class LedEngine {
    * 「链路断了」是唯一必须忘掉「上次发过什么」的时刻（重连要重放）。
    */
   #lastThstatus = null
+  /**
+   * 上一次**真正写出去**的那份画面里，**除 `st` 之外**的部分（见 `#shapeOf`）—— 见 `#stOnce`。
+   *
+   * ⚠ 只用来认出「这一条与设备手里那份只差在 st 回落」这一种：喇叭那一位是一次性事件信号，
+   *   设备收到就等于知道了，为了把它抹回 0 再占一条报文不值当（用户反复报的「多发一条」）。
+   *   与 `#lastThstatus` 同生同灭 —— 只在写成功后一起更新、`resetOnDisconnect()` 里一起清空。
+   */
+  #lastShape = null
+  /**
+   * 上一次**决定要写**的那幅画面的**指纹**（见 `#pictureKey`）—— 第四道防线。
+   *
+   * ⚠ 挡的是内容去重漏掉的一类：**同一幅画面只换了键位**。会话列表「最新在前」重排、切会话时，
+   * 6 颗键的画面**多集**没变，只是谁长在哪颗键上换了位；按内容比对会认为「变了」而白发一条，
+   * 设备侧其实一模一样（用户 2026-09-27 第四次报的「发消息后挪到第一条，多发一条」）。
+   * `applyAgents` 拿新算出来的指纹与它比：相同 ⇒ 这条推送只带来键位变化 ⇒ **一条都不发**
+   * （键位留到下一次真实变化一起带过去，见 verify_blackout §8j / §8l t7）。因此这条抑制必须
+   * **在渲染之前**早退：诊断面 `#state.agents` 也跟着停在旧键位上，那正是设备手里那份画面。
+   * ⚠ 由 `#renderAgents`（决定要写什么时）更新，不是由 `#writeThstatus` 更新 —— 「刚才算出来的
+   * 那一幅」与「设备手里那一幅」在**被内容去重挡下**时仍然是同一幅，只有按「决定」记账才分得清
+   * 「这次推送带没带来新画面」（否则一条被挡下的写入会把它留成过期指纹，见 verify_led_error §11）。
+   * `resetOnDisconnect()` 清空：链路断过之后设备那份画面不再可信，重连必须真的重放。
+   */
+  #lastPicture = null
   /**
    * **结果态的等待窗口**（毫秒）—— 结果态**不立刻下发**，先等一个窗口。
    *
@@ -143,6 +170,21 @@ export class LedEngine {
    *   'success' —— 状态码 st=2，颜色不动（跑完了是正常态，不该抢眼的颜色）
    */
   #outcome = new Map()
+  /**
+   * **喇叭**（用户 2026-09-27 第八轮口径）：`st` 只和 `reportError` / `reportSuccess` 相关，
+   * 只在收到这两个反馈的那一条报文里带上当前状态**一次**；其它任何行为（浏览器推送、切会话、
+   * 唤醒、亮度、重放）写出去的 `st` 一律 `IDLE`。
+   *
+   * ⚠ 所以它**不是**「此刻的状态」，而是**一次性的事件信号**：`#latchOutcome` 在这里排一格，
+   *   `#composeAgents` 读它算出那一条的 st，`#flushAgents` 把这一份交出去之后就清掉
+   *   （下一次写入自然就是 0）。设备侧按「收到即响」处理，不靠我们回落。
+   * ⚠ 仍然只看**当前会话**（第七轮口径，见 `#isCurrentSession`）：非当前会话的结论不响，
+   *   而且**不会补响** —— 事后再切过去属于「其它行为」，那一条写出去是 0。
+   * ⚠ 颜色**不吃**这一位：红灯照旧由 `#outcome` 常驻（见 `#composeAgents`），
+   *   「失败后不变白」与喇叭是两件事。
+   * @type {null | {sid: string, st: number}}
+   */
+  #stOnce = null
 
   // ---------- 电源/空闲（自动调暗）----------
   #dimmed = false // 是否已因空闲而自动调暗
@@ -191,7 +233,7 @@ export class LedEngine {
     if (!this.#dimmed) return false
     this.#dimmed = false
     if (this.#state.brightness > 0) this.#sendBrightness(this.#state.brightness)
-    this.#renderAgents()
+    this.#renderAgents({ from: '唤醒（按键/会话重新运行）' })
     return true
   }
 
@@ -218,7 +260,7 @@ export class LedEngine {
       this.#dimmed = false
       this.markActivity()
       this.#sendBrightness(this.#state.brightness)
-      this.#renderAgents()
+      this.#renderAgents({ from: '设置面板改亮度' })
     }
     if (typeof patch.autoDim === 'number') {
       this.#state.autoDim = Math.max(0, patch.autoDim)
@@ -241,7 +283,7 @@ export class LedEngine {
         this.#dimmed = false
         this.markActivity()
         this.#sendBrightness(b)
-        this.#renderAgents()
+        this.#renderAgents({ from: '持久化偏好回灌' })
         changed = true
       }
     }
@@ -271,7 +313,7 @@ export class LedEngine {
     if (Date.now() - ref < this.#state.autoDim * 1000) return
     this.#dimmed = true
     this.#sendBrightness(0)
-    this.#renderAgents() // 灯态也要跟着压灭（否则下一次 thstatus 又把灯点亮）
+    this.#renderAgents({ from: '空闲自动调暗' }) // 灯态也要跟着压灭（否则下一次 thstatus 又把灯点亮）
     this.#log(`空闲自动调暗：关闭灯光（${this.#allIdle === true ? '所有会话空闲' : '无按键活动'} ${this.#state.autoDim}s）`)
   }
 
@@ -329,24 +371,42 @@ export class LedEngine {
    *   又失败了一次」。用户 2026-09-26 第四次报的「连续两次失败，第二次不发」就是被这条挡下的。
    * @param params - `#thstatusParams` 规范化过的 6 槽参数。
    * @param force - true = **结论**驱动（见 `#pendingForce`），跳过内容比对直接发。
+   * @param from - 报文出处（见 `#pendingFrom`），只进日志。
    * @returns {boolean} 是否真的写了（内容没变且非结论时为 false，这不是错误）。
    */
-  #writeThstatus = (params, force = false) => {
+  #writeThstatus = (params, force = false, from = '') => {
     const key = JSON.stringify(params)
     if (key === this.#lastThstatus) {
       if (!force) {
-        this.#log('灯态与上次写出去的完全相同 → 跳过重复写回')
+        this.#log(`灯态与上次写出去的完全相同 → 跳过重复写回（来自 ${from}）`)
         return false
       }
       // 结论态照发 —— 这一行是给「又失败一次，终端里却什么都没有」留的证据。
-      this.#log('这一条是结论态 → 内容与上次相同也照发（内容去重只挡常态灯态）')
+      this.#log(`这一条是结论态 → 内容与上次相同也照发（内容去重只挡常态灯态）（来自 ${from}）`)
+    }
+    // **喇叭那一位的回落不算变化**（见 `#stOnce`）：结论那一条已经把 st 交给设备了，它是
+    // **一次性事件信号**（收到即响），没必要为了把它抹回 0 再发一条 —— 那正是用户反复报的
+    // 「多发一条」（浏览器那条随后到达时，画面与设备手里那份只差这一位）。
+    // 判据：这一条与设备手里那份**除 st 外逐字节相同**，且这一条自己的 st 全是 0。
+    // ⚠ force（结论）不受这条约束；颜色/亮度/开关有任何一处不同都会走正常那条路（照发）。
+    if (!force && this.#lastShape !== null && this.#shapeOf(params) === this.#lastShape
+      && params.every((p) => p.st === AGENT_ST.IDLE)) {
+      this.#log(`与设备手里那份只差在 st 回落（喇叭那一位是一次性信号）→ 跳过（来自 ${from}）`)
+      return false
     }
     const ok = this.#transport.writeRpc('v.oai.thstatus', params)
     if (ok) {
       this.#lastThstatus = key
+      this.#lastShape = this.#shapeOf(params)
+      this.#log(force ? `→ 写 thstatus（结论，来自 ${from}）` : `→ 写 thstatus（来自 ${from}）`)
     }
     return ok
   }
+
+  /**
+   * 把 `st` 抹平之后的那份形态（颜色 / 亮度 / 开关）—— 只给上面那条「只差在 st 回落」的比对用。
+   */
+  #shapeOf = (params) => JSON.stringify(params.map((p) => ({ id: p.id, c: p.c, b: p.b, e: p.e })))
 
   /**
    * **立刻**把一组槽位写给设备（规范化 + 记诊断 + 写）。
@@ -358,13 +418,15 @@ export class LedEngine {
    *
    * 它也过内容去重（见 `#writeThstatus`）：连续两次灭灯只会写出去一条 —— 「全灭」本来就已经
    * 是设备此刻的样子。
+   * @param slots - 要写的槽位（灭灯那条路给 `BLACKOUT_SLOTS`）。
+   * @param from - 报文出处（见 `#pendingFrom`），只进日志。
    * @returns {boolean} 是否真的写给了设备（内容与上次相同 → false）。
    */
-  #sendThstatus = (slots) => {
+  #sendThstatus = (slots, from = '') => {
     if (!Array.isArray(slots)) return false
     const params = this.#thstatusParams(slots)
     this.#state.agents = params
-    return this.#writeThstatus(params)
+    return this.#writeThstatus(params, false, from)
   }
 
   /**
@@ -394,7 +456,7 @@ export class LedEngine {
    */
   #lightsOff = () => {
     const dim = this.#sendBrightness(0)
-    const dark = this.#sendThstatus(BLACKOUT_SLOTS)
+    const dark = this.#sendThstatus(BLACKOUT_SLOTS, '插件卸载/进程退出灭灯')
     return dim && dark
   }
 
@@ -419,29 +481,30 @@ export class LedEngine {
   // ⚠ 诊断字段（`#state.agents` / `#state.outcomes`）必须留在**同步**这一半更新：读 /omkb/state
   //   与自检的人不该被一个微任务的时序影响。**灭灯不走这里**：退出路径必须同步写。
   //
-  // @param {{defer?: boolean, force?: boolean, stIdle?: boolean, stAs?: {current: (string|null), known: boolean}}} [opts]
-  //   defer  - 排到结果态窗口之后（见 #deferAgentsWrite），只给结果态用。
-  //   force  - 这一份是**结论** → 写出去时不吃内容去重（见 #pendingForce）。
-  //   stIdle - 这份报文的 st 一律空闲（规则 2 的清除报文）。**2026-09-27 起无调用方**：
-  //            `clearOutcome` 不再发清除报文，这条分支保留着以便随时恢复（见 #composeAgents）。
-  //   stAs   - 「**按别的当前会话**来算这一份的 st」，只给 `applyAgents` 用：当前会话刚换人时它把
-  //            这一份按**换人之前**的样子画出来，于是内容与设备手里那份逐字节相同、被内容去重
-  //            挡下 —— 那条推送就一条都不写（见 applyAgents 末尾的长注释）。诊断面
-  //            `#state.agents` 跟着它走是对的：那正是设备手里将会保留的那份画面。
+  // @param {{defer?: boolean, force?: boolean, from?: string}} [opts]
+  //   defer - 排到结果态窗口之后（见 #deferAgentsWrite），只给 success 那条用（error 要立刻亮）。
+  //   force - 这一份是**结论** → 写出去时不吃内容去重（见 #pendingForce）。
+  //   from  - 报文出处（见 #pendingFrom）。**每个调用点都必须给** —— 漏一个，日志里那条写入就
+  //           只剩「来自 」说不出是谁。
   #renderAgents = (opts = {}) => {
-    const { force = false, currSession = null } = opts || {}
+    const { defer = false, force = false, from = 'leds' } = opts || {}
     if (!this.#desiredAgents.length) return false
-    const ca = this.#composeAgents(currSession)
-    const params = this.#thstatusParams(ca)
+    const params = this.#thstatusParams(this.#composeAgents())
     // ⚠ 下面两行**同步**更新，与「什么时候写设备」无关：读诊断面的人（GET /omkb/state、
     //   自检）不该被一个写设备的时机左右。defer 只推迟 #pendingAgents 的落地。
     this.#state.agents = params
     // 排查用：哪些键此刻挂着结果态（红/成功）、分别是哪个会话。它们是**不会自己消失**的，
     // 所以「灯的颜色没人解释」时，先来这里看是谁挂的。
     this.#state.outcomes = [...this.#outcome].map(([slot, t]) => ({ slot, sid: t.sid, kind: t.kind }))
+    // 第四道防线按「**决定**要写的那一幅」记账（见 #lastPicture）：即使下面被内容去重挡下、
+    // 或 defer 到窗口之后才落地，指纹也已经是这一幅了 —— applyAgents 靠它判断「这次推送有没有
+    // 带来新画面」。
+    this.#lastPicture = this.#pictureKey(params)
     this.#pendingAgents = params
-    // 「是不是结论」跟着**内容**一起记（谁后到谁赢，与 #pendingAgents 同一套语义，见 #pendingForce）。
+    // 「是不是结论」与出处都跟着**内容**一起记（谁后到谁赢，与 #pendingAgents 同一套语义）。
     this.#pendingForce = force
+    this.#pendingFrom = from
+    if (defer) { this.#deferAgentsWrite(); return true }
     if (!this.#agentsScheduled) {
       this.#agentsScheduled = true
       queueMicrotask(this.#flushAgents)
@@ -450,7 +513,7 @@ export class LedEngine {
   }
 
   /** 设备（重）连后重放灯态（open() 成功时由 transport 回调）—— 空期望态时什么也不做。 */
-  replayAgents = () => this.#renderAgents()
+  replayAgents = () => this.#renderAgents({ from: '设备（重）连后重放' })
 
   /**
    * 把待写的那份灯态排到**一个窗口之后**（见 `#outcomeWindowMs`）—— 只给**结果态**用
@@ -518,12 +581,18 @@ export class LedEngine {
     // （用户第三次报的「点击发送后还是两条」，详见那里与 verify_blackout §8g）。
     this.#cancelOutcomeWindow()
     const params = this.#pendingAgents
-    // 「是不是结论」与内容一起消费掉（同一个暂存位的两半）。
+    // 「是不是结论」与**出处**都跟内容一起消费掉（同一个暂存位的几半，少一个就会漏给下一条）。
     const force = this.#pendingForce
+    const from = this.#pendingFrom
     this.#pendingAgents = null
     this.#pendingForce = false
+    this.#pendingFrom = null
     if (!params) return false
-    return this.#writeThstatus(params, force)
+    // **喇叭那一位用完了**（见 `#stOnce`）：这一份是它唯一的去处，交出去之后下一次写入就是 0。
+    // 放在这里而不是 `#renderAgents` 里 —— defer 的那条（成功）要等窗口/浏览器那条，
+    // 期间可能重画好几次，那几位必须一直跟着待写内容走到真正落笔。
+    this.#stOnce = null
+    return this.#writeThstatus(params, force, from)
   }
 
   /**
@@ -543,28 +612,74 @@ export class LedEngine {
     this.#outcomeSince = 0
   }
 
-  #composeAgents = (currSession) => this.#desiredAgents.map((s, i) => {
-      const out = this.#outcome.get(i)
-      const mine = out && this.#slotSessions[i] === out.sid ? out : null
-      let color = s.c
-      let st = AGENT_ST.IDLE
-    if (mine && currSession && mine.sid === currSession) {
-       if (mine.kind === 'error') {
-          st = AGENT_ST.ERROR
-         color = this.#errorColor
-       } else {
-         st = AGENT_ST.SUCCESS
-         color = this.#successColor
-        }
-      }
-      return {
-        id: i,
-        st: st,
-        c: color,
-        b: s.b,
-        e: s.e,
-      }
+  /**
+   * 某一槽位挂着的会话**是不是当前会话**（规则 1 的第一半，见 `#currentSession`）。
+   *
+   * 三种「没有」要分开（**缺 ≠ 空**）：
+   *   · `#currentKnown === false` —— 老客户端**压根没报**这个字段 → 不替它压平（逐槽照旧）；
+   *   · 报过、`#currentSession === null` —— 报了但（暂时）没有当前会话 → 没有一槽算当前会话；
+   *   · 报过真实 id —— 只认那一条。
+   */
+  #isCurrentSession = (sid) => {
+    if (!sid) return false
+    if (!this.#currentKnown) return true
+    return this.#currentSession !== null && this.#currentSession === sid
+  }
+
+  /**
+   * 槽位挂着的结论（若有）该报的状态码 —— **全项目只此一处**。
+   *
+   * ⚠ 三道限制叠在一起，缺一条就会多响：
+   *   ① 只有**结论**能产生非 0（浏览器下发的 st 一位都不进报文 —— 它带 350ms 防抖，
+   *      只区分 running/idle，下发就成了「抢跑态」）；
+   *   ② 只给**当前会话**那一槽（第七轮口径）；
+   *   ③ **一次性** —— 只有结论事件驱动的那一条报文带它（见 `#stOnce`），
+   *      之后同样的画面/切会话再写出去都是 `IDLE`，喇叭不会因为「你切回来看它」再响一次。
+   *
+   * 而**颜色不吃这三道闸门**（见 `#composeAgents`）：失败的红必须一直亮着，
+   * 不能因为「当前会话换人了」「那把已经响过了」就被抹成日常色。
+   */
+  #stOfSlot = (mine, sid) => {
+    if (!mine || !this.#isCurrentSession(sid)) return AGENT_ST.IDLE
+    const once = this.#stOnce
+    if (!once || once.sid !== sid) return AGENT_ST.IDLE
+    return once.st
+  }
+
+  /**
+   * 期望灯态 + 结果态 ⇒ 实际灯态（6 槽，**下发前**那一份）。
+   *
+   * 颜色：结论态里只有失败换色（红灯），成功**不动颜色** —— 跑完一轮是正常态，不该抢眼，
+   * 交给浏览器那条跟进把它带回白。（曾经成功也换成绿色，用户看了一眼就否了。）
+   * 状态码：全交给 `#stOfSlot`（两道闸门压在一处）。
+   */
+  #composeAgents = () => this.#desiredAgents.map((s, i) => {
+    const out = this.#outcome.get(i)
+    const sid = this.#slotSessions[i]
+    const mine = out && sid === out.sid ? out : null
+    return {
+      id: i,
+      st: this.#stOfSlot(mine, sid),
+      c: mine && mine.kind === 'error' ? this.#errorColor : s.c,
+      b: s.b,
+      e: s.e
+    }
   })
+
+  /**
+   * 画面指纹 —— 「这一幅画长什么样」，与**它长在哪颗键上**无关（第四道防线，见 `#lastPicture`）。
+   *
+   *   · 各槽 `st/c/b/e` **排序后拼接**（多集）—— 会话列表重排时同一幅画面换了键位，多集不变；
+   *   · **红灯（st=ERROR）那几颗键要把键位带上** —— 「红灯跟着会话搬家」是用户看得见的结果
+   *     （verify_led_error §6），不许被当成「只换了键位」压回旧键上；「键位晚一步」那条取舍
+   *     只适用于常态画面与成功态（verify_blackout §8j / §8l t7）。
+   * null = 还没写过。
+   */
+  #pictureKey = (params) => {
+    const cells = params.map((p) => `${p.st}/${p.c}/${p.b}/${p.e}`).sort().join('|')
+    const errs = params.filter((p) => p.st === AGENT_ST.ERROR).map((p) => p.id).join(',')
+    return `${cells}#${errs}`
+  }
 
   #latchOutcome = (sessionId, kind) => {
     if (typeof sessionId !== 'string' || !sessionId) return false
@@ -573,7 +688,14 @@ export class LedEngine {
     for (let i = 0; i < this.#slotSessions.length; i++) if (this.#slotSessions[i] === sessionId) slots.push(i)
     if (slots.length === 0) return false // 不在侧边栏 / 还没下发过灯态 → 没有键可亮
     for (const slot of slots) this.#outcome.set(slot, { sid: sessionId, kind })
-    this.#renderAgents({currSession: sessionId,  force: bad })
+    // **喇叭那一位**（见 `#stOnce`）：只有当前会话的结论才响；非当前会话**不响、也不补响**。
+    // 它跟结论本身（`#outcome`，决定红灯、常驻）是两件事：颜色照旧进诊断面，st 只进这一条报文。
+    this.#stOnce = this.#isCurrentSession(sessionId)
+      ? { sid: sessionId, st: bad ? AGENT_ST.ERROR : AGENT_ST.SUCCESS }
+      : null
+    // 失败要**立刻亮**（defer:false），成功等浏览器那条跟进（defer:true，见 #deferAgentsWrite）。
+    // 结论都带 force（见 #pendingForce），但只有 error 会走到「内容相同也照发」那一支。
+    this.#renderAgents({ defer: !bad, force: bad, from: bad ? 'reportError' : 'reportSuccess' })
     this.#log(bad
       ? `会话运行失败 → 槽位 ${slots.join(',')} 转红灯（保持到该会话重新运行）`
       : `会话跑完一轮 → 槽位 ${slots.join(',')} 报成功（保持到该会话重新运行）`)
@@ -604,13 +726,10 @@ export class LedEngine {
     const list = Array.isArray(payload) ? payload : (payload && Array.isArray(payload.slots) ? payload.slots : null)
     if (!list) return
     // **这一份是不是一次「切会话」** —— 只用来打一行日志：写不写设备由**内容**说了算
-    // （末尾那段：只有 st 该报哪颗键变了的那条一条都不写）。判据是「在两个真实会话 id 之间
-    // 切换」，见 `#currentSeen`。
+    // （末尾那段：这一幅画面设备手里已经有了就一条都不写）。判据是「在两个真实会话 id 之间
+    // 切换」，用 `#currentSession` 自己当上一拍的记忆（见它的注释：**`null` 不覆盖**，
+    // 所以 A → null → B 只会记成一次 A → B，而不是两次）。
     let switched = false
-    // 「当前会话」**换人之前**的两半判据 —— 末尾那条「只有 st 该报哪颗键变了就不额外发」要用它把
-    // 同一份期望灯态按换人之前的样子再算一遍。必须在下面覆盖之前取（对照 §9 的形态守卫）。
-    const prevCurrent = this.#currentSession
-    const prevKnown = this.#currentKnown
     if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
       // 必须严格判定类型：Number(null) === 0 会让「字段缺失/null」被当成合法的黑色，
       // 于是红灯变成一颗看不见的灯（比报错更难查）。
@@ -628,19 +747,22 @@ export class LedEngine {
         }
       }
       if (typeof payload.current === 'string' || payload.current === null) {
+        // ⚠ `null` = 「不知道 / 暂时没有」（主视图重渲染的间隙常报一次）：**不覆盖**上一个真实 id，
+        //   否则 6 槽 st 会被压平、真实 id 报回来再变回去 = 多发两条（见 `#currentSession`）。
         const next = payload.current || null
-        const prevSeen = this.#currentSeen
-        switched = typeof next === 'string' && prevSeen !== null && prevSeen !== next
-        if (typeof next === 'string') this.#currentSeen = next
+        // 「切换」必须在**覆盖之前**算出来；`null` 不算切换（它压根不改记忆）。
+        const prev = this.#currentSession
+        switched = typeof next === 'string' && prev !== null && prev !== next
+        if (typeof next === 'string') this.#currentSession = next
         this.#currentKnown = true
-        this.#currentSession = next
-        if (switched) {
-          this.#log(`切会话：当前会话 ${prevSeen} → ${next}`)
-          return
-        }
+        if (switched) this.#log(`切会话：当前会话 ${prev} → ${next}`)
+        // 诊断面如实报**这一拍报上来的原始值**（`null` 也是事实），与 `#currentSession` 的
+        // 「只装真实 id」分开 —— 两者一起才说得出「知道但没有」与「压根不知道」（见 verify_blackout §8k/§8l）。
+        this.#state.agentsCurrent = next
+        this.#state.agentsCurrentKnown = this.#currentKnown
       }
-      this.#state.agentsCurrent = this.#currentKnown ? this.#currentSession : null
-      this.#state.agentsCurrentKnown = this.#currentKnown
+      // ⚠ 字段**存在但畸形**（数字、对象…）→ 当作「这次没报」：两个字段都**原样不动**
+      //   （上面这一整块就是它的守卫；放在块外会让畸形值把 `agentsCurrent` 抹成 null）。
     }
     const desired = []
     const sessions = []
@@ -654,7 +776,6 @@ export class LedEngine {
       })
       sessions.push(typeof s.sid === 'string' && s.sid ? s.sid : null)
     }
-    console.log(desired)
     this.#desiredAgents = desired
     this.#slotSessions = sessions
     // 结果态要跟着会话走，不能跟着槽位走：会话列表重排时槽位会换人，结果态必须一起搬家，
@@ -668,9 +789,15 @@ export class LedEngine {
       if (at !== -1 && !next.has(at)) next.set(at, t)
     }
     this.#outcome = next
-    const moved = prevKnown !== this.#currentKnown || prevCurrent !== this.#currentSession
-    console.log('test', moved)
-    this.#renderAgents()
+    // 第四道防线（见 `#lastPicture`）：这一幅画面设备手里已经有了（只是谁长在哪颗键上换了位），
+    // 就**一条都不发** —— 而且必须**在渲染之前**早退：诊断面 `#state.agents` 也停在旧键位上，
+    // 那正是设备手里那份（verify_blackout §8j / §8l t7 钉的就是这条）。
+    const params = this.#thstatusParams(this.#composeAgents())
+    if (this.#pictureKey(params) === this.#lastPicture) {
+      this.#log('同一幅画面只换了键位 → 一条都不发（键位留到下一次真实变化一起带过去）')
+      return
+    }
+    this.#renderAgents({ from: 'applyAgents' })
   }
 
   /**
@@ -687,8 +814,12 @@ export class LedEngine {
     this.#state.charging = false
     this.#pendingAgents = null
     this.#pendingForce = false
+    this.#pendingFrom = null
+    this.#stOnce = null
     this.#cancelOutcomeWindow()
     this.#lastThstatus = null
+    this.#lastShape = null
+    this.#lastPicture = null
   }
 
   /** 插件卸载（进程要走了）：停掉自动调暗定时器。句柄与安全网由 transport 收尾。 */

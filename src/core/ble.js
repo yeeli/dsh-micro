@@ -63,6 +63,10 @@ export class BleController {
       state: this.#state,
       onLine: (line) => this.#input.handleLine(line),
       onOpened: () => this.#leds.replayAgents(),
+      // 设备掉线（node-hid 的 'error'）走**本类**的 close —— 不能只让 transport 关自己的句柄。
+      // 用户 2026-09-28 报的「断开重连后灯全灭」就出在这里：漏掉 leds.resetOnDisconnect 之后，
+      // 「上次写出去的是什么」还留着，重连时那句重放被内容去重当成重复挡下 → 一条都不写。
+      onClosed: () => this.close(),
       onBlackout: () => this.#leds.lightsOff(),
       // 安全网的两个落点 —— **必须闭包指向本类的公有字段**（close / blackout）。它们都是公有类
       // 字段、可被自检整套替换（test/lib/exit-guard-child.mjs 就这么观测「到底灭没灭灯」）；

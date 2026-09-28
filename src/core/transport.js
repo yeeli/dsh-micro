@@ -46,6 +46,7 @@ export class HidTransport {
   #rpcId = 0 // 灯光/查询控制（Codex Micro 兼容协议）
   #onLine = null
   #onOpened = null
+  #onClosed = null
   #onBlackout = null
   /**
    * 进程退出安全网（见 ./guard.js）。
@@ -76,13 +77,14 @@ export class HidTransport {
   #probeTimer = null
   #probeMs = 15000 // 兜底延迟；DSH_OMKB_PROBE_MS 覆盖（自检脚本调小它），0 = 不兜底
 
-  /** @param {{logger?: any, state: object, onLine: Function, onOpened?: Function, onBlackout?: Function, guard?: {release: Function, blackout: Function, log?: Function}}} [options] */
+  /** @param {{logger?: any, state: object, onLine: Function, onOpened?: Function, onClosed?: Function, onBlackout?: Function, guard?: {release: Function, blackout: Function, log?: Function}}} [options] */
   constructor(options = {}) {
-    const { logger = null, state = null, onLine = null, onOpened = null, onBlackout = null, guard = {} } = options
+    const { logger = null, state = null, onLine = null, onOpened = null, onClosed = null, onBlackout = null, guard = {} } = options
     this.#logger = logger
     this.#state = state
     this.#onLine = onLine
     this.#onOpened = onOpened
+    this.#onClosed = onClosed
     this.#onBlackout = onBlackout
     const probe = Number(process.env.DSH_OMKB_PROBE_MS)
     if (Number.isFinite(probe) && probe >= 0) this.#probeMs = probe
@@ -163,7 +165,12 @@ export class HidTransport {
       this.#hid.on('data', this.#onData)
       this.#hid.on('error', (e) => {
         this.#warn('HID 读取错误:', e && e.message)
-        this.close()
+        // ⚠ 必须走**上层**那条 close（不是本层这个）：链路没了要把三份账一起收掉 ——
+        //   句柄/链路（本层）、按住集合（input）、以及灯态那几本账（leds.resetOnDisconnect）。
+        //   漏掉最后一份的后果是**重连之后灯一直黑着**（用户 2026-09-28 报的）：灯态记账里
+        //   「上次写出去的是什么」没被忘掉，重连时那句重放被内容去重当成重复挡下，一条都没写。
+        if (this.#onClosed) this.#onClosed()
+        else this.close()
         // 断开后每 30 秒自动重连一次，直到设备重新可用
         if (!this.#reconnectTimer) {
           this.#reconnectTimer = setInterval(() => this.open(), 30000)
