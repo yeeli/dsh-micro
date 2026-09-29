@@ -2,9 +2,13 @@
 // **输入解析层** —— 把设备上报的一行 JSON 翻译成状态快照里的输入事实（从 ble.js 分拆出来）。
 //
 // 每个输入源有自己的累加计数器（见 ble.js 顶部 #state 的说明）：enc（旋钮带符号步数）、
-// knobPress（旋钮按下）、joyPush/joyDir（摇杆推了一次）、joyT（含回中的方向变化计数）、
+// knobPress（旋钮按下 = 点击）、knobLong（旋钮长按，**打开本插件设置页**）、
+// joyPush/joyDir（摇杆推了一次）、joyT（含回中的方向变化计数）、
 // down/keyAct（当前按住的键 + 本次边沿）、keyT（每键按下次数）。浏览器据此归属事件，
 // 而不是靠 t 猜 —— 靠状态字段猜事件类型是一类老 bug（旋钮/摇杆曾被当成麦克风键而触发语音）。
+//
+// 「长按」只有在这里算得出来：设备不报时长，只报一对边沿（见 HID_ACT），
+// 而宿主是唯一看得到那两个边沿的地方（客户端 120ms 才轮询一次快照）。
 //
 // 分工：本层只「翻译输入」——不写设备、不认识灯态。唯一的外部动作是通知 leds.js
 //   · markActivity()（有输入 = 有活动，自动调暗的计时基准）；
@@ -16,11 +20,22 @@ import { logSink } from './log.js'
 import { JOYSTICK_METHOD, parseJoystick } from './joystick.js'
 import { HID_ACT, parseDeviceStatus } from './protocol.js'
 
+/**
+ * 「长按」的判定时长（ms）：旋钮按下到松开**够到它**就算长按（见 #settleKnob）。
+ *
+ * 与「点击」互斥：长按那一次**不计** knobPress —— 否则「长按打开设置页」会先顺带跑一次
+ * 点击动作（navigate 模式先激活一个控件、custom 模式先跑一次 click 分配）。
+ * 500ms 是手感阈值；设备去抖 250ms、宿主轮询 120ms，短按误判成长按在结构上不可能。
+ */
+export const KNOB_LONG_MS = 500
+
 export class InputParser {
   #state = null
   #leds = null
   #logger
   #held = new Set() // 当前物理按住的键名（只有拿到 act 才会维护）
+  /** 旋钮那次**待定**按压的按下时刻（0 = 没有待定的按压）。等松手才结成点击/长按，见 #settleKnob。 */
+  #knobDownAt = 0
   #last = 0
   #debounceMs = 250 // 一次物理按压只计一次
   #triggerMethod = process.env.DSH_HID_METHOD || null // 可选：只响应某个 method
@@ -99,6 +114,8 @@ export class InputParser {
     // 只是 250ms 去抖恰好遮住了大部分（按得慢就会露出来）。
     if (keyAct === HID_ACT.RELEASE) {
       if (key) { this.#held.delete(key); this.#state.down = [...this.#held] }
+      // 旋钮松手 = 这次按压的**到期点**：一对边沿之间的时长只有这里能算（见 #settleKnob）。
+      if (key === 'ENC') this.#settleKnob(Date.now())
       return
     }
 
@@ -139,6 +156,12 @@ export class InputParser {
       this.#state.act = null
       const prev = this.#state.joy
       this.#state.joy = dir
+      // 推力与原始角度**原样留下**（parseJoystick 已经归一化过）：只给客户端画「摇杆推到哪儿」的
+      // 那张小卡片用（src/client/joystick-hud.js 的 feed）。它与事件归属**无关** —— 回中、推力不足
+      // 也照样写，且**没有人拿它判「推了一次」**（那件事只由 joyPush 计数说了算，见下）。
+      // 没有它就只能在卡片上画一个「按方向固定偏移」的点，看不出推多深。
+      this.#state.joyD = j && Number.isFinite(j.d) ? j.d : 0
+      this.#state.joyA = j && Number.isFinite(j.a) ? j.a : null
       // 摇杆是连续帧流：只有方向**发生变化**才触发一次，避免同方向持续推导致重复执行
       // 返回/前进等动作。
       //
@@ -166,16 +189,47 @@ export class InputParser {
     this.#state.agent = m ? Number(m[1]) : -1
     this.#state.act = a ? 'ACT' + a[1] : null
 
+    // 旋钮按下：**新固件**带着边沿（act）→ 先只记住时刻，把「点击还是长按」推迟到松手那一刻
+    // 结算（见 #settleKnob）。**老固件**永远收不到松开，只能按下即计一次点击（下一行）。
+    // 脉冲（转到一格）不是按压，不参与判定。
+    const knobPending = key === 'ENC' && keyAct !== null && keyAct !== HID_ACT.PULSE
+    if (knobPending) this.#knobDownAt = Date.now()
+
     // 旋钮按下：单独计数。宿主 #bump 有 250ms 去抖，而设备可能按得比这快，
     // 光靠 t 会漏掉（浏览器也就没法归属这次按下）。旋转在更上面 ENC_CW/CC 分支处理。
-    if (key === 'ENC') this.#state.knobPress = (this.#state.knobPress || 0) + 1
+    if (key === 'ENC' && !knobPending) this.#state.knobPress = (this.#state.knobPress || 0) + 1
 
     this.#bump(key || msg.method)
+  }
+
+  /**
+   * 旋钮松手：把这次按压结算成**一个事实** —— 长按（knobLong）或点击（knobPress）。
+   *
+   * 为什么点击要推迟到松手才计数：长按必须能**撤回**它。若按下就 +1、松手再 -1，宿主轮询
+   * 间隔 120ms 而长按阈值 500ms —— 减回去之前客户端早就看见并执行了那次点击动作，
+   * 表现就是「长按开设置页」同时先激活了一个控件（navigate）或先跑了一次 click 分配（custom）。
+   * 一对边沿换一次判定，代价是短按也等到松手才生效（与浏览器里 click 在 mouseup 触发同理）。
+   *
+   * 没有待定按压时（掉线重连后收到一条孤儿松开）什么都不做：宁可漏一次点击，不许凭空多一次。
+   */
+  #settleKnob = (now) => {
+    if (!this.#knobDownAt) return
+    const heldMs = now - this.#knobDownAt
+    this.#knobDownAt = 0
+    if (heldMs >= KNOB_LONG_MS) {
+      this.#state.knobLong = (this.#state.knobLong || 0) + 1
+      this.#log(`旋钮长按 ${heldMs}ms（≥ ${KNOB_LONG_MS}ms）→ 打开键盘设置页`)
+      return
+    }
+    this.#state.knobPress = (this.#state.knobPress || 0) + 1
   }
 
   /** 链路断开时清掉「当前按住的键」——设备走了就不可能还有键按着。 */
   resetHeld = () => {
     this.#held.clear()
     this.#state.down = []
+    // 待定的旋钮按压一起丢掉：它的「松开」永远不会来了，留着会把下一条孤儿松开
+    // 算成一次超长按（凭空打开设置页）。
+    this.#knobDownAt = 0
   }
 }

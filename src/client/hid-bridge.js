@@ -65,6 +65,7 @@ export class HidBridge {
   #lastJoyT = null
   #lastJoyPush = null
   #lastKnobPress = null
+  #lastKnobLong = null
   /** 上一次轮询看到的「当前按住的键」集合（null = 还没建立基线）。差集就是本次松开的那几颗。 */
   #lastDown = null
   /** 快按兜底的收尾定时器（见 TAP_HOLD_MS）。 */
@@ -93,6 +94,7 @@ export class HidBridge {
     this.#lastJoyT = null
     this.#lastJoyPush = null
     this.#lastKnobPress = null
+    this.#lastKnobLong = null
     this.#lastDown = null
     if (this.timer) clearInterval(this.timer)
     this.timer = setInterval(this.poll, POLL_MS)
@@ -384,11 +386,31 @@ export class HidBridge {
       seen = true
     }
 
+    // 长按（打开本插件设置页）：与 knobPress **同形** —— 累加计数 + 基线，绝不靠 t 猜。
+    // 老宿主（#state 里没有 knobLong）恒为 null：长按这个手势在那套宿主上根本不存在，
+    // 于是行为与引入它之前逐字一致。
+    const klong = typeof s.knobLong === 'number' ? s.knobLong : null
+    if (klong !== null) {
+      if (this.#lastKnobLong === null) {
+        this.#lastKnobLong = klong // 宿主刚升级/重启：只建立基线，不补发历史
+      } else if (klong !== this.#lastKnobLong) {
+        const n = Math.max(1, Math.min(klong - this.#lastKnobLong, MAX_CATCHUP))
+        this.#lastKnobLong = klong
+        for (let i = 0; i < n; i++) this.#knobLong()
+        seen = true
+      }
+    }
+
     return seen
   }
 
   #knobPress = () => {
     this.#dispatch(() => { if (this.knob && typeof this.knob.press === 'function') this.knob.press() })
+  }
+
+  /** 长按（≥500ms，时长由宿主算 —— 见 src/core/input.js 的 KNOB_LONG_MS）。 */
+  #knobLong = () => {
+    this.#dispatch(() => { if (this.knob && typeof this.knob.long === 'function') this.knob.long() })
   }
 
   #noteUnhandled = (s) => {

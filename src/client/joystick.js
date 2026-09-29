@@ -29,6 +29,16 @@ export const JOY_DIRS = ['up', 'right', 'down', 'left']
 export const JOY_NONE = 'none'
 
 /**
+ * 一次推杆的**结果**（只在 ./. 这里定义一次）：摇杆报给提示卡片的第三行文案就是它，
+ * 卡片（./joystick-hud.js）从这里 import —— 两处各写一份词表，迟早有一天对不上。
+ *   ok       动作跑了
+ *   unbound  这个方向没绑动作（设置页里选了「不绑定」）
+ *   unwired  动作名认得，但还没接线（技能类）
+ *   failed   接线了也执行了，但没生效（拿不到服务 / 没有可撤销的编辑 …）
+ */
+export const JOY_RESULT = { OK: 'ok', UNBOUND: 'unbound', UNWIRED: 'unwired', FAILED: 'failed' }
+
+/**
  * 老存档里的动作名（改名前存的就是这两个词）。
  * **必须继续认**：设置里存的是动作名本身，升级后不认老值 = 摇杆左右突然失灵，
  * 而用户看到的是「设置里明明写着返回/前进」。UI 里不再展示它们，只在执行时归一化。
@@ -68,10 +78,13 @@ export class JoystickController {
   #ops = null
   #voice = null
   #log = null
+  #onGesture = null
 
   /**
    * @param options.ops - DshOps（DSH 功能门面，撤销/重做、侧边栏、规划模式、滚动都在它上面）。
    * @param options.voice - VoiceController（「语音」类动作直接开/关语音输入）。
+   * @param options.onGesture - 每次推杆的「方向 + 动作名 + 结果」回调（会话界面那张提示卡片要它，
+   *                            见 ./joystick-hud.js）。**纯通知**：回调里抛错不影响动作是否执行。
    * @param options.log - 记一行日志。
    */
   constructor(options = {}) {
@@ -79,6 +92,7 @@ export class JoystickController {
     this.#ops = o.ops || null
     this.#voice = o.voice || null
     this.#log = typeof o.log === 'function' ? o.log : (msg) => { try { console.log('[omkb] ' + msg) } catch (e) {} }
+    if (typeof o.onGesture === 'function') this.#onGesture = o.onGesture
   }
 
   /** 设置页写入的映射（可残缺、可为空对象）。 */
@@ -88,31 +102,61 @@ export class JoystickController {
   /** 某方向绑定的动作名；未绑定 / 未知方向 = null。 */
   actionOf = (dir) => (dir && typeof this.#mapping[dir] === 'string' ? this.#mapping[dir] : null)
 
-  /** 由 hid-bridge 在方向事件时调用：查设置映射 → 执行。 */
+  /**
+   * 换掉手势回调（entry.js 在装配 HUD 之后接上；传 null 摘掉）。
+   * 用 setter 而不是构造参数，是因为装配顺序是「控制器先建、UI 段后到」。
+   */
+  setOnGesture = (fn) => { this.#onGesture = typeof fn === 'function' ? fn : null }
+
+  /** 由 hid-bridge 在方向事件时调用：查设置映射 → 执行 → 报出结果（给提示卡片）。 */
   handle = (dir) => {
     const name = this.actionOf(dir)
-    if (!name) { this.#log(`摇杆方向「${dir}」未绑定动作，忽略`); return false }
-    return this.run(name)
-  }
-
-  /** 动作名 → 执行（设置页里选了什么就执行什么）。 */
-  run = (name) => {
-    const action = normalizeJoyAction(name)
-    if (!action) return false
-    try {
-      if (action === JOY_ACTION.BACK) return this.back()
-      if (action === JOY_ACTION.FORWARD) return this.forward()
-      if (action === JOY_ACTION.SIDEBAR) return this.toggleSidebar()
-      if (action === JOY_ACTION.PLAN) return this.togglePlanMode()
-      if (action === JOY_ACTION.SCROLL_BOTTOM) return this.scrollToBottom()
-      if (action === 'none') return false
-      if (action.indexOf('语音') !== -1) return this.toggleVoice()
-      this.#log(`摇杆动作「${action}」未接线（设置页技能类动作尚未实现），忽略`)
-      return false
-    } catch (e) {
-      this.#log(`摇杆动作「${action}」执行异常：${(e && e.message) || e}`)
+    if (!name) {
+      this.#log(`摇杆方向「${dir}」未绑定动作，忽略`)
+      this.#gesture({ dir, action: null, status: JOY_RESULT.UNBOUND })
       return false
     }
+    const r = this.#execute(name)
+    this.#gesture({ dir, action: name, status: r.status })
+    return r.ok
+  }
+
+  /** 动作名 → 执行（设置页里选了什么就执行什么）。对外仍然只回「成没成」。 */
+  run = (name) => this.#execute(name).ok
+
+  /**
+   * 动作名 → **执行 + 结果**（结果只给提示卡片用，见 ./joystick-hud.js 的四种状态）。
+   * 为什么要带出处：卡片第三行要如实写「未绑定 / 未接线 / 未生效」——
+   * 光看 handle() 那个布尔，这三种「没成」长得一模一样，用户就分不清是没配还是坏了。
+   */
+  #execute = (name) => {
+    const action = normalizeJoyAction(name)
+    if (!action || action === JOY_NONE) return { ok: false, status: JOY_RESULT.UNBOUND }
+    try {
+      if (action === JOY_ACTION.BACK) return this.#result(this.back())
+      if (action === JOY_ACTION.FORWARD) return this.#result(this.forward())
+      if (action === JOY_ACTION.SIDEBAR) return this.#result(this.toggleSidebar())
+      if (action === JOY_ACTION.PLAN) return this.#result(this.togglePlanMode())
+      if (action === JOY_ACTION.SCROLL_BOTTOM) return this.#result(this.scrollToBottom())
+      if (action.indexOf('语音') !== -1) return this.#result(this.toggleVoice())
+      this.#log(`摇杆动作「${action}」未接线（设置页技能类动作尚未实现），忽略`)
+      return { ok: false, status: JOY_RESULT.UNWIRED }
+    } catch (e) {
+      this.#log(`摇杆动作「${action}」执行异常：${(e && e.message) || e}`)
+      return { ok: false, status: JOY_RESULT.FAILED }
+    }
+  }
+
+  /** 门面方法一律回布尔：true = 干了，false = 接线了但没生效（拿不到服务 / 没东西可撤销…）。 */
+  #result = (ok) => ({ ok: !!ok, status: ok ? JOY_RESULT.OK : JOY_RESULT.FAILED })
+
+  /**
+   * 报一次手势。**回调是纯通知**：它自己抛错绝不改变「动作执行了没有」这个事实
+   * （卡片画不出来是小事，把好好的 undo 吃掉是大事）。
+   */
+  #gesture = (info) => {
+    if (!this.#onGesture) return
+    try { this.#onGesture(info) } catch (e) { this.#log(`提示卡片回调异常：${(e && e.message) || e}`) }
   }
 
   // ---------------- 已接线动作（一律转给 DshOps；拿不到门面就当没接线） ----------------

@@ -49,6 +49,28 @@ export class LedEngine {
   /** 槽位下标 → 成功绿灯的回落定时器（见 `#successHoldMs`）。到点把该槽的 success 收掉再重画。 */
   #successTimers = new Map()
 
+  /**
+   * **弹窗覆盖色**（用户 2026-09-29）：界面上有弹窗时，把**当前会话**那颗键换成提醒色。
+   *
+   *   · `approval` —— 有「批准 / 拒绝」弹窗（审批 / 计划确认 / 多步确认）→ **琥珀黄**；
+   *   · `menu`     —— 按下旋钮、或点输入框「+」招来的弹窗 → **玫粉**。
+   *
+   * ⚠ 与红灯 / 绿灯的关系（**三条都要记牢**）：
+   *   ① **只给当前会话**那一槽 —— 判据与绿灯同一个（`#isCurrentSession`）；
+   *   ② **优先于结果态** —— 弹窗在场时黄/粉盖过红灯（用户 2026-09-29 选定）；红灯的结论
+   *      （`#outcome`）**一个字节都不动**，所以弹窗一关就自己回到红色，不需要谁去补一笔；
+   *   ③ **不常驻、也不需要定时器** —— 什么时候收，是浏览器那条报文说了算（`attention: null`）。
+   *      宿主这边**刻意不做超时**：超时是第二份判据，只会跟浏览器那份打架（浏览器看得见
+   *      弹窗真的关了没有，宿主看不见）。
+   *
+   * 色值由浏览器下发（`payload.approvalColor` / `payload.menuColor`，与 errorColor 同一套：
+   * 调色板归客户端，宿主不另立一份）。`attention` 由 ./attention.js 探测界面后随灯态上报。
+   */
+  #approvalColor = 0xffc800
+  #menuColor = 0xff69b4
+  /** 当前弹窗态：`'approval'` / `'menu'` / `null`（没有弹窗）。见 `#approvalColor`。 */
+  #attention = null
+
   // ---------- 浏览器下发的期望灯态 ----------
   // 槽位里带上会话 id（sid），宿主靠它把 agent/error 这类事件定位到具体那颗键。
   #desiredAgents = [] // 浏览器下发的期望灯态（设备字段 + 会话 id 元数据）
@@ -691,6 +713,8 @@ export class LedEngine {
   /**
    * 结论态该用哪个颜色 —— `mine` 是这一槽挂着的结论（没有则用浏览器那份 `fallback`）。
    *
+   *   · **弹窗覆盖色最优先**（见 `#attentionColor`）：界面上有批准弹窗 / 旋钮或「+」招来的弹窗时，
+   *     当前会话那颗键转黄 / 转粉，**盖过红灯**（用户 2026-09-29 选定）。弹窗关了就自然落回下面。
    *   · **失败 → 红**（`#errorColor`），**不吃「当前会话」闸门**：那颗键在侧边栏哪儿都得红着，
    *     那是「这个会话上次失败了」的事实，与你看不看它无关（第七轮口径，verify_led_error §6）。
    *   · **成功 → 绿**（`#successColor`），**只给当前会话**（用户 2026-09-28 原话）+ **只亮一会儿**
@@ -700,10 +724,27 @@ export class LedEngine {
    * —— 切过去也不补（那时结论早已到点收掉）。
    */
   #colorOf = (mine, sid, fallback) => {
+    const att = this.#attentionColor(sid)
+    if (att !== null) return att
     if (!mine) return fallback
     if (mine.kind === 'error') return this.#errorColor
     if (!(this.#successHoldMs > 0)) return fallback // 绿灯关着（见 #successHoldMs）
     return this.#isCurrentSession(sid) ? this.#successColor : fallback
+  }
+
+  /**
+   * 弹窗覆盖色：这一槽该不该因为是「当前会话」而转黄 / 转粉。没弹窗、或不是当前会话 → null。
+   *
+   * ⚠ 与绿灯共用 `#isCurrentSession`（用户口径都是「**当前会话**」）。差别在**优先级**：
+   *   绿灯排在红灯**后面**（失败的红更紧急，且失败了的会话也不会正在跑），
+   *   黄/粉排在红灯**前面**（弹窗正等着你动手，那一刻它比「上次失败了」更要紧）。
+   * ⚠ 老客户端（`#currentKnown === false`）不会发 `attention`，本字段恒为 null ——
+   *   所以「不知道当前是谁」退化成「每槽都算当前」这件事，在这条路上影响不到任何老客户端。
+   */
+  #attentionColor = (sid) => {
+    if (!this.#attention) return null
+    if (!this.#isCurrentSession(sid)) return null
+    return this.#attention === 'approval' ? this.#approvalColor : this.#menuColor
   }
 
   /**
@@ -821,6 +862,25 @@ export class LedEngine {
       // 成功色同一套（见 #successColor）：畸形值一律忽略，保留宿主默认的绿。
       const sc = payload.successColor
       if (typeof sc === 'number' && Number.isInteger(sc) && sc >= 0 && sc <= 0xffffff) this.#successColor = sc
+      // 弹窗覆盖色同一套（见 #approvalColor）：畸形值一律忽略，保留宿主默认的黄/粉。
+      const ac = payload.approvalColor
+      if (typeof ac === 'number' && Number.isInteger(ac) && ac >= 0 && ac <= 0xffffff) this.#approvalColor = ac
+      const mc = payload.menuColor
+      if (typeof mc === 'number' && Number.isInteger(mc) && mc >= 0 && mc <= 0xffffff) this.#menuColor = mc
+      // 弹窗态（见 #attention）：**只在字段真的报了的时候改** —— 老客户端没有这个字段，
+      // 不能把它的「没发」当成「弹窗关了」（那对老客户端毫无影响，但语义上必须分清）。
+      const at = payload.attention
+      if (at === 'approval' || at === 'menu' || at === null) {
+        if (at !== this.#attention) {
+          this.#attention = at
+          this.#log(at === 'approval'
+            ? '界面有批准弹窗 → 当前会话那一槽转黄（关了自动回原色）'
+            : at === 'menu'
+              ? '旋钮 / 输入框「+」招来的弹窗打开 → 当前会话那一槽转粉（关了自动回原色）'
+              : '弹窗已关闭 → 当前会话那一槽恢复原色')
+        }
+        this.#state.attention = at
+      }
       // 「所有会话都空闲」→ 自动调暗的计时起点；有会话重新开始运行 → 立刻把灯点回来。
       // 老客户端不发这个字段（数组形态的老请求更是没有），此时 #allIdle 保持 null = 未知，
       // 自动调暗退回「无按键活动」判据。

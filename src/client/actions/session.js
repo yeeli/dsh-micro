@@ -60,6 +60,135 @@ export const sessionScopeOf = (sessions, sid) => {
   try { return typeof sessions.scope === 'function' ? sessions.scope(sid) : undefined } catch (e) { return undefined }
 }
 
+/**
+ * 会话快照里的那一行（`id / title / cwd / blank / origin / retainedBy`）。
+ * 认据只有一处：`sessions.list.getSnapshot().byId[id]`；拿不到给 null（不猜、不新建）。
+ */
+export const sessionRowOf = (sessions, sid) => {
+  if (!sessions || !sid || !sessions.list || typeof sessions.list.getSnapshot !== 'function') return null
+  try {
+    const snap = sessions.list.getSnapshot()
+    const row = snap && snap.byId ? snap.byId[sid] : null
+    return row && typeof row === 'object' ? row : null
+  } catch (e) { return null }
+}
+
+/**
+ * 会话的项目目录（「文件夹」键要的绝对路径）。
+ * `cwd` 是 dsh-api-session-controller 的 listFields(header) 带出来的（`header.cwd`）——
+ * 会话还没建完（没有 header.cwd）时**这个字段就是没有**，所以这里如实返回 null，
+ * 由调用方报「这条会话没有记录项目目录」，绝不退回去猜一个路径。
+ * @returns {string|null}
+ */
+export const sessionCwdOf = (sessions, sid) => {
+  const row = sessionRowOf(sessions, sid)
+  const cwd = row && row.cwd
+  return typeof cwd === 'string' && cwd ? cwd : null
+}
+
+/**
+ * 某条会话**现在跑哪个 Agent 预设**（host 算好的整值：预设 id 字符串；读不到 → undefined）。
+ *
+ * ⚠ 这个字段**不在会话面上**（2026-09-29 修掉的一个真 bug）：
+ *   `sessions.binding(sid).session` 是 `SessionFace = ISession & ObservableSnapshot<SessionSnapshot>`
+ *   —— 上面只有 `projections`（投影面）、`getSnapshot()/subscribe()` 与几个行为动词，
+ *   **既没有 `projectionValues`、也没有 `blank`**（blank 住在 `getSnapshot()` 出来的快照里）。
+ *   当初写这一处时是按「会话对象上应该有」猜的，实测两个字段都读到 undefined：
+ *   `preset` **恒为 null** → `nextPresetOf` 每按一次都在算「清单第 0 个」→ 用户看到的是
+ *   **「模式键按了不换」**（当前预设正好是第 0 个时 select 回同一个 id，界面上什么都不发生）。
+ *
+ * 两处取值，顺序就是可靠性：
+ *   ① **会话列表快照的那一行**（`list.getSnapshot().byId[sid].projectionValues.agentPreset`）——
+ *      官方 `AgentPresetSeatController` 的 `presetOf(summary)` 读的就是它；而这份快照本来就是
+ *      「哪条是当前会话」的判据（utils/session-list.js 的 retainedBy.mainView），同一份快照出
+ *      一致的口径，不必再开一条门路、也没有副作用；
+ *   ② 行上没有（投影存储还没建：这条会话从没打开过）才退到**会话自己的投影面**
+ *      （`binding.session.projections` 的 `get` / `faceOf('agentPreset')`）—— 与 planActiveOf 同一条。
+ *      ⚠ 这条退路会碰 `binding()`（部分实现里给可见会话 lazy mint 一个 scope，有副作用），
+ *      所以只在①确实缺的时候才走。
+ * @returns {string|undefined} 预设 id；undefined = 读不到（**不是**「这个部署没配预设」——那种是 null）。
+ */
+export const agentPresetOf = (sessions, sid) => {
+  if (!sessions || !sid) return undefined
+  const row = sessionRowOf(sessions, sid)
+  const fromRow = row && row.projectionValues ? row.projectionValues.agentPreset : undefined
+  if (fromRow !== undefined) return fromRow
+  try {
+    const binding = typeof sessions.binding === 'function' ? sessions.binding(sid) : null
+    const projections = binding && binding.session ? binding.session.projections : null
+    if (!projections) return undefined
+    if (typeof projections.get === 'function') return projections.get('agentPreset')
+    if (typeof projections.faceOf === 'function') {
+      const face = projections.faceOf('agentPreset')
+      return face && typeof face.getSnapshot === 'function' ? face.getSnapshot() : undefined
+    }
+  } catch (e) { return undefined }
+  return undefined
+}
+
+/**
+ * 当前会话绑定的 Agent 预设，以及「这条会话还能不能换预设」。
+ * 两条判据都照抄 dsh-client-ui-agent-preset 的 `AgentPresetSeatController`：
+ *   * 当前预设 = 会话列表那一行的 `projectionValues.agentPreset`（见 agentPresetOf）；
+ *   * `blank` = **同一行的** `blank` —— host 算好、并用 `sessionListMetadata` 纠正过的那个
+ *     （`buildListSnapshot`：`blank: effectiveBlank(summary) && metadata?.blank !== false`）。
+ *     官方 `apply()` 写着 `if (!session.blank || presetOf(session) === staged) { clearStage(); return }`
+ *     —— **只有 blank（还没开跑的空会话）能换**；跑到一半的会话按下去会被宿主以
+ *     `agent-preset/locked` 拒掉（那条路只记日志），所以先把 blank 读出来让调用方**出声**，
+ *     别让用户白按一下。
+ * @returns {{preset: (string|null), blank: (boolean|null)}} blank=null 表示读不到（不可知）。
+ */
+export const agentPresetStateOf = (sessions, sid) => {
+  const unknown = { preset: null, blank: null }
+  if (!sessions || !sid) return unknown
+  try {
+    const row = sessionRowOf(sessions, sid)
+    const value = agentPresetOf(sessions, sid)
+    return {
+      preset: typeof value === 'string' && value ? value : null,
+      blank: row && (row.blank === true || row.blank === false) ? row.blank : null
+    }
+  } catch (e) { return unknown }
+}
+
+/**
+ * Agent 预设通道（`ctx.remote.agentPresets`）—— 与 commandChannelOf 同一条规矩：
+ * 服务名可能是 `remote.agentPresets`（typert 的嵌套服务），也可能只挂在 `remote` 上，两个都试。
+ * @param service - (name) => service 的取值函数（**必须延迟取值**）。
+ * @returns 预设通道（有 list/select），拿不到时 null。
+ */
+export const agentPresetsChannelOf = (service) => {
+  const take = (name) => { try { return service(name) } catch (e) { return undefined } }
+  const direct = take('remote.agentPresets')
+  if (direct && typeof direct.list === 'function') return direct
+  const remote = take('remote')
+  if (remote && remote.agentPresets && typeof remote.agentPresets.list === 'function') return remote.agentPresets
+  return null
+}
+
+/**
+ * 「换下一个预设」的环形规则 —— **纯函数**（自检直接喂 `[{id,name}]` 断言，不认识 DSH）。
+ * 几处口径：
+ *   * **坏掉的**预设不参与：roster 行上的 `broken` 是**字符串原因**（`AgentPresetRow.broken?: string`，
+ *     见 dsh-agent-preset-registry 的 types），**非空即不可用** —— 官方 `presetOptions()` 就是这么滤的
+ *     （`presets.filter((p) => !p.broken)`）。
+ *     ⚠ 2026-09-28 这里写的是 `broken !== true`，对字符串**恒真 = 等于没滤**：会转到坏掉的预设上，
+ *     宿主回 `agent-preset/invalid`，而那条路是异步的（已经派发出去了）→ 只记日志、用户那边静默。
+ *   * 可用项不足两个 → null（没有「切换」可言，调用方如实说「只有一个模式」）；
+ *   * 当前 id **不在**清单里（例如会话没记录预设、或记录的是一个已被删掉的 id）→ 从第一个开始，
+ *     这是唯一能不兜圈子的确定性选择。
+ * @param presets - `remote.agentPresets.list()` 的 `value.presets`（roster 行）。
+ * @param currentId - 当前会话绑定的预设 id（可为 null）。
+ * @returns {object|null} 下一个可用预设。
+ */
+export const nextPresetOf = (presets, currentId) => {
+  const list = (Array.isArray(presets) ? presets : [])
+    .filter((p) => p && typeof p.id === 'string' && p.id && !p.broken)
+  if (list.length < 2) return null
+  const idx = list.findIndex((p) => p.id === currentId)
+  return list[(idx + 1 + list.length) % list.length]
+}
+
 // ---------------- 归档被拒绝时的说法（纯函数，可单测） ----------------
 //
 // 归档的契约（取自从产物里读到的 DSH 自己的流程）：`uiWorkspace.archiveSession(sessionId)`

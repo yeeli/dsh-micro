@@ -6,12 +6,17 @@
 // 「聊天区在哪」的判断）。散在门面类里会和「动作怎么编排」混在一起，两边都读不顺。
 // 这里只有**纯函数**：进 DOM、出元素或布尔值，不认识 sessions / ctx / 我们的门面。
 //
-// 三件容易被下一个人好心改坏的事，写在这儿：
+// 四件容易被下一个人好心改坏的事，写在这儿：
 //   ① **文本输入框永远不在导航候选里**（isTextEntry）：composer 的输入框恰是候选表第一位，
 //      不剔掉就是「旋钮第一转把焦点吸进输入框」。
 //   ② **语音控件也要剔掉**（isVoiceControl）：旋钮停上去再按下 = 开语音，那是误触。
 //   ③ **找不到容器就返回空**，绝不回退到整个页面（`focusCollect`）：否则旋钮会满页跑
 //      （侧边栏、顶部工具栏全都进候选表）。
+//   ④ **待确认弹窗要靠「文案成对」认出来**（`interactionPanelRoot`）：它常常不是 `role=dialog`
+//      也没有 `data-approval-key` —— 只认这些标记的话，弹窗弹出来了旋钮还在聊天区里转、
+//      「批准/拒绝」两颗键也找不到按钮（用户 2026-09-28 报的就是这个）。
+//      代价是判定放宽了，所以配了两条反例：**不成对不算**（普通弹窗的保存/取消）、
+//      **不在同一张卡片里不算**（页面上恰好各有一组时宁可不做）。
 //
 // 这些纯函数同时喂：门面（./index.js 的导航/滚动）、仅推理（./reasoning.js 的画环）、
 // 以及 entry.js 挂到 `__dshOmkb.knobTools` 给控制台与真机探针用 —— 一份判据，四处共用。
@@ -67,9 +72,20 @@ export const isTextEntry = (el) => {
 }
 
 /** 可聚焦控件的候选选择器（导航与弹窗内控件统计共用）。 */
+// 旋钮的候选控件。⚠ `[role="radio"|"checkbox"|"option"|"menuitem"|"tab"|"switch"]` 是
+// 2026-09-28 补的：弹窗里的**选项**常常不是原生 button 而是这几个 role，
+// 少了它们旋钮就落不到选项上（用户要的「有选项就转旋钮选、按下勾」就做不到）。
 const KNOB_SELECTOR = [
   'button',
   '[role="button"]',
+  '[role="radio"]',
+  '[role="checkbox"]',
+  '[role="option"]',
+  '[role="menuitem"]',
+  '[role="menuitemradio"]',
+  '[role="menuitemcheckbox"]',
+  '[role="tab"]',
+  '[role="switch"]',
   'a[href]',
   'input:not([type="hidden"])',
   'textarea',
@@ -214,10 +230,14 @@ export const findActivePopup = () => {
 // 找不到容器时返回 []，绝不回退到整个页面。
 // 两道过滤：语音控件（按下会开语音，不该被旋钮误触）、文本输入框（会把焦点吸进去）。
 // 导出给探针/自检直接量 —— 「输入框有没有被排除」这条判据只许有一份。
+//
+// 容器优先级（2026-09-28 起）：**待确认面板 → 一般弹窗 → 聊天区**。
+// 待确认面板排最前，是因为它常常不是 `role=dialog`（DSH 的审批卡片就是一张普通卡片），
+// 排后面就等于「弹窗弹出来了，旋钮还在聊天区里转」——用户要的「有选项就转旋钮选、按下勾」
+// 正是被这一条挡住。代价是每次转旋钮多一次全页按钮扫描（几十微秒，120ms 一转，可忽略）。
 export const focusCollect = () => {
   if (typeof document === 'undefined') return []
-  const popup = findActivePopup()
-  const root = popup || findChatRoot()
+  const root = interactionPanelRoot() || findActivePopup() || findChatRoot()
   if (!root) return []
   let nodes = []
   try { nodes = Array.from(root.querySelectorAll(KNOB_SELECTOR)) } catch (e) { return [] }
@@ -336,6 +356,65 @@ export const composerTextarea = () => {
   const active = typeof document.activeElement !== 'undefined' ? document.activeElement : null
   if (active && visible.includes(active)) return active
   return visible.length ? visible[visible.length - 1] : null
+}
+
+// ---- composer 的原生文件选择框（「上传」键）----
+//
+// DSH 的输入栏里挂着一个**一直存在**的原生文件选择框（dsh-client-ui-conversation 的 InputBar）：
+//   <input ref={fileInputRef} type="file" multiple hidden onChange={onPickFiles} />
+// 就在「+」按钮旁边的 `left` 那一行里，与 `conversation.input.left` 槽位并列。
+// DSH 自己的「+ → 文件」走的就是 `fileInputRef.current?.click()` —— 这里照抄同一条路。
+// **为什么不走服务面**：conversation 的输入机上只有 `addAttachments(ids)`，收的是**已经上传完**的
+// 附件 id；「弹出选择框、上传、拿回 id」这一段没有对外服务，只有这颗粒 DOM 能触发。
+//
+// ⚠ 它带 `hidden`（`display:none`），所以**绝不能用 nodeVisible 过滤** —— 那会把唯一的候选筛掉，
+//   表现就是「上传键按下去没反应」。同理 `showPicker()` 也不适用（规范要求元素处于渲染态）。
+// ⚠ 认据按**结构**（type=file / multiple / 有没有被禁用）打分，不认 class：官方那几个 class 带
+//   构建期 hash（`InputBar_module_css_default.add` 这种），换版本就变。
+
+/** 给候选打分：DSH 那个是 `multiple + hidden + 没禁用`，别的文件框通常不满足。 */
+const fileInputScore = (el) => {
+  let s = 0
+  try {
+    if (el.multiple === true) s += 2
+    if (el.disabled === true) s -= 4
+    if (el.hidden === true || el.getAttribute('hidden') !== null) s += 1
+  } catch (e) {}
+  return s
+}
+
+/**
+ * composer 里的原生文件选择框；找不到返回 null。
+ * 先在整个输入区（findInputRoot）里找，找不到再放宽到整页（DSH 把输入栏拆进 portal 时仍能找到）。
+ * 候选里带 `disabled` 的一律不要 —— 官方在「当前是子代理会话」时就是 `disabled: subagent !== null`。
+ */
+export const composerFileInput = () => {
+  if (typeof document === 'undefined') return null
+  const within = (scope) => {
+    try { return Array.from(scope.querySelectorAll('input[type="file"]')) } catch (e) { return [] }
+  }
+  const root = findInputRoot()
+  let nodes = root ? within(root) : []
+  if (!nodes.length) nodes = within(document)
+  let best = null
+  for (const el of nodes) {
+    try { if (el.disabled === true) continue } catch (e) {}
+    if (!best || fileInputScore(el) > fileInputScore(best)) best = el
+  }
+  return best
+}
+
+/**
+ * 点一下那个文件选择框（弹出系统的文件选择框，选完由 DSH 自己上传并挂到当前输入）。
+ * 与 `clickOfficialVoiceStart` 同一条姿态：真点到了返回 true。
+ * ⚠ 这里**无法确认用户有没有真选文件**（原生选择框的取消没有事件给我们），所以 true 只代表
+ * 「选择框弹出来了」—— 选了才算数，这不是失败。
+ * @returns {boolean} 是否真的点到了那个输入框。
+ */
+export const clickComposerFileInput = () => {
+  const el = composerFileInput()
+  if (!el) return false
+  try { el.click(); return true } catch (e) { return false }
 }
 
 // ---- 官方语音输入（@deepseek-ai/dsh-experimental-voice-input-bundle）----
@@ -459,29 +538,157 @@ export const clickOfficialVoiceStop = () => {
   try { btn.click(); return true } catch (e) { return false }
 }
 
-// ---- 待确认交互的面板（审批 / 计划确认）：只在「服务拿不到」时当兜底 ----
+// ---- 待确认交互的面板（审批 / 计划确认 / 多步确认）：服务拿不到时的兜底 ----
+//
+// 2026-09-28 用户报：「批准和拒绝按键功能没法用」——弹窗明明弹出来了，按下去没反应。
+// 根因是这里**只认面板的身份标记**（`data-approval-key` / `data-plan-review-key`）：那两个属性
+// 是 DSH 给自己的面板写的 one-shot 重挂载 key，面板换个实现/换个组件库就没了，于是我们
+// 「找不到面板 → 静默返回 false」。属性是**实现**、文案是**语义**，语义比实现稳 ——
+// 现在先认属性（最快最准），认不到就按**按钮文案**找，两层都落空才如实报账。
 
 /**
- * 审批面板 / 计划确认面板上的按钮，**按界面顺序**返回（拒绝 / 拒绝执行在左，
- * 允许一次 / 确认执行在右 —— 两个面板都是这个顺序，见 dsh-client-ui-approval 的
- * ApprovalPanel 与 dsh-client-ui-user-questions 的 PlanReviewPanel）。
+ * 面板按钮的语义词表（中英各一组）。批准 = 「往前走」、拒绝 = 「不走了」。
  *
- * 认面板**只认面板自己的身份标记**（`data-approval-key` / `data-plan-review-key`）：
- * 这两个属性是 DSH 给面板写的（用于 one-shot 重挂载），比文案稳 —— 文案会跟着语言变，
- * class 会跟着版本变。找不到就返回空数组，调用方如实报「拿不到」。
+ * ⚠ 刻意**不收**「确定 / 保存 / 取消」：那是普通设置弹窗的按钮，收进来会把「按批准键」
+ * 变成「把设置保存了」。DSH 的审批面板打的是「允许一次 / 拒绝」，计划确认打的是
+ * 「确认执行 / 拒绝」，多步确认打的是「下一步 / 跳过」—— 都在表里。
+ */
+export const PANEL_APPROVE_WORDS = [
+  '批准', '允许', '同意', '确认', '继续', '下一步', '执行', '是',
+  'approve', 'allow', 'accept', 'confirm', 'continue', 'next', 'run', 'yes'
+]
+export const PANEL_REJECT_WORDS = [
+  '跳过', '拒绝', '不允许', '否', '不',
+  'skip', 'reject', 'deny', 'decline', 'no'
+]
+/**
+ * 太短、只能**整词相等**的词：`是否` 里既有「是」又有「否」，`不允许` 里也有「不允许」和「允许」，
+ * 用包含匹配会到处误命中（于是判成「既有批准又有拒绝」→ 反而认不出来）。
+ * 这些词必须是按钮**整条文字**才作数。
+ */
+const PANEL_EXACT_ONLY = new Set(['是', '否', '不', 'yes', 'no'])
+/** 按钮文字长度上限：超过它多半是整块说明文字，不是按钮。 */
+const PANEL_TEXT_MAX = 40
+
+/**
+ * **纯判据**：一段按钮文字 → 它是什么意思。只吃字符串，不碰 DOM（自检能直接喂词试）。
+ * 两边都不命中返回 null —— 那表示「这段文字不表态」，由调用方退到位置兜底。
+ *
+ * ⚠ **否定优先**：同时沾两边的词按「拒绝」算。这不是随手定的，是词表本身的性质：
+ * 「拒绝执行」含「拒绝」也含「执行」、「不允许」含「不允许」也含「允许」——
+ * 语义上否定词更具体（说了「不」就是「不」），所以先判拒绝、
+ * 命中就不再往批准那边看。反过来判会让「拒绝执行」变成歧义而不表态。
+ * @param {string} text - 按钮的可见文字 + aria-label + title 拼起来的那串。
+ * @returns {'approve'|'reject'|null}
+ */
+export const panelAnswerOf = (text) => {
+  const t = String(text == null ? '' : text).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
+  if (!t || t.length > PANEL_TEXT_MAX) return null
+  const hit = (words) => words.some((w) => (PANEL_EXACT_ONLY.has(w) ? t === w : t.includes(w)))
+  if (hit(PANEL_REJECT_WORDS)) return 'reject'
+  if (hit(PANEL_APPROVE_WORDS)) return 'approve'
+  return null
+}
+
+/** 按钮的全部可读文字（可见文字 + aria-label + title）。读不到就是空串，绝不抛。 */
+const buttonTextOf = (el) => {
+  let visible = ''
+  try { visible = String((el && el.textContent) || '') } catch (e) { visible = '' }
+  return `${visible} ${labelOf(el)}`.trim()
+}
+
+/** `document.querySelectorAll` 的安全版（自检的假 DOM 可能只有 querySelector）。 */
+const allOf = (sel) => {
+  if (typeof document === 'undefined' || typeof document.querySelectorAll !== 'function') return []
+  try { return Array.from(document.querySelectorAll(sel)) } catch (e) { return [] }
+}
+
+/** 可见性判定的安全版：拿不到布局信息时**当作可见**（假 DOM / 量不到 rect 时别把面板判没）。 */
+const safeVisible = (el) => {
+  try { return nodeVisible(el) } catch (e) { return true }
+}
+
+/** 朴素最近公共祖先：把 a 的祖先链放进集合，再从 b 往上找第一个命中的。 */
+const commonAncestor = (a, b) => {
+  if (!a || !b) return null
+  const chain = new Set()
+  for (let n = a; n; n = n.parentElement) chain.add(n)
+  for (let n = b; n; n = n.parentElement) if (chain.has(n)) return n
+  return null
+}
+
+/**
+ * 当前挂着的**待确认面板**的根节点 —— 也就是「批准 / 跳过」这类按钮所在的那张卡片。
+ *
+ * 两道判据**缺一不可**：
+ *   ① 面板里必须**同时**有批准词按钮和拒绝词按钮 —— 所以普通设置弹窗（保存 / 取消，
+ *      一个词都不在表里）永远认不出来，按批准键不会去点别人的「保存」；
+ *   ② 这两个按钮得在**同一个容器**里（最近公共祖先不是 body/html）—— 页面上恰好
+ *      有两组这类按钮时宁可不认，也不猜。
+ * @returns {Element|null}
+ */
+export const interactionPanelRoot = () => {
+  if (typeof document === 'undefined') return null
+  for (const sel of ['[data-approval-key]', '[data-plan-review-key]']) {
+    const card = (() => { try { return document.querySelector(sel) } catch (e) { return null } })()
+    if (card) return card
+  }
+  const btns = allOf('button, [role="button"]').filter(safeVisible)
+  if (!btns.length) return null
+  const yes = btns.filter((b) => panelAnswerOf(buttonTextOf(b)) === 'approve')
+  const no = btns.filter((b) => panelAnswerOf(buttonTextOf(b)) === 'reject')
+  if (!yes.length || !no.length) return null
+  // 取界面上最靠后的那一对（新弹窗总在 DOM 末尾），再往上找它们共同的卡片。
+  const root = commonAncestor(yes[yes.length - 1], no[no.length - 1])
+  if (!root) return null
+  try {
+    const tag = String(root.tagName || '').toLowerCase()
+    if (tag === 'body' || tag === 'html') return null // 不成卡片 → 不认，别乱点
+  } catch (e) {}
+  return root
+}
+
+/**
+ * 审批面板 / 计划确认面板上的按钮，**按界面顺序**返回（拒绝 / 跳过在左，允许 / 确认 /
+ * 下一步在右 —— 两个面板都是这个顺序，见 dsh-client-ui-approval 的 ApprovalPanel
+ * 与 dsh-client-ui-user-questions 的 PlanReviewPanel）。
+ *
+ * 认面板的方法见 interactionPanelRoot（属性 → 文案成对）。找不到就返回空数组，
+ * 调用方如实报「拿不到」。
  * @returns {Element[]} 按钮（可能为空）；顺序即界面顺序。
  */
 export const interactionPanelButtons = () => {
-  if (typeof document === 'undefined') return []
-  for (const sel of ['[data-approval-key]', '[data-plan-review-key]']) {
-    let card = null
-    try { card = document.querySelector(sel) } catch (e) { card = null }
-    if (!card) continue
-    let btns = []
-    try { btns = Array.from(card.querySelectorAll('button')) } catch (e) { btns = [] }
-    if (btns.length) return btns
+  const root = interactionPanelRoot()
+  if (!root) return []
+  let btns = []
+  try { btns = Array.from(root.querySelectorAll('button')) } catch (e) { btns = [] }
+  if (!btns.length) {
+    // 有的面板把选项做成 [role="button"] 而不是原生 button。
+    try { btns = Array.from(root.querySelectorAll('button, [role="button"]')) } catch (e) { btns = [] }
   }
-  return []
+  return btns
+}
+
+/**
+ * 面板上「批准 / 拒绝」该按哪一个。
+ *
+ * 先按**文案**挑（这才是这两颗键的语义：「批准为批准或者下一步，拒绝为跳过」）；
+ * 文案认不出来（英文界面、图标按钮、文案换了）才退回**位置**：
+ * 批准 = 最后一个、拒绝 = 第一个（界面顺序恒为「否定在左、肯定在右」）。
+ *
+ * 命中多个批准词时取**最左**那个：审批面板可能有「允许一次」和「一直允许」两颗，
+ * 最左的那颗权限最小 —— 拿不准就选保守的那个。
+ * @param {Element[]} buttons - 界面顺序的按钮。
+ * @param {boolean} approve - true = 批准，false = 拒绝。
+ * @returns {Element|null}
+ */
+export const pickPanelButton = (buttons, approve) => {
+  const list = Array.isArray(buttons) ? buttons.filter(Boolean) : []
+  if (!list.length) return null
+  const want = approve ? 'approve' : 'reject'
+  const hit = list.filter((b) => panelAnswerOf(buttonTextOf(b)) === want)
+  if (hit.length) return hit[0]
+  return approve ? list[list.length - 1] : list[0]
 }
 
 // ---- 键盘事件兜底：服务 / 输入机全都拿不到时的最后一条路 ----

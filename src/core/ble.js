@@ -34,15 +34,19 @@ export class BleController {
   // 轮询那一刻 joy 已经回中），拿它当「事件类型」用必然误判——曾经的后果是旋钮/摇杆
   // 操作被当成「麦克风键」而触发语音输入（见 src/client/hid-bridge.js 顶部注释）。
   //   enc      带符号累计步数 → 旋钮旋转（差值即步数）
-  //   knobPress           计数 → 旋钮按下（不受去抖影响）
+  //   knobPress           计数 → 旋钮按下（点击；不受去抖影响）
+  //   knobLong            计数 → 旋钮长按（≥500ms，见 input.js 的 KNOB_LONG_MS）→ 打开本插件设置页
   //   joyPush/joyDir      计数 + 最近一次有效方向 → 摇杆推了一次（回中不计，方向不走丢）
   //   joyT                含回中的方向变化计数（老客户端用，语义保持不变）
+  //   joyA / joyD         原始角度(0..1，0=右、顺时针) + 推力(0..1) —— **纯回显**：客户端拿它画
+  //                       摇杆那张实时小卡片（src/client/joystick-hud.js）。不参与任何事件归属，
+  //                       也不该被谁拿来判断「推了一次」（那是 joyPush 的活）。
   //   down / keyAct       **当前按住的键** + 本次事件的边沿（见 protocol.js 的 HID_ACT）。
   //   battery / charging  设备的**电平型**状态（device.status 上报，见 protocol.js 的
   //                       parseDeviceStatus）。故意**不给它配计数器**：断开时清成 null/false。
   // 这份字面量**原样搬自拆分前的 ble.js**，三个模块共用同一个对象（各持引用），
   // 谁写哪几个字段的分工见各模块顶部的说明。
-  #state = { t: 0, open: false, product: null, battery: null, charging: false, brightness: 0.9, autoDim: 0, key: null, keyAct: null, down: [], agent: -1, act: null, enc: 0, encPress: 0, encLong: 0, knobPress: 0, joy: null, joyT: 0, joyPush: 0, joyDir: null, agents: [], outcomes: [], idle: null, agentsCurrent: null, agentsCurrentKnown: false, keyT: {} }
+  #state = { t: 0, open: false, product: null, battery: null, charging: false, brightness: 0.9, autoDim: 0, key: null, keyAct: null, down: [], agent: -1, act: null, enc: 0, encPress: 0, encLong: 0, knobPress: 0, knobLong: 0, joy: null, joyA: null, joyD: 0, joyT: 0, joyPush: 0, joyDir: null, agents: [], outcomes: [], idle: null, agentsCurrent: null, agentsCurrentKnown: false, keyT: {} }
   #logger
   #diagnostics = null
   #leds = null

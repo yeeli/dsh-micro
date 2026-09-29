@@ -29,13 +29,19 @@
 //    这种（Tooltip 渲染成锚点后面的兄弟），没有这条判据时鼠标一悬停方块就当场跳走。
 // ④ 「设置」的悬停提示由我们挪到**行上方**：它默认 `side:"right"`，按钮收窄后那个位置正好落进方块里。
 //
-// ── 「直接打开键盘设置页」怎么实现 ────────────────────────────────────
-// 设置弹窗没有 `openSettings(sectionId)` 之类的接口，只能：点触发按钮开弹窗 → 点掉导航里文字等于本插件
-// 分区标题（`t('nav')`）的那一行。前提都是真实应用里验过的：触发按钮是
+// ── 「直接打开设置里的某一页」怎么实现 ────────────────────────────────
+// 设置弹窗没有 `openSettings(sectionId)` 之类的接口，只能：点触发按钮开弹窗 → 点掉导航里文字匹配的
+// 那一行。前提都是真实应用里验过的：触发按钮是
 // `[data-slot="sidebar.settings"]` 里的 `button[aria-haspopup="dialog"]` 且带 `aria-expanded`
 // ——**已经开着时不能再点**（一点就关了）；弹窗挂在 `shell.overlay`、不在槽位出口里，所以导航行要按
 // 「在 `nav` 或 `[role="dialog"]` 里的按钮」查，不能只认 `role=dialog`（有的版本弹窗根没有它）。
 // 一律只认 data-slot / aria / 结构关系，**不猜哈希 class**；找不到就 `warn` 并返回 false。
+//
+// 2026-09-28 起有**两个**落地目标，共用 `openSection` 一份实现（只有候选文字不同）：
+//   * `openKeyboardSettings` → 本插件分区（候选 = 词典里各语言的 `nav`）；
+//   * `openGeneralSettings`  → DSH 的**通用**分区（导航第一项，候选见 GENERAL_SECTION_LABELS）。
+// 键帽上对应两颗键：**「键盘设置」**（键盘图标，长按旋钮也是它）与**「设置」**（齿轮图标）。
+// 别再复制第二份点击顺序 —— 那种「同一个动作、不同目标」的代码最容易一处改了一处没改。
 //
 // ── 「键盘已断开」的红点 ────────────────────────────────────────────
 // 断开时图标右上角挂小红点（此前连上和断开长得一模一样，「重新连接」却藏在设置页里）。
@@ -227,17 +233,32 @@ const clickEl = (el, what) => {
 }
 
 /**
- * 打开设置弹窗并直接落到「OMKB 键盘」分区。
- * @param label - 本插件分区标题（组件里传 t('nav')）；省略时只用词典里的候选。
- * @param opts.waitMs - 等导航行出现的预算（毫秒）；默认 NAV_WAIT_MS，自检用来调短。
+ * 「通用设置」分区在导航里的候选文案（DSH 自己注册的 `settings.section`，排在导航第一位）。
+ *
+ * 文案不归我们 —— 只能照抄 DSH 的说法，中英各一。`findSectionRow` 的兜底是**包含匹配**，
+ * 所以「通用」既能命中「通用」也能命中「通用设置」；再加别的写法只会带来误击（比如
+ * 英语界面里 "General" 命中 "General settings" 是对的，命中了 "General 2" 就点错了）。
+ * 真机若换了词（探针 dump 导航行即可看到，见 test/probes/keycaps.mjs），只改这一行。
+ */
+export const GENERAL_SECTION_LABELS = ['通用', 'General']
+
+/**
+ * 打开设置弹窗并落到**指定的那一个分区**（deep-link 的公共实现）。
+ *
+ * 两个调用方（本插件分区 / 通用分区）的差别**只有候选文字**：触发按钮、查询范围、点击顺序、
+ * 「已经在本分区就不点」「弹窗开着就别再点触发按钮」这些判据、以及兜底告警，一字不差。
+ * 所以合并成一份实现 —— 复制两份的代价是它们迟早各自漂移（「一处能开一处打不开」这类
+ * 分裂症状，本项目已经踩过好几次），而这类「同一个动作、不同目标」正是最容易漂的形态。
+ *
+ * @param labels - 分区标题候选数组（精确匹配优先，退化为包含匹配）。
+ * @param waitMs - 等导航行出现的预算（毫秒）。
+ * @param what - 目标的名字（只进告警文案，不参与判据）。
  * @returns {Promise<boolean>} 是否成功把分区行点开（找不到就 false，不抛错）。
  */
-export const openKeyboardSettings = async (label, opts = {}) => {
+const openSection = async (labels, waitMs, what) => {
   if (typeof document === 'undefined') return false
-  const waitMs = opts && Number.isFinite(opts.waitMs) ? opts.waitMs : NAV_WAIT_MS
   const outlet = q(document, SETTINGS_OUTLET_SEL)
   const scopes = [outlet, document].filter(Boolean)
-  const labels = candidateLabels(label)
 
   // 已经能点到行：在本分区就不动，否则点过去（不碰触发按钮，免得把弹窗关掉）。
   const found = findSectionRow(labels, scopes)
@@ -248,7 +269,7 @@ export const openKeyboardSettings = async (label, opts = {}) => {
 
   const trigger = triggerEl(document)
   if (!trigger) {
-    warn('找不到侧边栏设置按钮（[data-slot="sidebar.settings"] button[aria-haspopup="dialog"]），无法打开键盘设置页')
+    warn(`找不到侧边栏设置按钮（[data-slot="sidebar.settings"] button[aria-haspopup="dialog"]），无法打开${what}`)
     return false
   }
   // 弹窗已开着（只是导航还没渲染 / 行还没出现）时再点一次会把它关掉。
@@ -264,9 +285,34 @@ export const openKeyboardSettings = async (label, opts = {}) => {
     if (Date.now() >= deadline) break
     await sleep(POLL_MS)
   }
-  warn(`设置弹窗里没找到本插件的分区行（候选标题：${labels.join(' / ') || '无'}）`)
+  warn(`设置弹窗里没找到分区行（要打开：${what}；候选标题：${labels.join(' / ') || '无'}）`)
   return false
 }
+
+const waitOf = (opts) => {
+  const ms = opts && opts.waitMs
+  return Number.isFinite(ms) ? ms : NAV_WAIT_MS
+}
+
+/**
+ * 打开设置弹窗并直接落到「OMKB 键盘」分区（= 键盘设置页）。
+ * @param label - 本插件分区标题（组件里传 t('nav')）；省略时只用词典里的候选。
+ * @param opts.waitMs - 等导航行出现的预算（毫秒）；默认 NAV_WAIT_MS，自检用来调短。
+ * @returns {Promise<boolean>} 是否成功把分区行点开（找不到就 false，不抛错）。
+ */
+export const openKeyboardSettings = (label, opts = {}) =>
+  openSection(candidateLabels(label), waitOf(opts), '键盘设置页')
+
+/**
+ * 打开设置弹窗并直接落到**通用**分区（「设置」键）。
+ *
+ * 与 openKeyboardSettings 共用同一份实现，所以不需要单独的降级路径：拿不到触发按钮、
+ * 等不到导航行，两者都是同一句话（见 openSection 的两条 warn），不会一个出声一个静默。
+ * @param opts.waitMs - 等导航行出现的预算（毫秒）；自检用来调短。
+ * @returns {Promise<boolean>} 是否成功落到通用分区。
+ */
+export const openGeneralSettings = (opts = {}) =>
+  openSection(GENERAL_SECTION_LABELS, waitOf(opts), '通用设置')
 
 // ── 覆盖定位（把按钮贴到「设置」那一行的右端）────────────────────────────────
 
@@ -827,6 +873,7 @@ export const leaveOurSection = (label, roots) => {
 // 浏览器控制台 / 自检的观测点：__dshOmkb.openKeyboardSettings() 可直接验证这条链路
 // （不用真的去点侧边栏那个图标）；footAction.* 是这条链路的内部零件，给自检与控制台调用。
 DSVI.openKeyboardSettings = openKeyboardSettings
+DSVI.openGeneralSettings = openGeneralSettings
 DSVI.leaveOurSection = leaveOurSection
 DSVI.footAction = {
   open: openKeyboardSettings,

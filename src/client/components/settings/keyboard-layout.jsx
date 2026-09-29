@@ -16,10 +16,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { DSVI } from '../../core.js'
 import { capFor, micRowKeys } from '../../utils/keycaps.js'
-import { CUSTOM_ICON } from '../../keypad.js'
+import { CUSTOM_ICON, keycapOf } from '../../keypad.js'
 import { FLASH_MS, createPressTracker, samePressed } from '../../utils/press-state.js'
 import { KNOB_DOT_DEG, KNOB_DOT_REST_DEG, createKnobTracker } from '../../utils/knob-state.js'
 import { Key, KeyFace } from '../common/ui.jsx'
+import { CapTip, capTipHandlers, useCapTip } from '../common/cap-tip.jsx'
 import { OmkbKeycapModal } from '../modals/keycap.jsx'
 import { OmkbJoystickModal } from '../modals/joystick.jsx'
 
@@ -113,14 +114,21 @@ const ACT_ROW_CODES = ['ACT06', 'ACT07', 'ACT08', 'ACT09']
  *   并且所有键都不响应点击（不弹键帽编辑器 / 摇杆配置，也不播按压特效）。
  *   为什么要走同一个组件：引导里那张键盘图必须是**同一份绘制代码** —— 另写一份迟早
  *   画出两台不一样的键盘（键帽换了、麦克风键拆了，引导里还是老样子）。
+ * @param t - 词典取值函数（**悬停气泡的第二行**要用；entry.js → panel.jsx → 这里）。可不传：
+ *   不传时气泡自动省掉第二行（见 common/cap-tip.jsx 的 capTipLines），引导那张插图就不传。
  */
-export function OmkbLayout({ update, prefs = {}, clearField, preview = null }) {
+export function OmkbLayout({ update, prefs = {}, clearField, preview = null, t }) {
   const actLabels = prefs.actLabels || {}
   const [editor, setEditor] = useState(null) // { target }
   const [joyOpen, setJoyOpen] = useState(false)
   // 预览模式：只画。信号照订（hooks 顺序不能变），但一律不反映到界面上。
   const staticShot = !!preview
   const swatch = (preview && preview.colors) || null
+  const tt = typeof t === 'function' ? t : null
+  // 悬停气泡：**只认键帽**（有功能的那些键）。6 颗智能体键不是键帽（它们是会话槽位），
+  // 旋钮/摇杆是连续控件 —— 都不挂气泡，`data-omkb-cap` 才是「这颗键有键帽」的判据。
+  const { tip, show, hide } = useCapTip()
+  const tipProps = (capId) => (staticShot ? {} : capTipHandlers(show, hide, keycapOf(capId)))
   // 底部那颗两倍宽的 Mic 键下面有两个开关：开关打开时拆成两颗键画（模型见 utils/keycaps.js）。
   const micSplit = !!prefs.micKey
   const micKeys = micRowKeys(prefs)
@@ -135,7 +143,11 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null }) {
   // 蓝点角度：方向给出停靠位（顺时针 90° / 逆时针 -90°），只按下没转时用静止位。
   // **始终写一个角度**（而不是让点停在圆心）—— 首次顺时针转时点才会从左边滑到右边。
   const knobDeg = KNOB_DOT_DEG[shownKnob.dir] ?? KNOB_DOT_REST_DEG
-  const openKeycap = (target) => () => { if (!staticShot) setEditor({ target }) }
+  const openKeycap = (target) => () => {
+    if (staticShot) return
+    hide() // 弹窗一开就把气泡收起来（鼠标此刻可能还停在那颗键上，不收就浮在遮罩上）
+    setEditor({ target })
+  }
   // 写回键帽：target 是**键码**（actLabels 的键），不是视觉 id。
   const saveCap = (target, pick) => update('actLabels', { ...actLabels, [target]: pick })
   // 恢复默认 = 把这一格从 actLabels 里删掉（回落出厂键帽；拆分态那颗自定义键回落成「未指派」）。
@@ -210,7 +222,7 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null }) {
               **画的是键帽、不是物理键码**：给 ACT07 选了 MIC，它就得长成麦克风的样子
               （键帽即功能，见 keypad.js）。以前这里印的是 actLabels 的原始值，
               于是选完 SEND 键上显示的是 'ACT12' —— 看起来像「设置了没用」。
-              **只有图标、没有键下文字**（像真键盘那样）：名字在「编辑按键」弹窗里写在候选下面。 */}
+              **只有图标、没有键下文字**（像真键盘那样）：名字走悬停气泡（tipProps）。 */}
           {ACT_ROW_CODES.map((code) => {
             const capId = capFor(code, prefs)
             const visualId = code.toLowerCase()
@@ -219,6 +231,7 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null }) {
                 key={code}
                 {...slot(visualId, openKeycap(code), 'omkb-key--act' + (capId ? '' : ' omkb-key--custom'))}
                 data-omkb-cap={capId || CUSTOM_ICON}
+                {...tipProps(capId)}
               >
                 <KeyFace capId={capId} />
               </Key>
@@ -248,6 +261,7 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null }) {
                 (k.wide ? 'omkb-key-mic ' : '') + 'omkb-key--act' + (k.custom ? ' omkb-key--custom' : '')
               )}
               data-omkb-cap={k.capId || CUSTOM_ICON}
+              {...tipProps(k.capId)}
             >
               <KeyFace capId={k.capId} />
             </Key>
@@ -259,6 +273,7 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null }) {
               <Key
                 {...slot('act12', openKeycap('ACT12'), 'omkb-key--act' + (capId ? '' : ' omkb-key--custom'))}
                 data-omkb-cap={capId || CUSTOM_ICON}
+                {...tipProps(capId)}
               >
                 <KeyFace capId={capId} />
               </Key>
@@ -272,6 +287,7 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null }) {
           target={editor.target}
           current={actLabels[editor.target] || null}
           fallback={capFor(editor.target, prefs)}
+          t={tt}
           onCancel={() => setEditor(null)}
           onClear={() => { clearCap(editor.target); setEditor(null) }}
           onSave={(pick) => { saveCap(editor.target, pick); setEditor(null) }}
@@ -285,6 +301,10 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null }) {
           onSave={(cfg) => { update('joystick', cfg); setJoyOpen(false) }}
         />
       )}
+
+      {/* 悬停气泡本体（position:fixed，见 common/cap-tip.jsx —— 这里也在卡片里，
+          相对定位会被卡片的圆角/滚动裁到）。放最外层是为了让它压在键上面。 */}
+      <CapTip tip={tip} t={tt || undefined} />
     </div>
   )
 }

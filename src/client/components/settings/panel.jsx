@@ -55,18 +55,22 @@ const listSessions = (snapshot, workspaces) => visibleSessions(snapshot, archive
  */
 const KNOB_ACTION_OPTIONS = knobActions().map((a) => [a.id, a.label])
 
-/** 旋钮自定义分配的四个手势（键 → 文案 key）。 */
+/**
+ * 旋钮自定义分配的**三个**手势（键 → 文案 key）。
+ * 「长按」**不在这里**：它是全局固定手势（任何模式下长按旋钮都打开本插件设置页，见 knob.js 的
+ * long()），不是分配项。留一个按下去没反应的下拉比没有更坏 —— 所以那一行连同词典键一起删了。
+ */
 const GESTURES = [
   ['cw', 'opts.knobCustom.cw'],
   ['ccw', 'opts.knobCustom.ccw'],
-  ['click', 'opts.knobCustom.click'],
-  ['long', 'opts.knobCustom.long']
+  ['click', 'opts.knobCustom.click']
 ]
 
 /**
  * 功能 id → 展示短名（「第三方插件」卡片里「依赖它的功能」那一列用）。
- * 优先键帽短名（name，如 MIC / ARCH），没有短名（旋钮专属手势）就落回词典 label，
- * 词典也没有就原样显示 id。三种都是可读的，绝不让界面冒出 undefined。
+ * 优先键帽短名（name，2026-09-28 起是中文，如「语音」「归档」），
+ * 没有短名（旋钮专属手势）就落回词典 label，词典也没有就原样显示 id。
+ * 三种都是可读的，绝不让界面冒出 undefined。
  */
 const pluginKeyLabel = (id, tt) => {
   const entry = actionById(id)
@@ -423,7 +427,8 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
   // DSH 插件，是**静态声明**，不查系统、也不看服务在不在 —— 用户 2026-09-26 明确要求
   // 「不用去检测系统了」（此前是「每条功能声明 requires + ctx.get(service) 现场判装没装」，
   // 那份模型已撤掉，见 actions/registry.js 的说明）。
-  // 因此这张卡**常驻**（清单为空时给一行占位），用户随时看得见这个模块、加条目立刻生效。
+  // **清单为空 → 这张卡整个不渲染**（用户 2026-09-29 口径；09-26 那版是「常驻 + 空态占位行」，
+  // 已废止）。所以下面这个数组的长度**同时**是「渲染不渲染」的判据 —— 别再另写一处判断。
   const plugins = PLUGIN_DEPS.map((d) => ({
     plugin: String(d.plugin),
     name: d.name || String(d.plugin),
@@ -604,7 +609,7 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
             「什么都没发生」，第一反应是键盘坏了 —— 这行字是唯一的解释。
             data-omkb-simhint 是给探针/自检定位用的锚点（不靠文案）。 */}
         <div className="omkb-hint omkb-sim-hint" data-omkb-simhint="1">{tt('layout.simHint')}</div>
-        <OmkbLayout prefs={prefs} update={update} clearField={clearField} />
+        <OmkbLayout prefs={prefs} update={update} clearField={clearField} t={tt} />
       </div>
 
       {resetOpen ? (
@@ -679,6 +684,13 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
             </select>
           </div>
         </div>
+        {/* 长按是**与模式无关**的固定手势 → 提示单独一行，四种模式下都看得见
+            （塞进某个模式的 desc 里就只有选中该模式时才显示）。 */}
+        <div className="omkb-row">
+          <div className="omkb-row__label">
+            <div className="omkb-row__desc">{tt('opts.knob.longHint')}</div>
+          </div>
+        </div>
         {knob === 'custom' ? (
           <div className="omkb-row">
             <div className="omkb-row__label">
@@ -729,42 +741,44 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
             `__dshOmkb.services.guide.replay()`（不写 guideSeen、不看设备在不在）。 */}
       </div>
 
-      {/* 第三方插件依赖：**常驻卡片**（以前是「没有功能声明 requires 就整卡隐藏」，2026-09-26
-          按用户要求改成常驻 —— 清单为空时给一行占位，模块始终看得见）。
-          数据源 = config/default.js 的 PLUGIN_DEPS（静态配置，**不检测系统**）。
+      {/* 第三方插件依赖：**清单为空就整卡隐藏**（用户 2026-09-29 口径）。
+          这条口径翻过两次，别再随手翻回去：
+            · 09-26 之前：没有功能声明 requires 就整卡隐藏（数据源是 registry.js 的 requires）
+            · 09-26：改成**常驻**、空清单给一行占位（用户：「不用去检测系统了」，清单搬来 config/default.js）
+            · 09-29：改成**空清单整卡隐藏**（用户：「如果 client default.js 插件列表为空,
+              就隐藏设置页面的第三方插件模块」）—— 出厂 PLUGIN_DEPS 本来就是空的，
+              常驻只会给用户看一行「暂无需要额外安装的插件」，是纯噪音。
+          「要不要显示这张卡」的判据**只有一处** = 下面这个 plugins.length 三元（空数组 → null）。
+          数据源 = config/default.js 的 PLUGIN_DEPS（静态配置，**不检测系统**；加一条就自动现身）。
           每一行：左边插件名 + 说明（可选再带上「用于：」哪些按键功能），右边安装状态徽标
           （照配置里手写的 installed 字段渲染，见本组件顶部 plugins 的计算）。 */}
-      <div className="omkb-card" data-omkb-plugins="1">
-        <div className="omkb-row">
-          <div className="omkb-row__label">
-            <div className="omkb-row__title">{tt('plugins.title')}</div>
-            <div className="omkb-row__desc">{tt('plugins.desc')}</div>
-          </div>
-        </div>
-        {plugins.length ? plugins.map((p) => (
-          <div className="omkb-row" key={p.plugin} data-omkb-plugin={p.plugin}>
+      {plugins.length ? (
+        <div className="omkb-card" data-omkb-plugins="1">
+          <div className="omkb-row">
             <div className="omkb-row__label">
-              <div className="omkb-row__title">{p.name}</div>
-              <div className="omkb-row__desc">
-                {p.desc || null}
-                {p.desc && p.usedBy.length ? ' · ' : null}
-                {p.usedBy.length ? tt('plugins.usedBy') + p.usedBy.map((id) => pluginKeyLabel(id, tt)).join('、') : null}
+              <div className="omkb-row__title">{tt('plugins.title')}</div>
+              <div className="omkb-row__desc">{tt('plugins.desc')}</div>
+            </div>
+          </div>
+          {plugins.map((p) => (
+            <div className="omkb-row" key={p.plugin} data-omkb-plugin={p.plugin}>
+              <div className="omkb-row__label">
+                <div className="omkb-row__title">{p.name}</div>
+                <div className="omkb-row__desc">
+                  {p.desc || null}
+                  {p.desc && p.usedBy.length ? ' · ' : null}
+                  {p.usedBy.length ? tt('plugins.usedBy') + p.usedBy.map((id) => pluginKeyLabel(id, tt)).join('、') : null}
+                </div>
+              </div>
+              <div className="omkb-row__ctrl">
+                <span className={'omkb-plugin-badge' + (p.installed ? ' omkb-plugin-badge--on' : ' omkb-plugin-badge--off')}>
+                  {p.installed ? tt('plugins.installed') : tt('plugins.missing')}
+                </span>
               </div>
             </div>
-            <div className="omkb-row__ctrl">
-              <span className={'omkb-plugin-badge' + (p.installed ? ' omkb-plugin-badge--on' : ' omkb-plugin-badge--off')}>
-                {p.installed ? tt('plugins.installed') : tt('plugins.missing')}
-              </span>
-            </div>
-          </div>
-        )) : (
-          <div className="omkb-row" data-omkb-plugins-empty="1">
-            <div className="omkb-row__label">
-              <div className="omkb-row__desc">{tt('plugins.empty')}</div>
-            </div>
-          </div>
-        )}
-      </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }

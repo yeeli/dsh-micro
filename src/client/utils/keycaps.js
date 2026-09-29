@@ -120,6 +120,16 @@ export const KEY_LAYOUT = {
 }
 
 /**
+ * **动作键**（ACT06..ACT12）的键码 —— 布局表里的七颗「命令键」，与 6 个智能键（AG00..AG05）相对。
+ *
+ * 2026-09-28 的用途只有一个：按下后**没执行成**时的顶部提示只对这几颗键发
+ * （用户明确要求「只做 act06-12 按键」）—— 判据在 keypad.js 的 #refuse。
+ * 从 KEY_LAYOUT 派生而不是再抄一份字面量：键帽列表、灯、布局都是同一张表派生的，
+ * 这里再抄一份「ACT06..ACT12」迟早和它对不上。
+ */
+export const ACTION_KEY_CODES = Object.keys(KEY_LAYOUT).filter((code) => code.startsWith('ACT'))
+
+/**
  * 设备键码 → 视觉键 id，随「独立麦克风键」状态变化的那两条走这里。
  * @param {string} name 设备上报的键名（大小写不敏感）。
  * @param {boolean} split 是否处于「独立麦克风键」拆分态。
@@ -158,7 +168,7 @@ export const micRowKeys = (prefs = {}) => {
  * 一颗键「按下后执行什么」，去 actLabels 的哪个键上取（取值链，先写的优先）。
  *
  * 为什么复用键帽那一格：设置里那一格就是「这颗键是什么」——键帽列表本身就是功能列表
- * （FAST/ARCH/REJ/APPR/MIC/SEND），用户改键帽时想的是「把这颗键改成发送」，
+ * （模式/归档/拒绝/批准/语音/发送…），用户改键帽时想的是「把这颗键改成发送」，
  * 只改显示不改行为会被当成「设置不反应」（见 ../keypad.js 的 resolve）。
  * Mic 两颗开关在合并态共用同一颗宽键，取值链与键帽完全一致（ACT11 优先、ACT10 兜底）。
  * @param {string} code 设备键码（ACT06..ACT12，大小写不敏感）。

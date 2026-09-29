@@ -54,13 +54,17 @@ const locales = {
     'opts.knob.scroll': '对话滚动',
     'opts.knob.scroll.desc': '滚动浏览当前对话',
     'opts.knob.custom': '自定义分配',
-    'opts.knob.custom.desc': '为每次旋转、点击和长按选择操作',
+    'opts.knob.custom.desc': '为每次旋转和点击选择操作',
+    // 「长按」是与模式无关的固定手势，所以提示单独一行、四种模式下都显示（见 panel.jsx）
+    'opts.knob.longHint': '长按旋钮：任何模式下都打开本设置页',
     'opts.knobCustom': '自定义分配',
-    'opts.knobCustomDesc': '为旋钮的每种操作选择要执行的命令',
+    'opts.knobCustomDesc': '为旋钮的顺时针 / 逆时针旋转与点击选择命令',
     'opts.knobCustom.cw': '顺时针旋转',
     'opts.knobCustom.ccw': '逆时针旋转',
     'opts.knobCustom.click': '点击',
-    'opts.knobCustom.long': '长按',
+    // act.* —— 「功能名」，**悬停气泡的第二行**（见 components/common/cap-tip.jsx）：
+    // 比键帽短名长一点、说清具体做什么。键帽短名不在这里 —— 它是 registry 各条的 `name`
+    // （中文，如「批准」「终端」），因为它同时要当设置页那一格的名字。
     'act.none': '无',
     'act.navFwd': '焦点后移',
     'act.navBack': '焦点前移',
@@ -69,19 +73,50 @@ const locales = {
     'act.scrollBottom': '滚动到底部',
     'act.voice': '语音输入',
     'act.send': '发送',
-    'act.approve': '批准当前交互',
-    'act.reject': '拒绝当前交互',
+    'act.approve': '批准 / 下一步',
+    'act.reject': '拒绝 / 跳过',
     'act.archive': '归档当前会话',
     'act.fork': '分叉当前会话',
     'act.reasoning': '切换推理',
     'act.reasoningUp': '增强推理强度',
     'act.reasoningDown': '减弱推理强度',
-    // ---------- 第三方插件依赖（设置页底部，**常驻卡片**）----------
-    // 清单来自 config/default.js 的 PLUGIN_DEPS（静态配置、不检测系统）；清单为空时显示
-    // plugins.empty 那一行占位。要加插件条目请改那个文件，不要动这里的文案结构。
+    'act.openSettings': '打开键盘设置页',
+    // 2026-09-28 新增的 12 颗按键（第 1 颗「键盘设置」复用上面的 act.openSettings）。
+    // 「设置」（act.generalSettings）与它成对：一个打开 DSH 的通用设置、一个打开本插件的键盘设置。
+    'act.generalSettings': '打开通用设置',
+    'act.mode': '切换 Agent 模式',
+    'act.terminal': '打开终端',
+    'act.clearInput': '清空输入框',
+    'act.newSession': '新建对话',
+    'act.upload': '上传文件',
+    'act.compact': '压缩上下文',
+    'act.trajectory': '打开轨迹视图',
+    'act.openFolder': '打开项目文件夹',
+    'act.plugins': '打开插件管理',
+    // ---------- 摇杆提示卡片（会话界面顶部，见 ../joystick-hud.js）----------
+    // joyHud.*  卡片自己那几行（方向名 + 结果）
+    // joyAct.*  四个内置摇杆动作的显示名 —— 键由 JOY_ACTION 计算出来（joystick-hud.js 的
+    //           JOY_ACTION_LOCALE），存进设置里的**仍然是中文动作名**，这里只管显示。
+    'joyHud.up': '上',
+    'joyHud.right': '右',
+    'joyHud.down': '下',
+    'joyHud.left': '左',
+    'joyHud.ok': '已触发',
+    'joyHud.unbound': '未绑定',
+    'joyHud.unwired': '未接线',
+    'joyHud.failed': '未生效',
+    'joyAct.undo': '撤销',
+    'joyAct.redo': '重做',
+    'joyAct.sidebar': '切换侧边栏',
+    'joyAct.plan': '切换规划模式',
+    'joyAct.scrollBottom': '滚动到底部',
+    // ---------- 第三方插件依赖（设置页底部，**清单为空则整卡隐藏**）----------
+    // 清单来自 config/default.js 的 PLUGIN_DEPS（静态配置、不检测系统）。用户 2026-09-29 口径：
+    // 清单为空 → 设置页连这个模块都不显示，所以**没有**「暂无…」这类空态文案（原先那条
+    // plugins.empty 随之删掉 —— 它永远不会被渲染到）。要加插件条目请改那个文件，
+    // 加一条立刻在设置页现身；这里的文案结构不用动。
     'plugins.title': '第三方插件',
     'plugins.desc': '以下按键功能需要额外安装对应的 DSH 插件；安装状态按插件自带配置显示',
-    'plugins.empty': '暂无需要额外安装的插件',
     'plugins.installed': '已安装',
     'plugins.missing': '未安装',
     'plugins.usedBy': '用于：',
@@ -90,6 +125,24 @@ const locales = {
     'settings.saving': '保存中…',
     'settings.saved': '已保存',
     'settings.saveError': '保存失败',
+    // ---------- 顶部提示（「这颗键在当前页面做不了」，见 ../notice.js）----------
+    // 键就是 notice.js 的 NOTICE_REASON 表里的**词典键**：加一条原因要两处同步
+    // （「词典齐不齐」由 test/verify_notice.js 盯着，少一条它红）。
+    // 只对动作键 ACT06..ACT12 发（用户口径），所以文案都是「你现在该做什么」。
+    'notice.noSession': '先打开一个会话，再按这颗键',
+    'notice.noService': '这个功能需要对应的 DSH 插件，当前页面用不了',
+    'notice.noPanel': '现在没有待确认的弹窗',
+    'notice.panelOptions': '这次弹窗要选选项：转旋钮选、按旋钮勾',
+    'notice.noButton': '弹窗上找不到可点的按钮',
+    'notice.noInput': '当前页面没有可用的输入框',
+    'notice.noUpload': '输入栏里找不到文件选择框',
+    'notice.noCwd': '这条会话没有记录项目目录',
+    'notice.gateOff': '需要在 DSH 设置里开启「代码工作工具」',
+    'notice.sessionBusy': '这条会话已经在跑了，新开一条再换',
+    'notice.noReasoning': '当前模型未提供推理等级',
+    'notice.reasoningTop': '已经是最高的推理强度了',
+    'notice.reasoningBottom': '已经是最低的推理强度了',
+    'notice.notAvailable': '当前页面不能执行这个操作',
     // 侧边栏底部「设置」旁边的小键盘图标（点了直接落到本分区）
     'sidebar.action': '键盘设置',
     // 断开时的悬停/可访问名（图标右上会多一个红点）。**不许写成「点击重新连接」** ——
@@ -120,7 +173,7 @@ const locales = {
     'guide.agents.title': '智能体按键',
     'guide.agents.desc': '第一、二排的 6 颗键对应你的会话：按下就切过去。灯的颜色实时反映每个会话的状态，不用盯着屏幕也知道谁在忙。',
     'guide.commands.title': '命令键',
-    'guide.commands.desc': '第三排是四颗命令键（FAST / ARCH / REJ / APPR），底部是麦克风键和发送键 —— 最常用的操作都在手边。',
+    'guide.commands.desc': '第三排是四颗命令键（模式 / 归档 / 拒绝 / 批准），底部是麦克风键和发送键 —— 最常用的操作都在手边。',
     'guide.commands.note': '这些键都能改：设置 → OMKB 键盘，可以逐颗换键帽、给摇杆四个方向绑动作、切换旋钮模式。',
     'guide.legend.running': '蓝色 · 运行中',
     'guide.legend.runningHint': '这个会话正在回答',
@@ -195,13 +248,13 @@ const locales = {
     'opts.knob.scroll': 'Conversation scrolling',
     'opts.knob.scroll.desc': 'Scroll through the current conversation',
     'opts.knob.custom': 'Custom assignment',
-    'opts.knob.custom.desc': 'Choose actions for each rotate, click, and long-press',
+    'opts.knob.custom.desc': 'Choose actions for each rotate and click',
+    'opts.knob.longHint': 'Long-press the knob: opens this settings page in any mode',
     'opts.knobCustom': 'Custom assignment',
-    'opts.knobCustomDesc': 'Choose the command for each knob gesture',
+    'opts.knobCustomDesc': 'Choose the command for rotate clockwise, rotate counter-clockwise and click',
     'opts.knobCustom.cw': 'Rotate clockwise',
     'opts.knobCustom.ccw': 'Rotate counter-clockwise',
     'opts.knobCustom.click': 'Click',
-    'opts.knobCustom.long': 'Long-press',
     'act.none': 'None',
     'act.navFwd': 'Focus next',
     'act.navBack': 'Focus previous',
@@ -210,19 +263,47 @@ const locales = {
     'act.scrollBottom': 'Scroll to bottom',
     'act.voice': 'Voice input',
     'act.send': 'Send',
-    'act.approve': 'Approve the pending request',
-    'act.reject': 'Reject the pending request',
+    'act.approve': 'Approve / Next step',
+    'act.reject': 'Reject / Skip',
     'act.archive': 'Archive this session',
     'act.fork': 'Fork this session',
     'act.reasoning': 'Toggle reasoning',
     'act.reasoningUp': 'Increase reasoning',
     'act.reasoningDown': 'Decrease reasoning',
-    // ---------- Third-party plugin dependencies (always-on card at the bottom of the page) ----------
-    // The list comes from config/default.js (PLUGIN_DEPS, static config — no system probing);
-    // an empty list shows the plugins.empty placeholder line.
+    'act.openSettings': 'Open keyboard settings',
+    // The 12 keys added 2026-09-28 (the first one, Keyboard settings, reuses act.openSettings above).
+    // Settings (act.generalSettings) comes as its pair: one opens DSH's general settings,
+    // the other this plugin's keyboard settings.
+    'act.generalSettings': 'Open general settings',
+    'act.mode': 'Switch Agent mode',
+    'act.terminal': 'Open a terminal',
+    'act.clearInput': 'Clear the input box',
+    'act.newSession': 'New conversation',
+    'act.upload': 'Upload files',
+    'act.compact': 'Compact the context',
+    'act.trajectory': 'Open the trajectory view',
+    'act.openFolder': 'Open the project folder',
+    'act.plugins': 'Open the plugin manager',
+    // ---------- Joystick hint card (top of the conversation view, see ../joystick-hud.js) ----------
+    'joyHud.up': 'Up',
+    'joyHud.right': 'Right',
+    'joyHud.down': 'Down',
+    'joyHud.left': 'Left',
+    'joyHud.ok': 'Triggered',
+    'joyHud.unbound': 'Not assigned',
+    'joyHud.unwired': 'Not wired',
+    'joyHud.failed': 'No effect',
+    'joyAct.undo': 'Undo',
+    'joyAct.redo': 'Redo',
+    'joyAct.sidebar': 'Toggle sidebar',
+    'joyAct.plan': 'Toggle plan mode',
+    'joyAct.scrollBottom': 'Scroll to bottom',
+    // ---------- Third-party plugin dependencies (hidden entirely when the list is empty) ----------
+    // The list comes from config/default.js (PLUGIN_DEPS, static config — no system probing).
+    // Per the user (2026-09-29) an empty list means the whole module is not rendered, so there is
+    // no "nothing to install" copy — the old plugins.empty key was removed with it.
     'plugins.title': 'Third-party Plugins',
     'plugins.desc': 'The key actions below need extra DSH plugins; the status shown follows the plugin’s own config',
-    'plugins.empty': 'No extra plugins needed',
     'plugins.installed': 'Installed',
     'plugins.missing': 'Missing',
     'plugins.usedBy': 'Used by: ',
@@ -231,6 +312,24 @@ const locales = {
     'settings.saving': 'Saving…',
     'settings.saved': 'Saved',
     'settings.saveError': 'Save failed',
+    // ---------- Top notice ("this key can't do its job on this page", see ../notice.js) ----------
+    // The keys below are the dictionary keys listed in notice.js's NOTICE_REASON table;
+    // test/verify_notice.js keeps both sides in sync (a missing line turns that suite red).
+    // Only the action keys ACT06..ACT12 show it (per the user), so every line says what to do next.
+    'notice.noSession': 'Open a session first, then press this key',
+    'notice.noService': 'This action needs its DSH plugin — not available on this page',
+    'notice.noPanel': 'There is no dialog waiting for an answer right now',
+    'notice.panelOptions': 'This dialog wants answers: turn the knob to pick, press the knob to tick',
+    'notice.noButton': 'No clickable button found on the dialog',
+    'notice.noInput': 'No usable input box on this page',
+    'notice.noUpload': 'No file picker found in the input bar',
+    'notice.noCwd': 'This session has no project folder recorded',
+    'notice.gateOff': 'Turn on “Code work tools” in DSH settings first',
+    'notice.sessionBusy': 'This session is already running — start a new one to switch',
+    'notice.noReasoning': 'This model provides no reasoning effort levels',
+    'notice.reasoningTop': 'Already at the highest reasoning effort',
+    'notice.reasoningBottom': 'Already at the lowest reasoning effort',
+    'notice.notAvailable': 'This action can’t run on this page',
     // Sidebar-foot action next to Settings (opens this section directly)
     'sidebar.action': 'Keyboard settings',
     // Hover / accessible name while the keyboard is disconnected (a red dot appears too).
@@ -261,7 +360,7 @@ const locales = {
     'guide.agents.title': 'Smart agent keys',
     'guide.agents.desc': 'The 6 keys in the first two rows map to your sessions: press one to switch to it. The LED color tracks each session live, so you can tell who is busy without looking at the screen.',
     'guide.commands.title': 'Command keys',
-    'guide.commands.desc': 'Row three holds four command keys (FAST / ARCH / REJ / APPR); the bottom row has the mic and send keys — the most used actions are always at hand.',
+    'guide.commands.desc': 'Row three holds four command keys (mode / archive / reject / approve); the bottom row has the mic and send keys — the most used actions are always at hand.',
     'guide.commands.note': 'All of these can be changed: Settings → OMKB Keypad lets you swap keycaps, bind the four joystick directions, and switch knob modes.',
     'guide.legend.running': 'Blue · running',
     'guide.legend.runningHint': 'This session is answering',

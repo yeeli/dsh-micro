@@ -59,6 +59,18 @@ export const AGENT_COLOR_RGB = {
   working: 0x304FFE, // 蓝 —— 运行中
   idle: 0xFFFFFF,    // 白 —— 空闲
   error: 0xFF0000,   // 红 —— 运行失败（由宿主点亮并保持，直到该会话重新运行）
+  // 绿 —— 跑完一轮（成功）。**与红不对称**（用户 2026-09-28）：宿主只给**当前会话**那一槽点绿，
+  // 而且只亮一会儿就回落成 idle（红则常驻、且不吃「当前会话」闸门）。这里只提供色值，
+  // 何时点亮/何时收掉全在宿主侧 src/core/leds.js 的 #colorOf / #armSuccessHold。
+  success: 0x00FF00,
+  // 琥珀黄 / 玫粉 —— **弹窗覆盖色**（用户 2026-09-29）：
+  //   approval —— 当前有「批准 / 拒绝」弹窗 → 当前会话那颗键转黄；
+  //   menu     —— 旋钮按下 / 点输入框「+」打开的弹窗 → 当前会话那颗键转粉。
+  // 两者都**只给当前会话**、都**优先于失败红灯**，弹窗关了立刻回到原色。
+  // 何时点亮/何时收掉全在宿主侧 src/core/leds.js 的 #attentionColor（这里只给色值，
+  // 由 ./attention.js 探测弹窗、随 pushLeds 上报）。
+  approval: 0xFFC800,
+  menu: 0xFF69B4,
   off: 0x000000      // 黑 —— 关（未分配）
 }
 
@@ -71,6 +83,17 @@ export class AgentController {
   #slots = []
   #pushTimer = null
   #allIdle = null
+  /**
+   * 弹窗覆盖态（见调色板里的 approval / menu）—— 由 ./attention.js 探测界面上的弹窗后调
+   * `setAttention()` 灌进来：`'approval'`（批准弹窗）/ `'menu'`（旋钮或「+」打开的弹窗）/ `null`。
+   *
+   * ⚠ 它只**随灯态一起上报**，颜色由宿主决定（跟 errorColor / successColor 同一套分工）。
+   * ⚠ 弹窗的开/关不是会话列表变化，`refresh` 不会被触发 —— 所以 `setAttention` 要拿
+   *   最近一次下发的参数**自己再推一次**（见 `#lastPush`）。
+   */
+  #attention = null
+  /** 最近一次 `refresh` 下发的参数（`setAttention` 复用它们重推，不必等下一次列表变化）。 */
+  #lastPush = null
   // 内容级去重的账本 =「**宿主此刻持有的**那份请求体」。**只有发成功才更新**；null = 还没成功发过。
   // ⚠ 失败**不重置**它 —— 理由见 pushLeds 里的推演（清账会让「切回原状态」白发一条）。
   #lastSentBody = null
@@ -145,8 +168,33 @@ export class AgentController {
     // 「谁是当前会话」= 主视图正在看的那一条（DSH 官方判据 `retainedBy.mainView > 0`，
     // 见 utils/session-list.js）。**只有浏览器算得出来**，所以必须随灯态一起报给宿主 ——
     // 宿主拿它决定「6 颗键里只有哪一颗能报非空闲的 st」（闸门②，见 src/core/leds.js 的 #stOfSlot）。
-    this.pushLeds(slots, prefs && prefs.brightness, allIdle, currentSessionIdIn(snapshot))
+    const brightness = prefs && prefs.brightness
+    const current = currentSessionIdIn(snapshot)
+    // 存一份参数：弹窗开/关（setAttention）要拿它重推一次 —— 那条路不经过会话列表订阅。
+    this.#lastPush = { slots, brightness, allIdle, current }
+    this.pushLeds(slots, brightness, allIdle, current)
     return slots
+  }
+
+  /**
+   * 弹窗覆盖态变化（由 ./attention.js 探测界面后调）—— 拿最近一次的参数重推一遍灯态。
+   *
+   * 为什么不能只改字段等下一次 `refresh`：`refresh` 的触发者只有会话列表 / 归档集合 / 偏好
+   * 这三路订阅，**弹窗开了关了什么都不会触发它** —— 只改字段就等于「灯色永远不变」。
+   * 值不合法（既不是 'approval' / 'menu' 也不是 null）时按 null 处理：宁可恢复原色，也不猜。
+   * @param {'approval'|'menu'|null} kind
+   */
+  setAttention = (kind) => {
+    const k = kind === 'approval' || kind === 'menu' ? kind : null
+    if (k === this.#attention) return
+    this.#attention = k
+    this.log(k === 'approval'
+      ? '当前有批准弹窗 → 当前会话灯色交给宿主转黄'
+      : k === 'menu'
+        ? '弹窗打开（旋钮 / 输入框「+」）→ 当前会话灯色交给宿主转粉'
+        : '弹窗已关闭 → 当前会话恢复原来的灯色')
+    const a = this.#lastPush
+    if (a) this.pushLeds(a.slots, a.brightness, a.allIdle, a.current)
   }
 
   /** 最近一次刷新时的「全部空闲」结论（诊断/自检用）。 */
@@ -200,6 +248,14 @@ export class AgentController {
     const body = JSON.stringify({
       slots: th,
       errorColor: this.AGENT_COLORS.error,
+      // 成功色（绿）与失败色同一套：调色板归客户端，宿主不另立一份（见 leds.js 的 #successColor）。
+      successColor: this.AGENT_COLORS.success,
+      // 弹窗覆盖色（黄 / 粉）同一套分工（见 leds.js 的 #attentionColor）：这里只给色值，
+      // 「什么时候用、给哪一槽」全由宿主决定（只给当前会话，且优先于红灯）。
+      approvalColor: this.AGENT_COLORS.approval,
+      menuColor: this.AGENT_COLORS.menu,
+      // **永远发**（同 current）：`null` =「弹窗都关了」是有意义的值，与「老客户端没发」是两件事。
+      attention: this.#attention,
       current: typeof current === 'string' && current ? current : null,
       // 只在拿到明确结论时上报；undefined 会让宿主把它当「未上报」（老客户端语义）。
       ...(typeof allIdle === 'boolean' ? { allIdle } : {})

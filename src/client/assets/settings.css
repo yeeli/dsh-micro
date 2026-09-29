@@ -14,19 +14,34 @@
 .omkb-modal-search:focus{border-color:#3b82f6}
 .omkb-modal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:10px;max-height:300px;overflow:auto}
 /* 「编辑按键」的候选 = **和外面那排键同一套外观**。
- * 组件直接复用 .omkb-key（同一个圆角、同一条投影、同一个图标），这里只覆盖网格尺寸、
- * 选中态与「键下面那行名字」—— 以前候选项是一排 emoji 小方卡片，弹窗里挑的东西和选完之后
- * 键盘上看到的东西长得完全不一样，用户得自己脑补。 */
+ * 组件直接复用 .omkb-key（同一个圆角、同一条投影、同一个图标），这里只覆盖网格尺寸与选中态。
+ * 以前候选项是一排 emoji 小方卡片，弹窗里挑的东西和选完之后键盘上看到的东西长得完全不一样。 */
 .omkb-capgrid{grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:12px}
-/* 一格 = 键 + 键下面的名字。名字在键**外面**：布局的键已经不带文字了（像真键盘），
- * 弹窗是唯一还有名字的地方。以前那行字是 .omkb-key-cap（绝对定位，只在 .omkb-key--act 里
- * 定得住），而候选不是 .omkb-key--act —— 于是所有候选的名字被甩到遮罩底部叠成一堆。 */
-.omkb-cap-cell{display:flex;flex-direction:column;gap:6px;cursor:pointer}
-.omkb-cap-name{text-align:center;font-size:11px;font-weight:600;letter-spacing:.3px;color:var(--dsw-alias-label-secondary,#374151)}
+/* 一格 = 一颗键（**只有图标**）。键下面的名字 2026-09-28 撤掉了，改由悬停气泡说（见下）。
+ * 格子仍然保留 flex + 内边距：鼠标落在键四周那圈空白上也算选中这颗键（老手感不变）。 */
+.omkb-cap-cell{display:flex;flex-direction:column;cursor:pointer;padding:4px;border-radius:10px}
 .omkb-cap{background:#f7f5f1;border:1px solid rgba(255,255,255,.6)}
 .omkb-cap-cell:hover .omkb-cap{border-color:#93c5fd}
 .omkb-cap--sel,.omkb-cap--sel:hover{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.35),0 2px 6px rgba(0,0,0,.06)}
-.omkb-cap-cell--sel .omkb-cap-name{color:#2563eb}
+
+/* ---- 悬停气泡：一颗键的「短名 / 功能名 / 说明」三行 ----
+ * 布局里的键与「编辑按键」弹窗的候选共用它（见 components/common/cap-tip.jsx）。
+ * 位置（left/top）由组件量出来后写在 style 上，这里只管长相 —— **必须是 position:fixed**：
+ * 弹窗的候选网格是 overflow:auto 的滚动容器，相对定位的气泡会被裁掉。
+ * 深色底是为了在「浅色卡片」和「浅色弹窗」两边都清楚（键帽本身也是浅色的）。
+ * ⚠ max-width 必须与 cap-tip.jsx 的 CAP_TIP_MAX_W 一致：组件的左右夹取算的就是它。 */
+.omkb-captip{position:fixed;z-index:10050;transform:translate(-50%,-100%);pointer-events:none;
+  box-sizing:border-box;width:max-content;max-width:248px;padding:8px 11px;border-radius:9px;
+  background:#1f2937;color:#f9fafb;box-shadow:0 8px 22px rgba(0,0,0,.28);text-align:left;line-height:1.45}
+/* 键离视口顶太近时翻到键**下面**（组件加的这个类只管把方向反过来）。 */
+.omkb-captip--below{transform:translate(-50%,0)}
+/* 小箭头：默认朝下（气泡在键上方），--below 时朝上。用 border 三角形，缩放不失真。 */
+.omkb-captip::after{content:'';position:absolute;left:50%;margin-left:-5px;bottom:-10px;
+  border:5px solid transparent;border-top-color:#1f2937}
+.omkb-captip--below::after{bottom:auto;top:-10px;border-top-color:transparent;border-bottom-color:#1f2937}
+.omkb-captip-name{font-size:12.5px;font-weight:700;letter-spacing:.2px}
+.omkb-captip-func{margin-top:2px;font-size:11.5px;font-weight:600;color:#93c5fd}
+.omkb-captip-desc{margin-top:3px;font-size:11.5px;color:rgba(249,250,251,.72)}
 /* 未指派的自定义键（拆分态那颗 Mic 右开关）：虚框 + 淡一点，
  * 一眼看出「这里还没选功能」，而不是「又一颗 MIC 键」。 */
 .omkb-key--custom{border-style:dashed;border-color:rgba(0,0,0,.16);background:#f2efe9;box-shadow:none}
@@ -433,8 +448,9 @@
 [data-omkb-gear-tip]{position:absolute!important;left:var(--omkb-gear-tip-left,0)!important;right:auto!important;top:auto!important;bottom:calc(100% + 8px)!important;transform:none!important}
 [data-omkb-gear-tip]::after{content:'';position:absolute;top:100%;left:14px;width:0;height:0;border:6px solid transparent;border-bottom:0;border-top-color:var(--dsw-alias-tooltip-bg,#1f2124);font-size:0;line-height:0;pointer-events:none}
 
-/* ── 第三方插件依赖（设置页底部；清单来自 config/default.js 的 PLUGIN_DEPS，**常驻渲染**，
- * 清单为空时给一行占位提示 —— 见 settings/panel.jsx）──
+/* ── 第三方插件依赖（设置页底部；清单来自 config/default.js 的 PLUGIN_DEPS，
+ * **清单为空则整卡不渲染**（用户 2026-09-29 口径）—— 所以这里只有行内徽标的样式，
+ * 没有空态样式；见 settings/panel.jsx）──
  * 徽标复刻 .omkb-batt__tag 的胶囊造型，但用绿/红两态表达「已安装 / 未安装」。
  * 绿色/红色取 DSH 设计令牌的状态色，跟随主题（不写死色值，避免暗色主题下看不清）。 */
 .omkb-plugin-badge{font-size:11px;line-height:1;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:4px 8px;white-space:nowrap}
