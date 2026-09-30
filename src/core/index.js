@@ -6,7 +6,8 @@
 //   2. 注册 /omkb/archive：归档当前会话（宿主 workspaceRegistry.archiveSession）。
 //   3. 声明 `dsh-omkb` 设置命名空间：由本模块导出的 Config 承载（见 ./settings.js），
 //      落盘在 profile 的 patch 文件里；影响硬件的字段（亮度/自动调暗）回灌到 BLE。
-//   4. 浏览器客户端轮询 /omkb/state，按键变化即切换会话/语音/发送等。
+//   4. 浏览器客户端订阅 /omkb/state 的状态推送（ws，与 GET 同路径；宿主没带 ws 时
+//      客户端自动退回 120ms HTTP 轮询），按键变化即切换会话/语音/发送等。
 //   5. 订阅宿主总线的 agent/error（运行失败 → 红灯 + 状态码 3）、agent/turn-stopping（跑完一轮
 //      → 状态码 2）与 agent/status（该会话重新开跑 → 收掉上面那个结果态）。前两者是**结果态、
 //      不会自己变回去**（用户 2026-09-25 要求「错误后不变白」），只有第三个会解除它。
@@ -180,6 +181,7 @@ export function apply(ctx, config) {
   // ---- 全部 /omkb/* 路由（7 条）都交给 server/ 汇总注册 ----
   // server/index.js 是「宿主与 webserver 通信」的唯一入口：它负责在 ctx.inject(['webServer'])
   // 的上下文里把 state/config/reconnect/agents/monitor/open-privacy/archive 七条路由挂上去，
+  // **外加** ws `/omkb/state` 那条状态推送（与 GET 同路径、占 upgrades 表），
   // 并返回一个统一 disposer。业务体（灯态、归档、权限检测）仍在各自模块里，这里只递材料。
   // 输入监控检测器要在 apply 期间建一次（带缓存），路由与后续调用共用同一个实例。
   const monitor = createMonitorProbe()

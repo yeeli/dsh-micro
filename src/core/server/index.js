@@ -5,6 +5,9 @@
 //   device.js  —— state / config / reconnect（与设备直接相关）
 //   agents.js  —— agents（灯态，最重的一条）
 //   system.js  —— monitor / open-privacy / archive（系统与宿主能力）
+// 另有一条**不是 HTTP 路由**的挂点：
+//   state-socket.js —— ws `/omkb/state`（状态推送；与 device.js 那条 GET 同路径，
+//                      占的是 webserver 的 upgrades 表，见那边的注释）
 //
 // 与 ble.js / index.js 的分界：
 //   · ble.js 只管「设备 + 灯态业务」，**一行 HTTP 代码都不认识**；
@@ -17,6 +20,7 @@
 import { registerDeviceRoutes } from './device.js'
 import { registerAgentsRoute } from './agents.js'
 import { registerSystemRoutes } from './system.js'
+import { registerStateSocket } from './state-socket.js'
 
 /**
  * 汇总注册全部 7 条 /omkb/* 路由。
@@ -59,6 +63,31 @@ export const registerServerRoutes = (ctx, deps) => {
       registerSystemRoutes(webServer, { monitor, openPrivacy, workspaceRegistry: ws }, logger)
     ]
     disposeAll = () => { for (const d of disposers) d() }
+
+    // ---- 状态推送（WebSocket）：与 GET /omkb/state **同一条路径** ----
+    // DSH webserver 的 upgrades 表与 HTTP 路由表互相独立（见 state-socket.js 顶部），
+    // 所以这里不新增地址，客户端 URL 一个字都不用改。
+    //
+    // 注册是**异步**的（要先从宿主环境解析 ws，见 ../resolve.js），任何一种失败都降级 ——
+    // 客户端会自动退回 120ms 轮询，所以失败只记 warning、不影响其余七条路由。
+    //
+    // ⚠ 回调可能在**插件已经卸载之后**才回来（宿主立刻关闭、或解析很慢）：那时再往
+    //   路由表里挂一条 upgrade 就是纯泄漏。用 socketTorn 兜住 —— 回来时若已卸载，就地拆掉。
+    let socketTorn = false
+    let disposeSocket = null
+    const registerRoutes = disposeAll
+    registerStateSocket(webServer, ble, logger)
+      .then((sock) => {
+        if (!sock) return
+        if (socketTorn) { sock.dispose(); return }
+        disposeSocket = sock.dispose
+      })
+      .catch((e) => warn(`[omkb] 状态推送注册异常（客户端退回 HTTP 轮询）：${(e && e.message) || e}`))
+    disposeAll = () => {
+      socketTorn = true
+      registerRoutes()
+      if (disposeSocket) { try { disposeSocket() } catch (e) {} }
+    }
   })
 
   return { dispose: () => { if (disposeAll) { try { disposeAll() } catch (e) {} } } }

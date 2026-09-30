@@ -9,7 +9,7 @@
 //                    窗口三道防线，亮度与空闲自动调暗。
 //   · ./input.js     **输入翻译**：一行 JSON → 状态快照里的按键/旋钮/摇杆/电量事实。
 //
-// 本文件保留**对外门面不变**（`BleController` 的公有落点 + `createBleReader` 的 12 个字段），
+// 本文件保留**对外门面不变**（`BleController` 的公有落点 + `createBleReader` 的 13 个字段），
 // 并把 protocol.js 的全部符号**再导出**（`export *`）—— 自检与其它模块照旧 `from './ble.js'` 取
 // HID_ACT / parseDeviceStatus / AGENT_ST / BLACKOUT_SLOTS 等，一个字都不用改。
 //
@@ -52,6 +52,11 @@ export class BleController {
   #leds = null
   #input = null
   #transport = null
+  /**
+   * 「状态可能变了」的订阅者（见 onChange）。目前只有状态推送（./server/state-socket.js）
+   * 一个消费者。
+   */
+  #listeners = new Set()
 
   constructor({ logger, diagnostics } = {}) {
     this.#logger = logger
@@ -65,8 +70,8 @@ export class BleController {
     this.#transport = new HidTransport({
       logger,
       state: this.#state,
-      onLine: (line) => this.#input.handleLine(line),
-      onOpened: () => this.#leds.replayAgents(),
+      onLine: (line) => { this.#input.handleLine(line); this.#notify() },
+      onOpened: () => { this.#leds.replayAgents(); this.#notify() },
       // 设备掉线（node-hid 的 'error'）走**本类**的 close —— 不能只让 transport 关自己的句柄。
       // 用户 2026-09-28 报的「断开重连后灯全灭」就出在这里：漏掉 leds.resetOnDisconnect 之后，
       // 「上次写出去的是什么」还留着，重连时那句重放被内容去重当成重复挡下 → 一条都不写。
@@ -90,6 +95,36 @@ export class BleController {
   get state() { return this.#state }
 
   /**
+   * 订阅「状态可能变了」的通知（**状态推送**用，见 ./server/state-socket.js）。
+   *
+   * 语义是**提示**、不是快照：回调不带参数，收到就自己去 `snapshot()` 取最新的一份
+   * ——「变了什么」由订阅方自己比对（推送那边本来也不做内容去重，见 state-socket.js）。
+   *
+   * 通知点只覆盖**外部驱动**的变更：设备每一行上报、连接/断开、门面上的六个方法
+   * （applyConfig / setPrefs / applyAgents / reportError / reportSuccess / clearOutcome）。
+   * **灯效定时器路径（自动调暗、成功绿灯回落的 setTimeout）故意不挂** —— 它们各自有
+   * 500ms 心跳兜底，为它们在各模块里布通知点只会把两个模块耦在一起。
+   *
+   * @param {Function} fn - 收到通知的回调。
+   * @returns {() => void} 退订（幂等）。
+   */
+  onChange = (fn) => {
+    if (typeof fn !== 'function') return () => {}
+    this.#listeners.add(fn)
+    return () => { this.#listeners.delete(fn) }
+  }
+
+  /**
+   * 广播一次「可能变了」。**必须用原型方法语法**（不是箭头类字段）：本类历史上踩过
+   * 「私有字段在初始化前被箭头字段闭包捕获」→ `Cannot read from private field`
+   * （见项目备忘）；原型方法不存在这个初始化顺序问题。
+   */
+  #notify() {
+    if (!this.#listeners.size) return
+    for (const fn of [...this.#listeners]) { try { fn() } catch (e) {} }
+  }
+
+  /**
    * 自检用：拿到退出安全网句柄。**只给自检脚本用**（`test/verify_exit_guard.js` 用它
    * 在不依赖真设备的前提下验证「信号到达时退不退、退得掉吗」）；运行时不调用，
    * 真机路径上安全网由 transport 的 open() 自己 install()。
@@ -102,7 +137,7 @@ export class BleController {
    * @param line - 一行 JSON 文本（可带尾随换行）。
    * @returns {void}
    */
-  feedLine = (line) => { this.#input.handleLine(String(line)) }
+  feedLine = (line) => { this.#input.handleLine(String(line)); this.#notify() }
 
   // 状态快照 = 硬件状态 + 可选诊断。诊断由宿主注入（目前是设置持久化是否在线）：
   // 终端里的 logger 输出不一定会落到 stdout，把关键结论挂到 /omkb/state 上，
@@ -122,6 +157,7 @@ export class BleController {
     this.#transport.close()
     this.#input.resetHeld()
     this.#leds.resetOnDisconnect()
+    this.#notify()
   }
 
   // 手动重连（公开给 server/：/omkb/reconnect 的 handler 调它）。
@@ -140,20 +176,22 @@ export class BleController {
   blackout = () => this.#transport.blackout()
 
   // 应用来自设置面板的配置补丁（公开给 server/：POST /omkb/config）。
-  applyConfig = (patch) => this.#leds.applyConfig(patch)
+  // 六个门面方法的返回值一律**原样透传**（index.js 会读 reportError / clearOutcome 的布尔），
+  // 通知只是捎带的一步。
+  applyConfig = (patch) => { const r = this.#leds.applyConfig(patch); this.#notify(); return r }
 
   // 持久化偏好回灌（宿主启动时从 settings.yaml 读到的亮度/自动调暗）。
-  setPrefs = (prefs) => this.#leds.setPrefs(prefs)
+  setPrefs = (prefs) => { const r = this.#leds.setPrefs(prefs); this.#notify(); return r }
 
   // 来自设置面板的 Agent 键 LED 配置（公开给 server/：POST /omkb/agents）。
-  applyAgents = (payload) => this.#leds.applyAgents(payload)
+  applyAgents = (payload) => { const r = this.#leds.applyAgents(payload); this.#notify(); return r }
 
   // 结果态：某个会话失败（红）/ 跑完一轮（成功）/ 重新开始运行（收掉）。由宿主总线驱动。
-  reportError = (sessionId) => this.#leds.reportError(sessionId)
+  reportError = (sessionId) => { const r = this.#leds.reportError(sessionId); this.#notify(); return r }
 
-  reportSuccess = (sessionId) => this.#leds.reportSuccess(sessionId)
+  reportSuccess = (sessionId) => { const r = this.#leds.reportSuccess(sessionId); this.#notify(); return r }
 
-  clearOutcome = (sessionId) => this.#leds.clearOutcome(sessionId)
+  clearOutcome = (sessionId) => { const r = this.#leds.clearOutcome(sessionId); this.#notify(); return r }
 
   dispose = () => {
     // 插件卸载（进程要走了）：三块各自收尾，顺序有两条硬约束 ——
@@ -193,6 +231,8 @@ export const createBleReader = ({ logger, diagnostics } = {}) => {
     clearOutcome: ctl.clearOutcome,
     // 测试注入（自检脚本用它喂摇杆帧，见 feedLine）；宿主运行时不用。
     feedLine: ctl.feedLine,
+    // 状态推送的挂点（见 ./server/state-socket.js）：回调不带参数，自己去 snapshot() 取最新一份。
+    onChange: ctl.onChange,
     dispose: ctl.dispose,
     state: ctl.state,
     snapshot: ctl.snapshot

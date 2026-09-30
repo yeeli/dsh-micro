@@ -30,10 +30,9 @@
 // 所以走 b。代价是构建产物里带着 top-level await → vite 的 build.target 必须是 esnext
 // （见 vite.core.config.js，那边有注释说明）。
 
-import { createRequire } from 'node:module'
-import { homedir } from 'node:os'
-import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+// 解析根与解析动作由 ./resolve.js 提供（状态推送的 ws 走同一套，见那边顶部注释）。
+import { resolveDep } from './resolve.js'
 
 /**
  * 命名空间。**必须与 profile 里那条 loader 条目的 id 逐字相同**（我们的
@@ -68,52 +67,13 @@ export const KNOB_MODES = ['navigate', 'reasoning', 'scroll', 'custom']
 const clamp01 = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0.9)
 
 /**
- * DSH 运行时依赖的解析位置。
+ * 本模块需要从 DSH 运行时里解析的包。
  *
- * schemastery 由 DSH 运行时提供，插件包自己不声明它（也不该声明具体版本）。麻烦在于
- * 「从哪个位置解析」：Node 默认把符号链接解析成**真实路径**，所以开发态以 `link:` 挂进
- * profile 的插件，其 import.meta.url 指向项目目录——那里没有 node_modules/@deepseek-ai，
- * `createRequire(import.meta.url)` 直接 MODULE_NOT_FOUND。
- *
- * 因此按「最近 → 最远」依次尝试多个解析根，并把每个根的错误码收集起来：全部失败时日志能
- * 直接指出是哪一环断的，而不是只报一句「设置用不了」。
+ * schemastery 由 DSH 运行时提供，插件包自己不声明它（也不该声明具体版本）；解析位置与
+ * 失败原因的解释都在 ./resolve.js 的顶部注释里（那边是解析根的唯一真源）。
  */
 const DEP_PACKAGES = {
   schema: '@deepseek-ai/schemastery'
-}
-
-/** 解析根候选：插件的真实路径、宿主进程入口、cwd、DSH_DEPS_DIR、DSH_HOME。 */
-const resolverRoots = () => {
-  const roots = []
-  const push = (label, base) => {
-    if (typeof base === 'string' && base.length > 0) roots.push({ label, base })
-  }
-  push('插件自身', import.meta.url)
-  push('宿主进程入口', process.argv[1])
-  push('工作目录', path.join(process.cwd(), 'package.json'))
-  const depsDir = process.env.DSH_DEPS_DIR
-  push('DSH_DEPS_DIR', depsDir ? path.join(depsDir, 'package.json') : null)
-  const dshHome = process.env.DSH_HOME || path.join(homedir(), '.dsh')
-  push('DSH_HOME/profile', path.join(dshHome, 'profiles', 'node_modules', 'package.json'))
-  return roots
-}
-
-/**
- * 按 {@link resolverRoots} 的顺序解析一个包。
- * @param pkg - 包名。
- * @returns {{ok: true, path: string, root: string} | {ok: false, failures: string[]}}
- */
-const resolveDep = (pkg) => {
-  const failures = []
-  for (const root of resolverRoots()) {
-    try {
-      const req = createRequire(root.base)
-      return { ok: true, path: req.resolve(pkg), root: root.label }
-    } catch (e) {
-      failures.push(`${root.label}(${e && e.code ? e.code : (e && e.message) || e})`)
-    }
-  }
-  return { ok: false, failures }
 }
 
 /** 解析结果（模块作用域，供 Config 与诊断共用）。 */

@@ -1,6 +1,6 @@
 // dsh-omkb · 宿主侧 bundle 的 Vite 配置
 // library-ESM 模式，产物 host.js 由 src/core_build.js 写到 lib/index.js。
-// Node 内置模块保持外部 import（node:module 等）；node-hid、@deepseek-ai/dsh-*
+// Node 内置模块保持外部 import（node:module 等）；node-hid、ws、@deepseek-ai/dsh-*
 // 都通过 createRequire/import 惰性加载，不加包，运行时从 DSH 宿主环境 resolve。
 import { defineConfig } from 'vite'
 import path from 'node:path'
@@ -46,7 +46,10 @@ export default defineConfig({
       // 若哪天重新打开它：工厂函数要么改成不透明形参 `(options = {}) => new X(options)`，
       // 要么务必跑一遍 npm run verify:led / verify:settings 看产物。
       treeshake: false,
-      external: [...builtins, 'node-hid', '@deepseek-ai/dsh-settings', '@deepseek-ai/schemastery']
+      // ws 与 node-hid 同理：由 DSH 宿主环境提供，运行时经 ./src/core/resolve.js 解析加载
+      // （眼下是动态 import，rollup 本来也看不见它；列出来是防它哪天被写成静态 import 时
+      // 被打进产物 —— 打进去就是「装着第二份 ws」，服务端与客户端不再是同一个实现）。
+      external: [...builtins, 'node-hid', 'ws', '@deepseek-ai/dsh-settings', '@deepseek-ai/schemastery']
     }
   }
 })

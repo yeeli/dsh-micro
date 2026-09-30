@@ -1,9 +1,16 @@
 // dsh-omkb · client/src/hid-bridge.js
-// BLE/HID 桥接轮询：node-hid 运行在宿主 Node 进程，读 omkb 小键盘的按键后把
-// **各输入源自己的累加计数器**暴露到同源端点 /omkb/state。这里轮询该端点并分派：
+// BLE/HID 桥接：node-hid 运行在宿主 Node 进程，读 omkb 小键盘的按键后把
+// **各输入源自己的累加计数器**暴露到同源端点 /omkb/state。这里消费该状态并分派：
 //   智能键(AG00..AG05) → 打开会话；动作键(ACT06..ACT12) → 语音/发送/同意/拒绝/归档；
 //   旋钮 → enc 差值=旋转、knobPress 计数=按下（走进 ./knob.js 的模式分派）；
 //   摇杆 → joyPush+joyDir（老宿主回退 joyT/joy）走进 ./joystick.js 的方向映射。
+//
+// ── 通道：WebSocket 推送为主，HTTP 轮询兜底（2026-10-01）─────────────────────
+// 宿主在**同一条路径** /omkb/state 上既提供 GET 快照、又接受 WS 升级（见
+// src/core/server/state-socket.js）。这里优先连 WS：宿主事件驱动地推（设备每上报一行、
+// 连接/断开、灯态写入、亮度变化），另加 500ms 心跳兜底比对。WS 连不上/中途断开 → **立刻
+// 退回 120ms 轮询**，并在后台按指数退避重试 WS（最多 10s 一次），连上就再停轮询。
+// 两条通道共用同一个落点 #handleFrame，所以判据只有一份、不可能漂移。
 //
 // ⚠️ 语音**只由显式动作**触发：动作键 ACT10/ACT11（见 ./keypad.js），或设置页里把某个
 // 摇杆方向 / 旋钮手势显式绑成「语音」。这里**没有**任何「认不出来就当麦克风键」的兜底
@@ -12,10 +19,10 @@
 // 什么也不做。新增/排查键时先看 diagnose()，不要恢复任何兜底。
 //
 // 为什么不能靠全局计数器 t 归属事件：t 只能说明「发生过一件事」，而设备状态字段会被
-// 后续事件覆盖——推完摇杆立刻松手时，轮到浏览器轮询那一刻 joy 已经回中（宿主的 t 却
+// 后续事件覆盖——推完摇杆立刻松手时，轮到浏览器读那一刻 joy 已经回中（宿主的 t 却
 // 已经加过了），于是「t 变了但没有可识别字段」被误判成麦克风键。所以：
 //   enc 带符号累计（差值=步数）/ knobPress 计数 / joyPush 计数 + joyDir 最近有效方向，
-//   各自独立、不受其它事件影响，也不会因为「事件在两次轮询之间开始又结束」而丢失。
+//   各自独立、不受其它事件影响，也不会因为「事件在两次读取之间开始又结束」而丢失。
 //
 // **设置页打开时只演示不执行**（2026-09-25）：我们的设置分区挂载期间调 enterSim()，
 // 此后按键 / 旋钮 / 摇杆一律不落到控制器上，只有布局里的按压特效照演（那条走 subscribe）。
@@ -29,11 +36,21 @@
 export const HID_STATE_URL = '/omkb/state'
 
 /**
- * 轮询间隔（ms）。300ms 是「够用但发木」的档位；提到 120ms 后按键到动作的平均延迟从
+ * 轮询间隔（ms）—— **只在 WS 不可用/断开时使用**（退路通道，见文件头）。
+ * 300ms 是「够用但发木」的档位；提到 120ms 后按键到动作的平均延迟从
  * 一拍的 ~150ms 降到 ~60ms，设置页里那套「按键特效」也才跟得上手。
  * 走的是本机 HTTP，代价可以忽略。
  */
 export const POLL_MS = 120
+
+/** WS 断开后的重连起点（ms）；每次翻倍，封顶 WS_RETRY_MAX_MS。 */
+export const WS_RETRY_MS = 1000
+/**
+ * WS 重连上限（ms）。**故意一直重试**（而不是试几次就永久放弃）：宿主重启、插件重载
+ * 之后，页面不必刷新就该自己接回去 —— 本机回环上一次尝试的代价可以忽略。
+ * 封顶 10s 的另一个好处：宿主版本根本没带 ws 时，不会刷出一串越来越密的失败日志。
+ */
+export const WS_RETRY_MAX_MS = 10000
 
 /** 旋钮相关的设备按键名：它们会让 t 自增，但不需要走按键分派。 */
 const KNOB_KEYS = new Set(['ENC', 'ENC_CW', 'ENC_CC'])
@@ -55,6 +72,8 @@ export class HidBridge {
   knob = null
   joystick = null
   timer = null
+  /** 当前用的通道：'websocket' | 'poll'（诊断与自检读它，见 diagnose）。 */
+  transport = 'poll'
   /** 诊断：最近几次「认不出来、被忽略」的事件（认出来的不入队）。 */
   unhandled = []
   /** 诊断：累计忽略过多少次。 */
@@ -70,6 +89,11 @@ export class HidBridge {
   #lastDown = null
   /** 快按兜底的收尾定时器（见 TAP_HOLD_MS）。 */
   #tapTimer = null
+  /** 当前的 WebSocket（null = 没连着，走轮询）。 */
+  #socket = null
+  /** WS 重连定时器 + 当前退避时长（见 WS_RETRY_MS / WS_RETRY_MAX_MS）。 */
+  #retryTimer = null
+  #retryMs = WS_RETRY_MS
   #warned = new Set()
   /** 状态快照的订阅者（设置页的布局特效）——与动作分派无关，见 subscribe()。 */
   #subs = new Set()
@@ -96,18 +120,105 @@ export class HidBridge {
     this.#lastKnobPress = null
     this.#lastKnobLong = null
     this.#lastDown = null
-    if (this.timer) clearInterval(this.timer)
-    this.timer = setInterval(this.poll, POLL_MS)
+    this.#retryMs = WS_RETRY_MS
+    // 先按「轮询」起步，再尝试升级到 WS：这样**首帧从来不会晚**（哪怕 WS 要几次
+    // 往返才连上），连上那一刻轮询自动停掉（见 #connect 的 onopen）。
+    this.#startPolling()
+    this.#connect()
   }
 
   stop = () => {
-    if (this.timer) { clearInterval(this.timer); this.timer = null }
+    this.#stopPolling()
+    if (this.#retryTimer) { clearTimeout(this.#retryTimer); this.#retryTimer = null }
+    this.#retryMs = WS_RETRY_MS
+    // 先摘掉回调再关，否则 close() 触发的 onclose 会把「轮询 + 重连」又装回去。
+    const sock = this.#socket
+    this.#socket = null
+    if (sock) {
+      sock.onopen = null
+      sock.onmessage = null
+      sock.onclose = null
+      sock.onerror = null
+      try { sock.close() } catch (e) {}
+    }
     if (this.#tapTimer) { clearTimeout(this.#tapTimer); this.#tapTimer = null }
     this.#lastDown = null
+    this.transport = 'poll'
+  }
+
+  // ---------------------------------------------------------------------------
+  // 通道管理：WS 为主、轮询兜底。两条通道都把快照交给同一个 #handleFrame，
+  // 所以事件归属判据只有一份（新增字段时不必两边各改一遍）。
+  // ---------------------------------------------------------------------------
+
+  /** 起 120ms 轮询（幂等）。 */
+  #startPolling() {
+    if (this.timer) return
+    this.timer = setInterval(this.poll, POLL_MS)
+  }
+
+  /** 停轮询（幂等）。 */
+  #stopPolling() {
+    if (this.timer) { clearInterval(this.timer); this.timer = null }
+  }
+
+  /** 同源 WS 地址。取不到 location（非浏览器/异常环境）时返回 null → 走轮询。 */
+  #socketUrl() {
+    const loc = typeof window !== 'undefined' ? window.location : null
+    if (!loc || !loc.host) return null
+    // 页面是 https 就必须 wss，否则浏览器会拦下这条连接（混合内容）。
+    return `${loc.protocol === 'https:' ? 'wss:' : 'ws:'}//${loc.host}${HID_STATE_URL}`
   }
 
   /**
-   * 订阅状态快照：每次轮询拿到 /omkb/state 后广播一次（**不管有没有事件**）。
+   * 尝试建立 WS。**任何一条失败路径都只是「继续轮询」**，绝不抛错、绝不阻塞按键
+   * ——推送是优化，不是命脉。
+   */
+  #connect() {
+    if (this.#socket) return // 已经连着（或正在连）
+    if (typeof WebSocket !== 'function') return // 环境没有 WebSocket：轮询照旧
+    const url = this.#socketUrl()
+    if (!url) return
+    let sock = null
+    try { sock = new WebSocket(url) } catch (e) { return }
+    this.#socket = sock
+    sock.onopen = () => {
+      if (this.#socket !== sock) return
+      this.#retryMs = WS_RETRY_MS
+      this.#stopPolling() // 连上就停轮询：推送比轮询快，也不需要两份通道
+      this.transport = 'websocket'
+    }
+    sock.onmessage = (ev) => {
+      if (this.#socket !== sock) return
+      let s = null
+      try { s = JSON.parse(ev && ev.data) } catch (e) { return }
+      this.#handleFrame(s)
+    }
+    sock.onerror = () => { try { sock.close() } catch (e) {} } // 统一交给 onclose 收尾
+    sock.onclose = () => {
+      if (this.#socket !== sock) return
+      this.#socket = null
+      // 立刻退回轮询：重连期间状态**一秒都不能断档**（断档会让按住的键自己弹起、
+      // 也会漏掉这段窗口里的结论态）。
+      this.transport = 'poll'
+      this.#startPolling()
+      this.#scheduleReconnect()
+    }
+  }
+
+  /** 指数退避重连（幂等：已经有排队的就不重复排）。 */
+  #scheduleReconnect() {
+    if (this.#retryTimer) return
+    const delay = this.#retryMs
+    this.#retryMs = Math.min(this.#retryMs * 2, WS_RETRY_MAX_MS)
+    this.#retryTimer = setTimeout(() => {
+      this.#retryTimer = null
+      this.#connect()
+    }, delay)
+  }
+
+  /**
+   * 订阅状态快照：每收到一帧（WS 推送或轮询）后广播一次（**不管有没有事件**）。
    * 用途只有一个：设置页的键盘布局拿它播「按键特效 / 摇杆推拉」——那是纯视觉，
    * 绝不能掺进上面的动作分派里（分派路径必须保持「认不出来就什么都不做」）。
    * 消费者自己比对 keyT / joy 的差值即可，这里不做任何判断。
@@ -185,60 +296,70 @@ export class HidBridge {
 
   /** 诊断快照：出问题时先看这里（浏览器控制台 `__dshOmkb.services.hid.diagnose()`）。 */
   diagnose = () => ({
+    // 当前通道：'websocket' = 宿主在推；'poll' = 退回 120ms 轮询（宿主没带 ws / WS 正断着重连）
+    transport: this.transport,
     unhandledCount: this.unhandledCount,
     unhandled: this.unhandled.slice(),
     voice: '仅显式动作（ACT10/ACT11 或设置页绑定的动作），桥接层不触发语音'
   })
 
+  /** 退路通道：拉一次 HTTP 快照（WS 不可用/断开时按 POLL_MS 反复调它）。 */
   poll = () => {
     fetch(HID_STATE_URL, { cache: 'no-store' })
       .then((res) => (res.ok ? res.json() : null))
-      .then((s) => {
-        if (!s || typeof s.t !== 'number') return
-        // 广播给订阅者（设置页的布局特效）：放在基线与事件分派之前，
-        // 这样「只是看着」的消费者永远拿得到最新快照，且不会影响下面任何判断。
-        this.#emit(s)
-        if (this.#last === null) { this.#baseline(s); return }
-
-        // ---- 摇杆 / 旋钮：每次轮询都读，且各自看自己的计数器 ----
-        // 不套在「t 变了」里面：这两个事件可能在两次轮询之间开始又结束，
-        // 只有自己的累加计数才追得回来（详见文件头注释）。
-        const tChanged = s.t !== this.#last
-        // 新宿主一定带 down（数组），老宿主没有 —— 它是分辨「这次 t 自增到底是谁造成的」的钥匙。
-        const hostDown = Array.isArray(s.down) ? s.down : null
-        // 「松手也算一次事件」只是**老宿主**的毛病：它没有 down，分不出按下与松开，只能认出 act=0。
-        // 新宿主则相反：松手的帧根本不会让 t 自增，所以「t 变了 + keyAct=0」只可能是
-        // 「按下与松开都发生在两次轮询之间」—— 那一次按下必须照常执行，
-        // 否则快速点一下 SEND 就静默没反应（这条以前被无条件跳过，是真的会丢按键）。
-        const released = s.keyAct === 0 && hostDown === null
-        // 松开分派（按住型动作靠它收尾）：必须在按键分派**之前**，且不看 tChanged ——
-        // 松开的帧 t 不变，只靠 down 的差集才认得出来。
-        this.#consumeReleases(s)
-        const joySeen = this.#consumeJoystick(s)
-        const knobSeen = this.#consumeKnob(s, tChanged, released)
-
-        // ---- 按键：只有事件计数器前进才说明有按键事件（AG/ACT 键）----
-        if (!tChanged) return
-        this.#last = s.t
-        if (released) return
-
-        const slot = typeof s.agent === 'number' ? s.agent : -1
-        const act = s.act || null
-        if (slot >= 0 && this.agents && typeof this.agents.openSlot === 'function') {
-          // 智能体键**不过闸门**：设置页打开时按 AG00..AG05 仍然真的打开会话（用户明确要求）。
-          this.agents.openSlot(slot)
-        } else if (act && this.keypad && typeof this.keypad.run === 'function') {
-          // 设置页打开时只演示：run 被闸门吞掉 → 也不启动快按兜底（没有 run 就没有录音要收尾）
-          if (this.#dispatch(() => this.keypad.run(act))) this.#guardTap(s, act)
-        } else if (knobSeen || joySeen || KNOB_KEYS.has(s.key)) {
-          // 旋钮/摇杆的上报同样会让 t 自增（宿主 #bump）：它们上面已经处理过了，
-          // 这里只是承认这次自增有主，不是「认不出来」。
-        } else {
-          // 认不出来：只记诊断。**绝不做任何动作**（尤其不要碰语音）。
-          this.#noteUnhandled(s)
-        }
-      })
+      .then((s) => this.#handleFrame(s))
       .catch(() => {})
+  }
+
+  /**
+   * **两条通道的唯一落点**：一帧 /omkb/state 形状的快照（WS 的 onmessage 与轮询的 poll
+   * 都走这里）。所以下面这套归属判据只有一份 —— 不会出现「推送那条改了、轮询那条忘了改」。
+   * @param {object} s 状态快照。
+   */
+  #handleFrame(s) {
+    if (!s || typeof s.t !== 'number') return
+    // 广播给订阅者（设置页的布局特效）：放在基线与事件分派之前，
+    // 这样「只是看着」的消费者永远拿得到最新快照，且不会影响下面任何判断。
+    this.#emit(s)
+    if (this.#last === null) { this.#baseline(s); return }
+
+    // ---- 摇杆 / 旋钮：每帧都读，且各自看自己的计数器 ----
+    // 不套在「t 变了」里面：这两个事件可能在两帧之间开始又结束，
+    // 只有自己的累加计数才追得回来（详见文件头注释）。
+    const tChanged = s.t !== this.#last
+    // 新宿主一定带 down（数组），老宿主没有 —— 它是分辨「这次 t 自增到底是谁造成的」的钥匙。
+    const hostDown = Array.isArray(s.down) ? s.down : null
+    // 「松手也算一次事件」只是**老宿主**的毛病：它没有 down，分不出按下与松开，只能认出 act=0。
+    // 新宿主则相反：松手的帧根本不会让 t 自增，所以「t 变了 + keyAct=0」只可能是
+    // 「按下与松开都发生在两帧之间」—— 那一次按下必须照常执行，
+    // 否则快速点一下 SEND 就静默没反应（这条以前被无条件跳过，是真的会丢按键）。
+    const released = s.keyAct === 0 && hostDown === null
+    // 松开分派（按住型动作靠它收尾）：必须在按键分派**之前**，且不看 tChanged ——
+    // 松开的帧 t 不变，只靠 down 的差集才认得出来。
+    this.#consumeReleases(s)
+    const joySeen = this.#consumeJoystick(s)
+    const knobSeen = this.#consumeKnob(s, tChanged, released)
+
+    // ---- 按键：只有事件计数器前进才说明有按键事件（AG/ACT 键）----
+    if (!tChanged) return
+    this.#last = s.t
+    if (released) return
+
+    const slot = typeof s.agent === 'number' ? s.agent : -1
+    const act = s.act || null
+    if (slot >= 0 && this.agents && typeof this.agents.openSlot === 'function') {
+      // 智能体键**不过闸门**：设置页打开时按 AG00..AG05 仍然真的打开会话（用户明确要求）。
+      this.agents.openSlot(slot)
+    } else if (act && this.keypad && typeof this.keypad.run === 'function') {
+      // 设置页打开时只演示：run 被闸门吞掉 → 也不启动快按兜底（没有 run 就没有录音要收尾）
+      if (this.#dispatch(() => this.keypad.run(act))) this.#guardTap(s, act)
+    } else if (knobSeen || joySeen || KNOB_KEYS.has(s.key)) {
+      // 旋钮/摇杆的上报同样会让 t 自增（宿主 #bump）：它们上面已经处理过了，
+      // 这里只是承认这次自增有主，不是「认不出来」。
+    } else {
+      // 认不出来：只记诊断。**绝不做任何动作**（尤其不要碰语音）。
+      this.#noteUnhandled(s)
+    }
   }
 
   /**

@@ -10,7 +10,13 @@
 // client 也 import，属于独立的一轮，见项目备忘。
 
 export const PATHS = Object.freeze({
-  /** 状态快照（GET）：设备状态 + 灯态 + 诊断面。 */
+  /**
+   * 状态快照 / 状态推送（**同一路径承载两种协议**）。
+   *   · `GET`      → JSON 快照（设置页与 curl 诊断仍在用，见 device.js）；
+   *   · `Upgrade`  → WebSocket 推送（浏览器的常态通道，见 state-socket.js）。
+   * 两种协议在 DSH webserver 里是**两张互相独立的表**（exact / upgrades），
+   * 所以同一个 pathname 不会「撞车」——客户端连不上 WS 时自动退回 HTTP 轮询。
+   */
   state: '/omkb/state',
   /** 配置写回（POST）：亮度 / 自动调暗。 */
   config: '/omkb/config',

@@ -1,7 +1,7 @@
 {
   "name": "dsh-omkb",
   "version": "0.1.0",
-  "description": "DeepSeek Harness 蓝牙 HID 小键盘（omkb）插件：宿主端用 node-hid 读取 omkb 设备（name=omkb & manufacturer=OM），浏览器端轮询桥接切换语音输入。",
+  "description": "DeepSeek Harness 蓝牙 HID 小键盘（omkb）插件：宿主端用 node-hid 读取 omkb 设备（name=omkb & manufacturer=OM），浏览器端经 WebSocket 状态推送（宿主没带 ws 时退回 HTTP 轮询）桥接切换语音输入。",
   "type": "module",
   "dependencies": {
     "node-hid": "^3.4.0"
@@ -64,7 +64,7 @@
     "verify:officialvoice": "node test/verify_official_voice.js",
     "verify:actions": "node test/verify_actions.js",
     "verify:notice": "node test/verify_notice.js",
-    "verify": "npm run lint && npm run verify:structure && npm run verify:logging && npm run verify:settings && npm run verify:exit && npm run verify:agents && npm run verify:led && npm run verify:blackout && npm run verify:joy && npm run verify:knob && npm run verify:layout && npm run verify:press && npm run verify:keypad && npm run verify:keycaps && npm run verify:officialvoice && npm run verify:actions && npm run verify:notice && npm run verify:sidebar && npm run verify:idle && npm run verify:monitor && npm run verify:navicon && npm run verify:guide && npm run verify:device && npm run verify:sim && npm run verify:knobdot",
+    "verify": "npm run lint && npm run verify:structure && npm run verify:logging && npm run verify:settings && npm run verify:exit && npm run verify:agents && npm run verify:led && npm run verify:blackout && npm run verify:joy && npm run verify:knob && npm run verify:layout && npm run verify:press && npm run verify:keypad && npm run verify:keycaps && npm run verify:officialvoice && npm run verify:actions && npm run verify:notice && npm run verify:sidebar && npm run verify:idle && npm run verify:monitor && npm run verify:navicon && npm run verify:guide && npm run verify:device && npm run verify:statesock && npm run verify:sim && npm run verify:knobdot",
     "verify:sim": "node test/verify_sim.js",
     "verify:knobdot": "node test/verify_knob_dot.js",
     "verify:guide": "node test/verify_guide.js",
@@ -109,6 +109,7 @@
     "probe:guide": "node test/ui_probe.mjs test/probes/guide.mjs --shot /tmp/omkb-guide.png",
     "probe:device": "node test/ui_probe.mjs test/probes/device.mjs",
     "verify:device": "node test/verify_device.js",
+    "verify:statesock": "node test/verify_state_socket.js",
     "probe:offline": "node test/ui_probe.mjs test/probes/offline.mjs",
     "probe:sim": "node test/ui_probe.mjs test/probes/sim.mjs",
     "probe:knobdot": "node test/ui_probe.mjs test/probes/knob-dot.mjs"

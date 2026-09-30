@@ -108,7 +108,8 @@ export class DeviceController {
   }
 
   /**
-   * 每帧 /omkb/state 都会走这里（120ms），所以先比再发，不做多余的重渲染。
+   * 每帧状态都会走这里（WS 推送为主；退回轮询时 120ms 一拍），所以先比再发，
+   * 不做多余的重渲染。
    */
   #onState = (s) => {
     const open = !!(s && s.open === true)
