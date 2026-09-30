@@ -22,18 +22,24 @@
 // 详见下面 「移除键盘」那一节的四条纪律。
 
 import { DSVI, keypadIconHTML } from './core.js'
-import { candidateLabels, findSectionRow } from './components/sidebar/action.jsx'
+import { candidateLabels, findSectionRow, NAV_SCOPE_SEL, SETTINGS_OUTLET_SEL, SETTINGS_TRIGGER_SEL } from './components/sidebar/action.jsx'
 
 /** 我们插进去的 svg 上的标记（DOM 里就靠它认自己）。 */
 export const NAV_MARK = 'data-omkb-navicon'
 /** DSH 渲染导航图标的 svg：类名带哈希前缀，只认后缀，认不出就退化为「行内第一个 svg」。 */
 export const NAV_ICON_SEL = 'svg.dshp-settings-nav-icon'
 /**
- * 设置侧边栏（data 属性比哈希类名稳；只用来做一次廉价短路）。
- * ⚠️ 只给**补图标**那条路用：藏行那条路刻意不短路（短路判据一旦在真机上失效，就会静默变成
- * 「点了移除、菜单里那一项还在」，见下面「移除键盘」一节的纪律①）。
+ * 「设置侧边栏宿主在不在页面上」的**候选清单**（只用来做一次廉价短路；同时作为诊断值暴露出去）。
+ *
+ * ⚠️ 2026-09-30 真机教训（用户报「设置页里那一项还是齿轮」）：这里原来**只写了一个属性**
+ * `[data-slot-sidebar="dsh-tauri-ui"]` —— 那是 2026-09-22 量的旧形态，DSH 升到 0.1.7-rc.2 之后
+ * **它已经没了**。于是短路恒判「不在页面上」→ 补图标一次都没跑过 → 用户看到的一直是齿轮。
+ *
+ * 现在第一个候选就是 `action.jsx` 用来放侧边栏入口按钮的那个出口
+ * （`SETTINGS_OUTLET_SEL`，同一份 DOM、同一个真机已经验过能用的选择器）——
+ * 两处判据从此同源，不会一处能用一处失效。
  */
-export const NAV_SIDE_SEL = '[data-slot-sidebar="dsh-tauri-ui"]'
+export const NAV_SIDE_SEL = `[data-slot-sidebar="dsh-tauri-ui"], ${SETTINGS_OUTLET_SEL}`
 /** 导航图标的渲染边长：DSH 的 `settings-nav-icon` 就是 16（我们插的必须一样，否则行高会跳）。 */
 export const NAV_ICON_SIZE = 16
 
@@ -86,9 +92,46 @@ const restoreRow = () => {
   hiddenRow = null
 }
 
-/** 设置侧边栏宿主在不在页面上（廉价短路用的判据，只给「补图标」那条路用）。 */
+/**
+ * 设置弹窗关着吗？（**廉价短路**：只给「补图标」那条路省开销用 —— 藏行那条路刻意不短路。）
+ *
+ * ⚠️ **认不出就放行**（fail-open）。这条是本函数唯一的纪律：
+ * 判据漂移只该让程序**多跑一次**（代价：一次 `querySelector`），
+ * 绝不该让功能**消失**（代价：用户永远看到齿轮，而且完全静默 —— 2026-09-30 踩过一次）。
+ * 所以三处「拿不准」全部返回 `true`：
+ *   · `document` 不可用 / 抛异常；
+ *   · 出口找不到（老版 DSH / 启动初期还没挂载完 / DSH 又换了写法）；
+ *   · 出口里找不到那颗开关（同上）。
+ * 只有**开关明确自报 `aria-expanded="false"`**、且页面上连一个 `<nav>`/dialog 都没有时才返回 false ——
+ * 那两个信号同时说「弹窗关着」，才是真的可以跳过。
+ *
+ * @returns {boolean} true = 照跑（含所有拿不准的情形）；false = 确认弹窗关着，可跳过。
+ */
 const sideHostPresent = () => {
-  try { return !!document.querySelector(NAV_SIDE_SEL) } catch (e) { return false }
+  try {
+    // ① 真机现在的形态：设置出口 + 里面那颗开关，开关的 aria-expanded 就是「弹窗开没开」。
+    const outlet = document.querySelector(SETTINGS_OUTLET_SEL)
+    if (outlet) {
+      const btn = outlet.querySelector(SETTINGS_TRIGGER_SEL)
+      if (!btn) return true // 认不出那颗开关（老版 DSH / 还没挂载完 / 又换了写法）→ 放行
+      const exp = btn.getAttribute('aria-expanded')
+      if (exp !== 'false') return true // 开关没自报「关着」（含属性缺失）→ 放行
+      // 开关说关着 —— 但页面上还有导航/弹窗（两个信号打架）→ 宁可多跑一次。
+      return navOnPage()
+    }
+    // ② 退路：旧属性（2026-09-22 那版 DSH；真机上已经没了，留着只为不误杀老版本）。
+    if (document.querySelector(NAV_SIDE_SEL)) return true
+    // ③ 什么宿主标记都没有（启动初期 / DSH 又换了写法）→ 放行，绝不静默判死。
+    return true
+  } catch (e) { return true }
+}
+
+/**
+ * 页面上有没有「导航 / 弹窗」这一层（与 `action.jsx` 的 `NAV_SCOPE_SEL` 同源）。
+ * 短路判据里的第二路信号：开关说关着、可页面上还立着导航 → 两个信号打架，按「照跑」处理。
+ */
+const navOnPage = () => {
+  try { return !!document.querySelector(NAV_SCOPE_SEL) } catch (e) { return false }
 }
 
 /**
@@ -259,7 +302,12 @@ export const installNavIconPatch = (opts = {}) => {
     findRow: () => findOurRow(labels),
     hidden: navRowHidden,
     setHidden: setNavRowHidden,
-    status: navRowStatus
+    status: navRowStatus,
+    // 短路判据的诊断面（2026-09-30 新增）：真机上「图标为什么还是齿轮」只看这两个。
+    // `sideHost()` = false 就是「短路认为弹窗关着，于是补图标被跳过了」—— 那种失效是完全静默的，
+    // 所以必须能在控制台/探针里读到，不能只靠读源码猜。
+    sideHost: sideHostPresent,
+    sideHostSels: NAV_SIDE_SEL
   }
   return () => {
     alive = false
