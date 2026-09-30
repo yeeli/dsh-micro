@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/actions/dom.js
+// dsh-micro · client/src/actions/dom.js
 // 【DSH 界面结构的唯一一份理解】—— 判据、定位、高亮、滚动、键盘兜底，全在这里。
 //
 // 为什么单独一个文件：DSH 的界面结构（哪个节点算「输入区」、谁能聚焦、消息列表在哪个滚动容器里）
@@ -19,7 +19,7 @@
 //      **不在同一张卡片里不算**（页面上恰好各有一组时宁可不做）。
 //
 // 这些纯函数同时喂：门面（./index.js 的导航/滚动）、仅推理（./reasoning.js 的画环）、
-// 以及 entry.js 挂到 `__dshOmkb.knobTools` 给控制台与真机探针用 —— 一份判据，四处共用。
+// 以及 entry.js 挂到 `__dshMicro.knobTools` 给控制台与真机探针用 —— 一份判据，四处共用。
 
 /** 元素是否「真的看得见、能点」——所有定位函数的第一步过滤。 */
 export const nodeVisible = (el) => {
@@ -248,11 +248,11 @@ export const focusCollect = () => {
 
 export const clearHighlight = () => {
   try {
-    const prev = document.querySelector('[data-omkb-knob]')
+    const prev = document.querySelector('[data-micro-knob]')
     if (prev) {
-      prev.removeAttribute('data-omkb-knob')
-      if (prev.__omkbPrevOutline !== undefined) { prev.style.outline = prev.__omkbPrevOutline; delete prev.__omkbPrevOutline }
-      if (prev.__omkbPrevShadow !== undefined) { prev.style.boxShadow = prev.__omkbPrevShadow; delete prev.__omkbPrevShadow }
+      prev.removeAttribute('data-micro-knob')
+      if (prev.__microPrevOutline !== undefined) { prev.style.outline = prev.__microPrevOutline; delete prev.__microPrevOutline }
+      if (prev.__microPrevShadow !== undefined) { prev.style.boxShadow = prev.__microPrevShadow; delete prev.__microPrevShadow }
     }
   } catch (e) {}
 }
@@ -260,12 +260,12 @@ export const clearHighlight = () => {
 export const highlight = (el) => {
   clearHighlight()
   if (!el) return
-  el.setAttribute('data-omkb-knob', '1')
+  el.setAttribute('data-micro-knob', '1')
   // 主高亮用内描边（inset box-shadow）：永远在元素内部，不会被弹窗滚动容器裁剪或被旁元素遮挡
-  el.__omkbPrevShadow = el.style.boxShadow
+  el.__microPrevShadow = el.style.boxShadow
   el.style.boxShadow = 'inset 0 0 0 2px #304FFE'
   // outline 仅在能完整显示时辅助（向内，避免被容器边界裁到只剩部分边）
-  el.__omkbPrevOutline = el.style.outline
+  el.__microPrevOutline = el.style.outline
   el.style.outline = '1px solid #304FFE'
   el.style.outlineOffset = '-1px'
   try { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }) } catch (e) {}

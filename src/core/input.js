@@ -1,4 +1,4 @@
-// dsh-omkb · core/input.js
+// dsh-micro · core/input.js
 // **输入解析层** —— 把设备上报的一行 JSON 翻译成状态快照里的输入事实（从 ble.js 分拆出来）。
 //
 // 每个输入源有自己的累加计数器（见 ble.js 顶部 #state 的说明）：enc（旋钮带符号步数）、
@@ -69,7 +69,7 @@ export class InputParser {
 
   // 处理一条完整的 JSON 通知行，如 {"method":"v.oai.hid","params":{"k":"AG00"}}
   handleLine = (line) => {
-    // 入站帧**原样**回显：开发版照旧打终端（`console.log(line)`，**不带** [omkb] 前缀）；
+    // 入站帧**原样**回显：开发版照旧打终端（`console.log(line)`，**不带** [micro] 前缀）；
     // 正式版落进日志文件的 `[rx]` 级别（排查「设备到底说了什么」时只有它靠得住）。
     logSink.raw(line)
     const raw = line.trim()

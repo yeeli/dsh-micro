@@ -1,16 +1,16 @@
-// dsh-omkb · client/src/components/modals/keycap.jsx
+// dsh-micro · client/src/components/modals/keycap.jsx
 // 「编辑按键」弹窗：给某颗物理键（键码）换一颗键帽。
 //
 // 三条约束：
 //   1) **候选就是键帽表**（keypad.js）—— 一张表同时喂布局、弹窗、按键分派，
 //      弹窗里能选到的和按下去能发生的永远一致。
-//   2) **候选用外面的键同一套外观**：直接复用 <Key>（.omkb-key）与 KeyFace，
+//   2) **候选用外面的键同一套外观**：直接复用 <Key>（.micro-key）与 KeyFace，
 //      不再另画一套 emoji 小卡片 —— 挑的时候看到的就是选完之后键盘上会变成的样子。
 //   3) 保存要有意义：没选、或选的就是当前值 → 保存按钮置灰（以前点了毫无反应，
 //      看起来像「编辑按键没实现」）。要退回出厂键帽用「恢复默认」。
 //
 // ---------- 名字去气泡了（2026-09-28）----------
-// 以前每一格在键下面写一行名字（`.omkb-cap-name`）：格子被撑高、网格像标签墙，而且
+// 以前每一格在键下面写一行名字（`.micro-cap-name`）：格子被撑高、网格像标签墙，而且
 // 布局里的键**没有**那行字 —— 同一个键帽在两处长成两个样子。现在两边一致（布局的键也挂了
 // 同一个气泡，见 ../settings/keyboard-layout.jsx）：**键面只有图标，鼠标移上去浮出气泡**。
 // 气泡的三行 = 短名 / 功能名（词典）/ 说明，实现全在 ../common/cap-tip.jsx（含「为什么用
@@ -38,7 +38,7 @@ const haystackOf = (c, tt) => {
  * @param t - 词典取值函数（气泡第二行要用；entry.js → panel.jsx → 布局 → 这里一路传下来）。
  * @param onCancel / onClear / onSave - 取消 / 恢复默认 / 保存（pick 为键帽 id）。
  */
-export function OmkbKeycapModal({ target, current, fallback, t, onCancel, onClear, onSave }) {
+export function MicroKeycapModal({ target, current, fallback, t, onCancel, onClear, onSave }) {
   // 预选 **当前生效** 的那颗键帽：没自定义过就用出厂值（fallback）——
   // 于是「打开弹窗看到高亮的那颗」永远等于「现在按下去会执行的那颗」，
   // 而「保存」只在真的换了另一颗时才可点（以前选不选都能点、点了没反应）。
@@ -53,63 +53,63 @@ export function OmkbKeycapModal({ target, current, fallback, t, onCancel, onClea
   const dirty = pick !== initial
   return (
     <>
-      <div className="omkb-modal-overlay" onMouseDown={onCancel}>
-        <div className="omkb-modal" onMouseDown={(e) => e.stopPropagation()}>
-          <div className="omkb-modal-head">
+      <div className="micro-modal-overlay" onMouseDown={onCancel}>
+        <div className="micro-modal" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="micro-modal-head">
             <div>
-              <div className="omkb-modal-title">编辑按键</div>
-              <div className="omkb-modal-sub">
+              <div className="micro-modal-title">编辑按键</div>
+              <div className="micro-modal-sub">
                 给 {target} 选一颗键帽 —— 这颗键按下后就执行它对应的动作
               </div>
             </div>
-            <button type="button" className="omkb-modal-x" onClick={onCancel}>×</button>
+            <button type="button" className="micro-modal-x" onClick={onCancel}>×</button>
           </div>
           <input
-            className="omkb-modal-search"
+            className="micro-modal-search"
             placeholder="搜索…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
-          <div className="omkb-modal-grid omkb-capgrid" onMouseLeave={hide}>
+          <div className="micro-modal-grid micro-capgrid" onMouseLeave={hide}>
             {list.map((c) => (
               /* 一格 = 一颗键（只有图标）。名字不再写在键下面，改由悬停气泡说 —— 见文件头。
                  鼠标事件挂在**外层格子**上：点在名字原来那个位置也算选中这颗键（老手感不变）。 */
               <div
                 key={c.id}
-                className={'omkb-cap-cell' + (pick === c.id ? ' omkb-cap-cell--sel' : '')}
+                className={'micro-cap-cell' + (pick === c.id ? ' micro-cap-cell--sel' : '')}
                 onClick={() => setPick(c.id)}
                 {...capTipHandlers(show, hide, c)}
               >
                 <Key
-                  className={'omkb-cap' + (pick === c.id ? ' omkb-cap--sel' : '')}
-                  data-omkb-cap={c.id}
+                  className={'micro-cap' + (pick === c.id ? ' micro-cap--sel' : '')}
+                  data-micro-cap={c.id}
                 >
                   <KeyFace capId={c.id} />
                 </Key>
               </div>
             ))}
-            {!list.length && <div className="omkb-sub-empty">无匹配结果</div>}
+            {!list.length && <div className="micro-sub-empty">无匹配结果</div>}
           </div>
-          <div className="omkb-modal-hint">
+          <div className="micro-modal-hint">
             {picked
               ? `${picked.label} —— ${picked.desc}`
               : `当前是${CUSTOM_LABEL}：这颗键没有指派功能，按下不执行任何操作`}
           </div>
-          <div className="omkb-modal-foot">
+          <div className="micro-modal-foot">
             <button
               type="button"
-              className="omkb-ghost"
+              className="micro-ghost"
               onClick={onClear}
               disabled={!current}
               title="清掉这颗键的自定义键帽，回到出厂设置"
             >
               恢复默认
             </button>
-            <span className="omkb-modal-spacer" />
-            <button type="button" className="omkb-ghost" onClick={onCancel}>取消</button>
+            <span className="micro-modal-spacer" />
+            <button type="button" className="micro-ghost" onClick={onCancel}>取消</button>
             <button
               type="button"
-              className="omkb-primary"
+              className="micro-primary"
               disabled={!dirty}
               onClick={() => { if (dirty) onSave(pick) }}
             >

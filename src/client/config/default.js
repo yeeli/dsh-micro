@@ -1,12 +1,12 @@
-// dsh-omkb · client/src/config/default.js
+// dsh-micro · client/src/config/default.js
 // ★ 客户端默认配置的唯一声明处 ★
 //
-// 为什么单拎一个文件（用户 2026-09-26 要求：「把 OMKB 中的默认设置参数配置都写在这个文件中，
+// 为什么单拎一个文件（用户 2026-09-26 要求：「把 DSH小键盘的默认设置参数配置都写在这个文件中，
 // 方便后续更换，尤其布局下面的按键功能」）：这些值以前散在三处 —— 设置面板顶部的
-// DSVI.OMKB_DEFAULTS、utils/keycaps.js 的出厂键帽表、actions/registry.js 每条功能的
+// DSVI.MICRO_DEFAULTS、utils/keycaps.js 的出厂键帽表、actions/registry.js 每条功能的
 // `requires`。想改一个默认值/换一颗键的功能，得先知道它住在哪。现在只有这一份：
 //
-//   ① OMKB_DEFAULTS      偏好默认值（11 个字段，**必须与宿主 schema 逐字段对齐**）
+//   ① MICRO_DEFAULTS      偏好默认值（11 个字段，**必须与宿主 schema 逐字段对齐**）
 //   ② FACTORY_KEY_FUNCS  布局里每颗键**出厂**按下执行什么功能（值 = 功能名，不是键码）
 //   ③ PLUGIN_DEPS        按键功能需要的第三方插件清单（设置页底部那张卡的数据源）
 //   ④ JOY_ACTION         摇杆四方向出厂映射的取值域（动作名）+ JOY_DEFAULTS（方向 → 动作名）
@@ -17,7 +17,7 @@
 //   · test/verify_settings.js 「宿主 schema 默认值与客户端逐字段一致」
 //   · test/verify_guide.js  §8 「两侧字段清单完全一致」
 // 改字段（加/删/改名）时**两边一起改**：这里是 src/client/config/default.js，
-// 那边是 src/core/settings.js 的 OMKB_DEFAULTS + Config schema。
+// 那边是 src/core/settings.js 的 MICRO_DEFAULTS + Config schema。
 //
 // ⚠ 这个文件**不许 import 任何东西**：它是配置，不是程序。保持「纯字面量」是为了让 Node 自检
 // 能直接 import 它做逐字段比对（见上面那两条断言）。
@@ -38,7 +38,7 @@
 //   方向表 `JOY_DIRS`（显示顺序 + 兜底循环用）仍留在 `client/joystick.js`：它是**界面顺序**，
 //   不是用户能改的配置。两边对不齐由自检兜住（verify:joy 「四个方向都有默认值」）。
 
-// 导航：偏好默认值 → OMKB_DEFAULTS ／ 出厂按键功能 → FACTORY_KEY_FUNCS ／ 第三方插件 → PLUGIN_DEPS
+// 导航：偏好默认值 → MICRO_DEFAULTS ／ 出厂按键功能 → FACTORY_KEY_FUNCS ／ 第三方插件 → PLUGIN_DEPS
 //       摇杆四方向出厂功能 → JOY_ACTION + JOY_DEFAULTS（文件末尾）
 
 // ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@
 //
 // 取值：用户没在设置页动过 → 用这里的值；设置页「重置布局」→ unset 掉覆盖，重新继承这里的值。
 
-export const OMKB_DEFAULTS = {
+export const MICRO_DEFAULTS = {
   /** 灯光亮度 0..1（宿主侧有 min(0).max(1) 校验）。 */
   brightness: 0.9,
   /** 空闲自动调暗秒数，0 = 关闭。可选档位见设置页的 AUTO_DIM_OPTIONS。 */
@@ -109,7 +109,7 @@ export const OMKB_DEFAULTS = {
 // 要换某颗键的出厂功能：把值改成**目标功能名**（例如把 ACT07 改成 `'fork'` = 出厂就分叉会话）。
 // ⚠ 只认总表里**带 capId** 的那些功能（keycapActions()，也就是「编辑按键」弹窗里能选的那些）——
 // 写成别的名字（比如只属于旋钮的 `'scroll_up'`）等于那颗键出厂没功能，自检 verify_keycaps 会红。
-// 可用的名字在这里现查：`__dshOmkb.actions.keycaps()`（浏览器控制台）或在
+// 可用的名字在这里现查：`__dshMicro.actions.keycaps()`（浏览器控制台）或在
 // actions/registry.js 里搜 `capId:`。
 //
 // 键帽（界面上画什么图标）**由功能名派生**，不必也不该在这里写第二遍：utils/keycaps.js 拿总表的
@@ -140,7 +140,7 @@ export const FACTORY_KEY_FUNCS = {
 // 有些按键功能要靠 **DSH 生态里需要单独安装的其他插件**才能生效（比如某个功能要去取只有那个
 // 插件才提供的服务）。这份清单就是「哪些按键功能需要额外装什么」，一条一个插件：
 //
-//   plugin     稳定标识（去重键，也是 DOM 上 data-omkb-plugin 的值；改它 = 换一条记录）
+//   plugin     稳定标识（去重键，也是 DOM 上 data-micro-plugin 的值；改它 = 换一条记录）
 //   name       显示名（卡片上的标题）
 //   desc       一句话说明（卡片上的副标题：这个插件干什么用）
 //   installed  安装状态 —— **手写**，不做任何运行时检测（用户 2026-09-26 明确要求

@@ -1,10 +1,10 @@
-// dsh-omkb · client/notice.js
+// dsh-micro · client/notice.js
 // **顶部浮动提示** —— 「这颗键在当前页面做不了」必须**看得见**（用户 2026-09-28 要求，
 // 给的样子是一张浮动卡片：左侧一个圆形实底图标 + 一行文案）。
 //
 // ── 为什么要有它 ───────────────────────────────────────────────────────────
 // 本项目最贵的一条纪律是「拿不到入口必须出声」。可那条纪律一直只落在**日志**上：
-// 开发版打终端、正式版只写 $DSH_HOME/logs/dsh-omkb.log —— 也就是说**用户那一侧是静音的**。
+// 开发版打终端、正式版只写 $DSH_HOME/logs/dsh-micro.log —— 也就是说**用户那一侧是静音的**。
 // 症状就是用户报过好几次的那句「按了没反应，也查不出原因」：日志里有一行，界面上什么都没有。
 // 这个模块补的就是「界面上那一下」。
 //
@@ -31,7 +31,7 @@
 //   5) 拿不到 document 时**只记一行日志**、安静地什么都不做（Node / 无 DOM 环境不许抛）。
 
 /** 根节点 class（探针 / 自检 / 控制台都靠它找）。 */
-export const NOTICE_CLASS = 'omkb-notice'
+export const NOTICE_CLASS = 'micro-notice'
 
 /** 显示时长（ms）：够读完一句话，又不至于留在屏幕上碍事。 */
 export const NOTICE_MS = 3600
@@ -142,7 +142,7 @@ export const noticeTextOf = (reason, t) => {
  * **节点是惰性建的**（第一次真的要显示时才碰 DOM），所以构造它本身不需要 document，
  * 也就不必等某个界面挂载。
  */
-export class OmkbNotice {
+export class MicroNotice {
   #doc = null
   #t = null
   #ms = NOTICE_MS
@@ -166,10 +166,10 @@ export class OmkbNotice {
     if (o.doc) this.#doc = o.doc
     this.#t = typeof o.t === 'function' ? o.t : null
     if (Number.isFinite(o.ms) && o.ms >= 0) this.#ms = o.ms
-    this.#log = typeof o.log === 'function' ? o.log : (msg) => { try { console.log('[omkb] ' + msg) } catch (e) {} }
+    this.#log = typeof o.log === 'function' ? o.log : (msg) => { try { console.log('[micro] ' + msg) } catch (e) {} }
   }
 
-  /** 给探针 / 自检 / 控制台看的一眼状态（量 DOM 请查 .omkb-notice）。 */
+  /** 给探针 / 自检 / 控制台看的一眼状态（量 DOM 请查 .micro-notice）。 */
   status = () => ({
     visible: this.visible,
     text: this.#shown ? this.#shown.text : null,

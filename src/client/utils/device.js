@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/utils/device.js
+// dsh-micro · client/src/utils/device.js
 // **设备层面的纯逻辑**：电量怎么显示、什么状态算「这台键盘被移除了」、移除要清哪些字段。
 //
 // 为什么单拎出来：这几条规则要么会在真机上悄悄失效（「移除之后刷新又冒出来」「没连上也显示电量」），
@@ -43,7 +43,7 @@ export const sameJson = (a, b) => {
  * 电量读数归一化。宿主已经归一过一遍（见 src/core/ble.js 的同名函数），这里**再挡一道**：
  * 客户端要兼容不认识新字段的老宿主（`undefined`），也可能撞上被别的客户端写坏的快照。
  * 布尔值必须拒掉 —— `Number(true) === 1`，不挡的话 `charging` 被误当电量就是「1%」。
- * @param v - 来自 /omkb/state 的 battery 字段。
+ * @param v - 来自 /micro/state 的 battery 字段。
  * @returns {number|null} 0..100 的整数，或 null（不知道）。
  */
 export const normalizeBattery = (v) => {
@@ -57,7 +57,7 @@ export const normalizeBattery = (v) => {
 
 /**
  * 电量 → 界面要用的那几个结论（面板只管照着画，不再自己判断据）。
- * @param state - `{ battery, charging }`（来自 /omkb/state）。
+ * @param state - `{ battery, charging }`（来自 /micro/state）。
  * @returns {{known: boolean, pct: number|null, charging: boolean, low: boolean}}
  *   known —— 到底有没有读数（没有就显示「—」，不显示一个假数字）；
  *   low   —— 要不要用告警色。**充电时不告警**：红色说的是「该去充电了」，
@@ -101,7 +101,7 @@ export const isDeviceOffline = (state = {}) =>
  * 「移除键盘」要清掉哪些设置字段 = 全部偏好，**除了 removed 自己**。
  * 它既是判据也是操作对象：清掉它就没法记住「已经移除」，下次刷新界面又回来了。
  * 从 defaults 推导而不是手写第二份清单 —— 以后加偏好字段时不会漏（自检守着这条）。
- * @param defaults - `DSVI.OMKB_DEFAULTS`（与宿主 schema 逐字段对齐的那份）。
+ * @param defaults - `DSVI.MICRO_DEFAULTS`（与宿主 schema 逐字段对齐的那份）。
  * @returns {string[]} 需要 unset 的字段名。
  */
 export const removeKeys = (defaults) =>

@@ -1,4 +1,4 @@
-// dsh-omkb · core_build.js
+// dsh-micro · core_build.js
 // 用 Vite 把 src/core/ 打包成 ESM，写出到 lib/index.js，构建后清理 tmp-host。
 // 用法：node src/core_build.js   （或 npm run build:core）
 //
@@ -18,15 +18,15 @@ const configFile = path.join(root, 'vite.core.config.js')
 
 // ---- 正式版开关（2026-09-26）----
 // `node src/core_build.js --release`（= `npm run build:core:prod`）产出**正式版**产物：
-// `[omkb]` 日志只写 `$DSH_HOME/logs/dsh-omkb.log`，终端一行都不打（见 src/core/log.js）。
+// `[micro]` 日志只写 `$DSH_HOME/logs/dsh-micro.log`，终端一行都不打（见 src/core/log.js）。
 // 不传 = 开发版，日志照旧打终端（调试用）。
 //
 // 往下传的方式是**环境变量**：vite 把本项目的 vite.core.config.js 加载在**同一个进程**里，
-// 那边读 `process.env.DSH_OMKB_RELEASE` 决定 `define`（见那个文件）。用 `--release` 而不是
-// 在 npm script 里写 `DSH_OMKB_RELEASE=1 node …`，是为了不依赖 shell 的赋值语法，
+// 那边读 `process.env.DSH_MICRO_RELEASE` 决定 `define`（见那个文件）。用 `--release` 而不是
+// 在 npm script 里写 `DSH_MICRO_RELEASE=1 node …`，是为了不依赖 shell 的赋值语法，
 // 也让「这次构建是哪一种」在 package.json 里一眼可见。
 const RELEASE = process.argv.includes('--release')
-if (RELEASE) process.env.DSH_OMKB_RELEASE = '1'
+if (RELEASE) process.env.DSH_MICRO_RELEASE = '1'
 
 async function main() {
   // ---- 构建前检查（2026-09-27）----
@@ -35,7 +35,7 @@ async function main() {
   // ⚠ 这一层只抓语法。未定义变量、拼错的属性名之类属于运行期问题，由 test/verify_* 覆盖。
   const checked = await runCheck({ targets: ['src/core', 'src/core_build.js'], label: 'core' })
   if (!report(checked)) {
-    console.error('[omkb/build] 已中止构建（core 源码检查未通过，lib/index.js 保持上一份）')
+    console.error('[micro/build] 已中止构建（core 源码检查未通过，lib/index.js 保持上一份）')
     process.exitCode = 1
     return
   }
@@ -55,10 +55,10 @@ async function main() {
 
   fs.writeFileSync(outFile, esm, 'utf8')
   fs.rmSync(outDir, { recursive: true, force: true })
-  console.log(`[omkb/build] 已生成 ${outFile}（${RELEASE ? '正式版：日志写文件，终端安静' : '开发版：日志打终端'}）`)
+  console.log(`[micro/build] 已生成 ${outFile}（${RELEASE ? '正式版：日志写文件，终端安静' : '开发版：日志打终端'}）`)
 }
 
 main().catch((e) => {
-  console.error('[omkb/build] 构建失败:', e)
+  console.error('[micro/build] 构建失败:', e)
   process.exitCode = 1
 })

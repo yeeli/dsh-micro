@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/components/modals/joystick.jsx
+// dsh-micro · client/src/components/modals/joystick.jsx
 // 「模拟摇杆」配置弹窗：给四个方向各挑一个动作（二级弹窗里搜索/挑选）。
 //
 // 方向的顺序 / 动作名 / 出厂默认都来自摇杆控制器（../joystick.js），这里只补界面文案：
@@ -32,39 +32,39 @@ const joyLabel = (name) => (!name || name === JOY_NONE ? '不绑定' : name)
  * @param onClose - 关掉（不保存）。
  * @param onSave - 保存整张映射。
  */
-export function OmkbJoystickModal({ value, onClose, onSave }) {
+export function MicroJoystickModal({ value, onClose, onSave }) {
   const [local, setLocal] = useState(value && Object.keys(value).length ? { ...value } : { ...JOY_DEFAULTS })
   const [editDir, setEditDir] = useState(null) // 正在编辑的方向（触发二级选择）
   const setDir = (dir, name) => setLocal({ ...local, [dir]: name })
   return (
     <>
-      <div className="omkb-modal-overlay" onMouseDown={onClose}>
-        <div className="omkb-modal omkb-modal--joy" onMouseDown={(e) => e.stopPropagation()}>
-          <div className="omkb-modal-head">
+      <div className="micro-modal-overlay" onMouseDown={onClose}>
+        <div className="micro-modal micro-modal--joy" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="micro-modal-head">
             <div>
-              <div className="omkb-modal-title">模拟摇杆</div>
-              <div className="omkb-modal-sub">选择每个方向触发的操作</div>
+              <div className="micro-modal-title">模拟摇杆</div>
+              <div className="micro-modal-sub">选择每个方向触发的操作</div>
             </div>
-            <button type="button" className="omkb-modal-x" onClick={onClose}>×</button>
+            <button type="button" className="micro-modal-x" onClick={onClose}>×</button>
           </div>
-          <div className="omkb-joy-body">
-            <div className="omkb-joy-pad"><span className="omkb-joy-knob" /></div>
-            <div className="omkb-joy-list">
+          <div className="micro-joy-body">
+            <div className="micro-joy-pad"><span className="micro-joy-knob" /></div>
+            <div className="micro-joy-list">
               {JOY_DIRS.map(({ dir, label, arrow }) => (
                 <div
                   key={dir}
-                  className={'omkb-joy-row' + (editDir === dir ? ' omkb-joy-row--sel' : '')}
+                  className={'micro-joy-row' + (editDir === dir ? ' micro-joy-row--sel' : '')}
                   onClick={() => setEditDir(dir)}
                 >
-                  <span className="omkb-joy-arrow">{arrow}</span>
-                  <span className="omkb-joy-dir">{label}</span>
-                  <span className="omkb-joy-val">{joyLabel(local[dir] ?? JOY_DEFAULTS[dir])}</span>
+                  <span className="micro-joy-arrow">{arrow}</span>
+                  <span className="micro-joy-dir">{label}</span>
+                  <span className="micro-joy-val">{joyLabel(local[dir] ?? JOY_DEFAULTS[dir])}</span>
                 </div>
               ))}
             </div>
           </div>
-          <div className="omkb-joy-foot">
-            <button type="button" className="omkb-primary omkb-joy-done" onClick={() => onSave(local)}>完成</button>
+          <div className="micro-joy-foot">
+            <button type="button" className="micro-primary micro-joy-done" onClick={() => onSave(local)}>完成</button>
           </div>
         </div>
       </div>
@@ -93,34 +93,34 @@ function JoyPicker({ title, current, onClear, onClose, onPick }) {
   ))
   const cats = [...new Set(items.map((a) => a.cat))]
   return (
-    <div className="omkb-modal-overlay omkb-overlay--sub" onMouseDown={onClose}>
-      <div className="omkb-modal omkb-modal--sub" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="omkb-modal-head">
-          <div className="omkb-sub-title">指定{title}</div>
+    <div className="micro-modal-overlay micro-overlay--sub" onMouseDown={onClose}>
+      <div className="micro-modal micro-modal--sub" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="micro-modal-head">
+          <div className="micro-sub-title">指定{title}</div>
           {current && (
-            <button type="button" className="omkb-sub-clear" onClick={onClear}>
+            <button type="button" className="micro-sub-clear" onClick={onClear}>
               {current} <span>×</span>
             </button>
           )}
         </div>
-        <input className="omkb-modal-search" placeholder="搜索操作和技能" value={q} onChange={(e) => setQ(e.target.value)} />
-        <div className="omkb-sub-body">
+        <input className="micro-modal-search" placeholder="搜索操作和技能" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="micro-sub-body">
           {cats.map((cat) => (
             <div key={cat}>
-              <div className="omkb-sub-cat">{cat}</div>
+              <div className="micro-sub-cat">{cat}</div>
               {items.filter((a) => a.cat === cat).map((a, i) => (
                 <div
                   key={cat + i}
-                  className={'omkb-sub-pick' + (a.soon ? ' omkb-sub-pick--soon' : '')}
+                  className={'micro-sub-pick' + (a.soon ? ' micro-sub-pick--soon' : '')}
                   onClick={a.soon ? undefined : () => onPick(a.name)}
                 >
-                  <span className="omkb-sub-name">{joyLabel(a.name)}</span>
-                  <span className="omkb-sub-des">{a.des}</span>
+                  <span className="micro-sub-name">{joyLabel(a.name)}</span>
+                  <span className="micro-sub-des">{a.des}</span>
                 </div>
               ))}
             </div>
           ))}
-          {!items.length && <div className="omkb-sub-empty">无匹配结果</div>}
+          {!items.length && <div className="micro-sub-empty">无匹配结果</div>}
         </div>
       </div>
     </div>

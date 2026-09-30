@@ -1,19 +1,19 @@
-/* dsh-omkb · client/assets/notice.css
- * 「当前页面不能执行」的顶部浮动提示（渲染者：notice.js 的 OmkbNotice，纯 DOM）。
+/* dsh-micro · client/assets/notice.css
+ * 「当前页面不能执行」的顶部浮动提示（渲染者：notice.js 的 MicroNotice，纯 DOM）。
  *
  * 形状照用户 2026-09-28 给的那张截图：**圆角矩形卡片 + 左侧圆形实底图标 + 一行文案**，
  * 浮在界面之上、不占布局。它是「你刚按的那颗键没生效」的跨页面通知，所以：
  *   1) position:fixed —— 绝不参与任何页面的布局（按键失败不该把界面顶动一行）；
- *   2) z-index 高于本插件自己的弹窗遮罩（.omkb-modal-overlay 9999 / 二级 10002）
+ *   2) z-index 高于本插件自己的弹窗遮罩（.micro-modal-overlay 9999 / 二级 10002）
  *      与另两条顶部提示（摇杆卡片 10045 / 保存提示 10050）—— 它最要紧，允许盖在上面；
  *   3) pointer-events:none —— 通知不是控件，绝不挡住底下的点击；
  *   4) 颜色全走 DSH 主题令牌：浅色/深色主题自动跟随，不写死背景与文字色。
  *
- * 与保存提示（save.jsx / settings.css 的 .omkb-toast）**有意不同形**：
+ * 与保存提示（save.jsx / settings.css 的 .micro-toast）**有意不同形**：
  * 那条是胶囊、只在设置页出现；这条是卡片、任意页面都可能出现。两处都顶部正中，
  * 所以位置撞上时靠 z-index 分先后（同一拍里两条提示也会各自去重，见 notice.js）。
  */
-.omkb-notice {
+.micro-notice {
   position: fixed;
   top: 14px;
   left: 50%;
@@ -33,12 +33,12 @@
   line-height: 1.4;
   color: var(--dsw-alias-label-primary, #111);
   pointer-events: none;
-  animation: omkb_notice_in 0.18s ease-out;
+  animation: micro_notice_in 0.18s ease-out;
 }
 
 /* 圆形实底图标：颜色就是「这是没做成」的语义色（警示橙；拿不到令牌时退到琥珀）。
  * 图标内部的白色符号写在 NOTICE_ICON 里（fill=currentColor 跟随这里的 color）。 */
-.omkb-notice__ico {
+.micro-notice__ico {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -49,18 +49,18 @@
 }
 
 /* 文案一行；太长就省略号（卡片最宽 76vw，正常一句话远远到不了）。 */
-.omkb-notice__text {
+.micro-notice__text {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-@keyframes omkb_notice_in {
+@keyframes micro_notice_in {
   from { opacity: 0; transform: translate(-50%, -10px); }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
 
 /* 系统开了「减弱动态效果」时不播入场动画（与设置页那两条提示一致）。 */
 @media (prefers-reduced-motion: reduce) {
-  .omkb-notice { animation: none; }
+  .micro-notice { animation: none; }
 }

@@ -1,12 +1,12 @@
-// dsh-omkb · client/src/hid-bridge.js
-// BLE/HID 桥接：node-hid 运行在宿主 Node 进程，读 omkb 小键盘的按键后把
-// **各输入源自己的累加计数器**暴露到同源端点 /omkb/state。这里消费该状态并分派：
+// dsh-micro · client/src/hid-bridge.js
+// BLE/HID 桥接：node-hid 运行在宿主 Node 进程，读 micro 小键盘的按键后把
+// **各输入源自己的累加计数器**暴露到同源端点 /micro/state。这里消费该状态并分派：
 //   智能键(AG00..AG05) → 打开会话；动作键(ACT06..ACT12) → 语音/发送/同意/拒绝/归档；
 //   旋钮 → enc 差值=旋转、knobPress 计数=按下（走进 ./knob.js 的模式分派）；
 //   摇杆 → joyPush+joyDir（老宿主回退 joyT/joy）走进 ./joystick.js 的方向映射。
 //
 // ── 通道：WebSocket 推送为主，HTTP 轮询兜底（2026-10-01）─────────────────────
-// 宿主在**同一条路径** /omkb/state 上既提供 GET 快照、又接受 WS 升级（见
+// 宿主在**同一条路径** /micro/state 上既提供 GET 快照、又接受 WS 升级（见
 // src/core/server/state-socket.js）。这里优先连 WS：宿主事件驱动地推（设备每上报一行、
 // 连接/断开、灯态写入、亮度变化），另加 500ms 心跳兜底比对。WS 连不上/中途断开 → **立刻
 // 退回 120ms 轮询**，并在后台按指数退避重试 WS（最多 10s 一次），连上就再停轮询。
@@ -33,7 +33,7 @@
 // 按下走上面的计数器通道（run()），**松开走 down 的差集**（release()）——
 // 因为松开的帧 t 不变（不是事件），只有「上一帧按住、这一帧没按住」才认得出来。
 // 按住型的动作（语音：按住说话、松开停止）全靠它收尾；快按（比一次轮询还快）由 #guardTap 兜。
-export const HID_STATE_URL = '/omkb/state'
+export const HID_STATE_URL = '/micro/state'
 
 /**
  * 轮询间隔（ms）—— **只在 WS 不可用/断开时使用**（退路通道，见文件头）。
@@ -288,13 +288,13 @@ export class HidBridge {
   }
 
   /**
-   * 测试注入：把一段 /omkb/state 形状的快照直接广播给订阅者。
+   * 测试注入：把一段 /micro/state 形状的快照直接广播给订阅者。
    * 只给自检与真机探针用（宿主没重启、手边没设备时，验「按键特效 / 摇杆推拉」不必真的按键）。
    * **它只广播**：不建立基线、不做事件归属，所以绝不会触发任何真实功能。
    */
   feed = (snap) => { this.#emit(snap || {}) }
 
-  /** 诊断快照：出问题时先看这里（浏览器控制台 `__dshOmkb.services.hid.diagnose()`）。 */
+  /** 诊断快照：出问题时先看这里（浏览器控制台 `__dshMicro.services.hid.diagnose()`）。 */
   diagnose = () => ({
     // 当前通道：'websocket' = 宿主在推；'poll' = 退回 120ms 轮询（宿主没带 ws / WS 正断着重连）
     transport: this.transport,
@@ -312,7 +312,7 @@ export class HidBridge {
   }
 
   /**
-   * **两条通道的唯一落点**：一帧 /omkb/state 形状的快照（WS 的 onmessage 与轮询的 poll
+   * **两条通道的唯一落点**：一帧 /micro/state 形状的快照（WS 的 onmessage 与轮询的 poll
    * 都走这里）。所以下面这套归属判据只有一份 —— 不会出现「推送那条改了、轮询那条忘了改」。
    * @param {object} s 状态快照。
    */
@@ -543,7 +543,7 @@ export class HidBridge {
     // 同一个键名只提醒一次，免得刷屏；要完整清单看 diagnose()
     if (!this.#warned.has(name)) {
       this.#warned.add(name)
-      try { console.warn(`[omkb] 未归属的按键事件（已忽略，不会触发语音）：${name}`) } catch (e) {}
+      try { console.warn(`[micro] 未归属的按键事件（已忽略，不会触发语音）：${name}`) } catch (e) {}
     }
   }
 }

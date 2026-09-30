@@ -1,4 +1,4 @@
-// dsh-omkb · core/joystick.js
+// dsh-micro · core/joystick.js
 // 摇杆（joystick）解析：设备通过 RPC `v.oai.rad` 上报摇杆状态，
 //   参数形如 { a: 0.90, d: 1.0 }（字段可位于顶层或 params），
 //   a = 角度（0..1，归一化到 0..360°，其中 0 为"右"），d = 推力/位移（0..1，≈0 视为回中）。

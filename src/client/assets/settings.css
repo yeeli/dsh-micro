@@ -1,28 +1,28 @@
 
 
-/* dsh-omkb · client/src/settings.css — 设置面板样式
+/* dsh-micro · client/src/settings.css — 设置面板样式
  * 以 ?raw 引入，追加到 DSVI.css，随 installStyles 一起注入。 */
-.omkb-key--act{position:relative}
-.omkb-modal-overlay{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:rgba(15,18,25,.4);backdrop-filter:blur(4px)}
-.omkb-modal{width:min(520px,92vw);background:#fff;border-radius:14px;padding:18px;box-shadow:0 24px 60px rgba(0,0,0,.25)}
-.omkb-modal-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
-.omkb-modal-title{font-size:18px;font-weight:600;color:#1f2937}
-.omkb-modal-sub{margin-top:2px;font-size:13px;color:#4b5563}
-.omkb-modal-x{background:0 0;border:0;font-size:22px;line-height:1;color:#4b5563;cursor:pointer;border-radius:6px;width:30px;height:30px}
-.omkb-modal-x:hover{background:rgba(0,0,0,.06)}
-.omkb-modal-search{width:100%;margin:14px 0;padding:8px 12px;border:1px solid #e5e7eb;border-radius:9px;font-size:13px;outline:none;box-sizing:border-box}
-.omkb-modal-search:focus{border-color:#3b82f6}
-.omkb-modal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:10px;max-height:300px;overflow:auto}
+.micro-key--act{position:relative}
+.micro-modal-overlay{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:rgba(15,18,25,.4);backdrop-filter:blur(4px)}
+.micro-modal{width:min(520px,92vw);background:#fff;border-radius:14px;padding:18px;box-shadow:0 24px 60px rgba(0,0,0,.25)}
+.micro-modal-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.micro-modal-title{font-size:18px;font-weight:600;color:#1f2937}
+.micro-modal-sub{margin-top:2px;font-size:13px;color:#4b5563}
+.micro-modal-x{background:0 0;border:0;font-size:22px;line-height:1;color:#4b5563;cursor:pointer;border-radius:6px;width:30px;height:30px}
+.micro-modal-x:hover{background:rgba(0,0,0,.06)}
+.micro-modal-search{width:100%;margin:14px 0;padding:8px 12px;border:1px solid #e5e7eb;border-radius:9px;font-size:13px;outline:none;box-sizing:border-box}
+.micro-modal-search:focus{border-color:#3b82f6}
+.micro-modal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:10px;max-height:300px;overflow:auto}
 /* 「编辑按键」的候选 = **和外面那排键同一套外观**。
- * 组件直接复用 .omkb-key（同一个圆角、同一条投影、同一个图标），这里只覆盖网格尺寸与选中态。
+ * 组件直接复用 .micro-key（同一个圆角、同一条投影、同一个图标），这里只覆盖网格尺寸与选中态。
  * 以前候选项是一排 emoji 小方卡片，弹窗里挑的东西和选完之后键盘上看到的东西长得完全不一样。 */
-.omkb-capgrid{grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:12px}
+.micro-capgrid{grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:12px}
 /* 一格 = 一颗键（**只有图标**）。键下面的名字 2026-09-28 撤掉了，改由悬停气泡说（见下）。
  * 格子仍然保留 flex + 内边距：鼠标落在键四周那圈空白上也算选中这颗键（老手感不变）。 */
-.omkb-cap-cell{display:flex;flex-direction:column;cursor:pointer;padding:4px;border-radius:10px}
-.omkb-cap{background:#f7f5f1;border:1px solid rgba(255,255,255,.6)}
-.omkb-cap-cell:hover .omkb-cap{border-color:#93c5fd}
-.omkb-cap--sel,.omkb-cap--sel:hover{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.35),0 2px 6px rgba(0,0,0,.06)}
+.micro-cap-cell{display:flex;flex-direction:column;cursor:pointer;padding:4px;border-radius:10px}
+.micro-cap{background:#f7f5f1;border:1px solid rgba(255,255,255,.6)}
+.micro-cap-cell:hover .micro-cap{border-color:#93c5fd}
+.micro-cap--sel,.micro-cap--sel:hover{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.35),0 2px 6px rgba(0,0,0,.06)}
 
 /* ---- 悬停气泡：一颗键的「短名 / 功能名 / 说明」三行 ----
  * 布局里的键与「编辑按键」弹窗的候选共用它（见 components/common/cap-tip.jsx）。
@@ -30,143 +30,143 @@
  * 弹窗的候选网格是 overflow:auto 的滚动容器，相对定位的气泡会被裁掉。
  * 深色底是为了在「浅色卡片」和「浅色弹窗」两边都清楚（键帽本身也是浅色的）。
  * ⚠ max-width 必须与 cap-tip.jsx 的 CAP_TIP_MAX_W 一致：组件的左右夹取算的就是它。 */
-.omkb-captip{position:fixed;z-index:10050;transform:translate(-50%,-100%);pointer-events:none;
+.micro-captip{position:fixed;z-index:10050;transform:translate(-50%,-100%);pointer-events:none;
   box-sizing:border-box;width:max-content;max-width:248px;padding:8px 11px;border-radius:9px;
   background:#1f2937;color:#f9fafb;box-shadow:0 8px 22px rgba(0,0,0,.28);text-align:left;line-height:1.45}
 /* 键离视口顶太近时翻到键**下面**（组件加的这个类只管把方向反过来）。 */
-.omkb-captip--below{transform:translate(-50%,0)}
+.micro-captip--below{transform:translate(-50%,0)}
 /* 小箭头：默认朝下（气泡在键上方），--below 时朝上。用 border 三角形，缩放不失真。 */
-.omkb-captip::after{content:'';position:absolute;left:50%;margin-left:-5px;bottom:-10px;
+.micro-captip::after{content:'';position:absolute;left:50%;margin-left:-5px;bottom:-10px;
   border:5px solid transparent;border-top-color:#1f2937}
-.omkb-captip--below::after{bottom:auto;top:-10px;border-top-color:transparent;border-bottom-color:#1f2937}
-.omkb-captip-name{font-size:12.5px;font-weight:700;letter-spacing:.2px}
-.omkb-captip-func{margin-top:2px;font-size:11.5px;font-weight:600;color:#93c5fd}
-.omkb-captip-desc{margin-top:3px;font-size:11.5px;color:rgba(249,250,251,.72)}
+.micro-captip--below::after{bottom:auto;top:-10px;border-top-color:transparent;border-bottom-color:#1f2937}
+.micro-captip-name{font-size:12.5px;font-weight:700;letter-spacing:.2px}
+.micro-captip-func{margin-top:2px;font-size:11.5px;font-weight:600;color:#93c5fd}
+.micro-captip-desc{margin-top:3px;font-size:11.5px;color:rgba(249,250,251,.72)}
 /* 未指派的自定义键（拆分态那颗 Mic 右开关）：虚框 + 淡一点，
  * 一眼看出「这里还没选功能」，而不是「又一颗 MIC 键」。 */
-.omkb-key--custom{border-style:dashed;border-color:rgba(0,0,0,.16);background:#f2efe9;box-shadow:none}
-.omkb-modal-spacer{flex:1}
+.micro-key--custom{border-style:dashed;border-color:rgba(0,0,0,.16);background:#f2efe9;box-shadow:none}
+.micro-modal-spacer{flex:1}
 /* 置灰的按钮要真的看得出不能点（「保存」在没换键帽时是禁用的）。 */
-.omkb-modal .omkb-ghost[disabled],.omkb-modal .omkb-primary[disabled]{opacity:.4;cursor:default}
-.omkb-modal .omkb-ghost[disabled]:hover{background:transparent}
-.omkb-modal .omkb-primary[disabled]:hover{opacity:.4}
+.micro-modal .micro-ghost[disabled],.micro-modal .micro-primary[disabled]{opacity:.4;cursor:default}
+.micro-modal .micro-ghost[disabled]:hover{background:transparent}
+.micro-modal .micro-primary[disabled]:hover{opacity:.4}
 /* 「重置布局」确认弹窗：把会重置成什么一条条列出来 */
-.omkb-reset-body{max-height:320px;overflow:auto;margin-top:8px}
-.omkb-reset-list{margin:0 0 4px;padding-left:18px;color:#4b5563;font-size:12.5px;line-height:1.65}
-.omkb-modal-hint{margin-top:10px;font-size:12px;line-height:1.5;color:#9ca3af}
-.omkb-modal-foot{display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:16px}
-.omkb-modal .omkb-ghost{background:transparent;color:#4b5563;border:0;padding:7px 14px;border-radius:8px;cursor:pointer;font-size:13px}
-.omkb-modal .omkb-ghost:hover{background:rgba(0,0,0,.06)}
-.omkb-modal .omkb-primary{background:#000;color:#fff;border:0;padding:7px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:500}
-.omkb-modal .omkb-primary:hover{opacity:.88}
-.omkb-control-item{cursor:default}
-.omkb-joy-ctrl{cursor:pointer}
-.omkb-joy-body{display:flex;gap:16px;align-items:stretch;margin-top:14px}
-/* 摇杆弹窗里的方向盘底盘：与布局里那颗摇杆同形（正圆），不再是圆角方框 —— 见上面 .omkb-control-base 的注释。 */
-.omkb-joy-pad{flex:none;align-self:center;width:64px;height:64px;border-radius:50%;background:#eef2f6;display:grid;place-items:center}
-.omkb-joy-knob{width:26px;height:26px;border-radius:50%;background:#111;box-shadow:0 2px 4px rgba(0,0,0,.25)}
-.omkb-joy-list{flex:1;display:flex;flex-direction:column;gap:6px}
-.omkb-joy-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid #e5e7eb;border-radius:10px;cursor:pointer}
-.omkb-joy-row:hover{border-color:#93c5fd}
-.omkb-joy-row--sel,.omkb-joy-row--sel:hover{border-color:#3b82f6;background:#eff6ff}
-.omkb-joy-arrow{font-size:15px;color:#4b5563;width:16px;text-align:center}
-.omkb-joy-dir{font-weight:600;color:#1f2937}
-.omkb-joy-val{margin-left:auto;color:#4b5563;font-size:13px;max-width:58%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.omkb-joy-foot{display:flex;justify-content:flex-end;margin-top:16px}
-.omkb-joy-done{width:100%}
-.omkb-overlay--sub{z-index:10002}
-.omkb-modal--sub{width:min(480px,92vw)}
-.omkb-sub-title{font-size:16px;font-weight:700;color:#1f2937}
-.omkb-sub-clear{display:flex;align-items:center;gap:6px;background:transparent;border:1px solid #e5e7eb;color:#4b5563;border-radius:20px;padding:3px 10px;font-size:12px;cursor:pointer}
-.omkb-sub-clear span{color:#999;font-size:14px}
-.omkb-sub-body{max-height:320px;overflow:auto}
-.omkb-sub-cat{font-size:13px;font-weight:700;color:#374151;margin:12px 0 4px}
-.omkb-sub-pick{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;cursor:pointer}
-.omkb-sub-pick:hover{background:#f3f4f6}
-.omkb-sub-pick--soon{opacity:.45;cursor:default}
-.omkb-sub-pick--soon:hover{background:transparent}
-.omkb-sub-name{flex:none;font-weight:600;color:#1f2937}
-.omkb-sub-des{margin-left:auto;color:#4b5563;font-size:12px;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.omkb-sub-empty{padding:18px;text-align:center;color:#9ca3af;font-size:13px}
-.omkb-wrap{display:flex;flex-direction:column;gap:16px;padding:0 0 24px;max-width:560px}
-.omkb-heading{margin-bottom:4px}
-.omkb-title{font-size:18px;font-weight:600;color:var(--dsw-alias-label-primary);margin:0}
-.omkb-subtitle{font-size:13px;color:#4b5563;margin:4px 0 0}
-.omkb-card{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;padding:14px 16px}
-.omkb-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 0}
-.omkb-row + .omkb-row{border-top:1px solid var(--dsw-alias-border-l2)}
-.omkb-row__label{min-width:0;flex:1}
-.omkb-row__title{font-size:14px;color:var(--dsw-alias-label-primary)}
+.micro-reset-body{max-height:320px;overflow:auto;margin-top:8px}
+.micro-reset-list{margin:0 0 4px;padding-left:18px;color:#4b5563;font-size:12.5px;line-height:1.65}
+.micro-modal-hint{margin-top:10px;font-size:12px;line-height:1.5;color:#9ca3af}
+.micro-modal-foot{display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:16px}
+.micro-modal .micro-ghost{background:transparent;color:#4b5563;border:0;padding:7px 14px;border-radius:8px;cursor:pointer;font-size:13px}
+.micro-modal .micro-ghost:hover{background:rgba(0,0,0,.06)}
+.micro-modal .micro-primary{background:#000;color:#fff;border:0;padding:7px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:500}
+.micro-modal .micro-primary:hover{opacity:.88}
+.micro-control-item{cursor:default}
+.micro-joy-ctrl{cursor:pointer}
+.micro-joy-body{display:flex;gap:16px;align-items:stretch;margin-top:14px}
+/* 摇杆弹窗里的方向盘底盘：与布局里那颗摇杆同形（正圆），不再是圆角方框 —— 见上面 .micro-control-base 的注释。 */
+.micro-joy-pad{flex:none;align-self:center;width:64px;height:64px;border-radius:50%;background:#eef2f6;display:grid;place-items:center}
+.micro-joy-knob{width:26px;height:26px;border-radius:50%;background:#111;box-shadow:0 2px 4px rgba(0,0,0,.25)}
+.micro-joy-list{flex:1;display:flex;flex-direction:column;gap:6px}
+.micro-joy-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid #e5e7eb;border-radius:10px;cursor:pointer}
+.micro-joy-row:hover{border-color:#93c5fd}
+.micro-joy-row--sel,.micro-joy-row--sel:hover{border-color:#3b82f6;background:#eff6ff}
+.micro-joy-arrow{font-size:15px;color:#4b5563;width:16px;text-align:center}
+.micro-joy-dir{font-weight:600;color:#1f2937}
+.micro-joy-val{margin-left:auto;color:#4b5563;font-size:13px;max-width:58%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.micro-joy-foot{display:flex;justify-content:flex-end;margin-top:16px}
+.micro-joy-done{width:100%}
+.micro-overlay--sub{z-index:10002}
+.micro-modal--sub{width:min(480px,92vw)}
+.micro-sub-title{font-size:16px;font-weight:700;color:#1f2937}
+.micro-sub-clear{display:flex;align-items:center;gap:6px;background:transparent;border:1px solid #e5e7eb;color:#4b5563;border-radius:20px;padding:3px 10px;font-size:12px;cursor:pointer}
+.micro-sub-clear span{color:#999;font-size:14px}
+.micro-sub-body{max-height:320px;overflow:auto}
+.micro-sub-cat{font-size:13px;font-weight:700;color:#374151;margin:12px 0 4px}
+.micro-sub-pick{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;cursor:pointer}
+.micro-sub-pick:hover{background:#f3f4f6}
+.micro-sub-pick--soon{opacity:.45;cursor:default}
+.micro-sub-pick--soon:hover{background:transparent}
+.micro-sub-name{flex:none;font-weight:600;color:#1f2937}
+.micro-sub-des{margin-left:auto;color:#4b5563;font-size:12px;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.micro-sub-empty{padding:18px;text-align:center;color:#9ca3af;font-size:13px}
+.micro-wrap{display:flex;flex-direction:column;gap:16px;padding:0 0 24px;max-width:560px}
+.micro-heading{margin-bottom:4px}
+.micro-title{font-size:18px;font-weight:600;color:var(--dsw-alias-label-primary);margin:0}
+.micro-subtitle{font-size:13px;color:#4b5563;margin:4px 0 0}
+.micro-card{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;padding:14px 16px}
+.micro-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 0}
+.micro-row + .micro-row{border-top:1px solid var(--dsw-alias-border-l2)}
+.micro-row__label{min-width:0;flex:1}
+.micro-row__title{font-size:14px;color:var(--dsw-alias-label-primary)}
 /* 模块描述文字：固定 #999（不跟随主题令牌——令牌在浅色主题下太浅，读不清） */
-.omkb-row__desc{font-size:12px;color:#999;margin-top:2px}
-.omkb-row__ctrl{flex:none;display:flex;align-items:center;gap:8px}
-.omkb-dot{width:8px;height:8px;border-radius:999px;flex:none}
-.omkb-dot--ok{background:var(--dsw-alias-state-success-primary)}
-.omkb-dot--err{background:var(--dsw-alias-state-error-primary)}
+.micro-row__desc{font-size:12px;color:#999;margin-top:2px}
+.micro-row__ctrl{flex:none;display:flex;align-items:center;gap:8px}
+.micro-dot{width:8px;height:8px;border-radius:999px;flex:none}
+.micro-dot--ok{background:var(--dsw-alias-state-success-primary)}
+.micro-dot--err{background:var(--dsw-alias-state-error-primary)}
 /* 「无法判定」：既不是成功也不是失败，用中性灰（别拿红点吓人） */
-.omkb-dot--idle{background:var(--dsw-alias-label-tertiary)}
-.omkb-status{font-size:13px;font-weight:500}
-.omkb-status--ok{color:var(--dsw-alias-state-success-primary)}
-.omkb-status--err{color:var(--dsw-alias-state-error-primary)}
-.omkb-status--idle{color:var(--dsw-alias-label-secondary)}
-.omkb-hint{font-size:12px;color:var(--dsw-alias-state-warn-label);margin-top:8px;line-height:1.5}
+.micro-dot--idle{background:var(--dsw-alias-label-tertiary)}
+.micro-status{font-size:13px;font-weight:500}
+.micro-status--ok{color:var(--dsw-alias-state-success-primary)}
+.micro-status--err{color:var(--dsw-alias-state-error-primary)}
+.micro-status--idle{color:var(--dsw-alias-label-secondary)}
+.micro-hint{font-size:12px;color:var(--dsw-alias-state-warn-label);margin-top:8px;line-height:1.5}
 /* 设置页里「这一页只演示、不触发功能」的说明（闸门见 hid-bridge 的 enterSim）。
  * 贴在键盘插图正上方、居中；用告警色是刻意的 —— 用户按了键没反应时，这行字是唯一解释。 */
-.omkb-sim-hint{text-align:center;margin:12px 0 0}
-.omkb-slider{width:160px;accent-color:var(--dsw-alias-brand-primary)}
-.omkb-val{font-size:12px;color:var(--dsw-alias-label-secondary);min-width:34px;text-align:right}
+.micro-sim-hint{text-align:center;margin:12px 0 0}
+.micro-slider{width:160px;accent-color:var(--dsw-alias-brand-primary)}
+.micro-val{font-size:12px;color:var(--dsw-alias-label-secondary);min-width:34px;text-align:right}
 /* ---------- 电量（设置页「电池」那一行；只在设备连上时出现）----------
  * 颜色三档：正常跟随次级文字色；**低电量**（阈值见 utils/device.js 的 BATTERY_LOW_PCT）
  * 图标与数字一起转告警红 —— 数字也要红，因为图标小、红点容易被当成装饰。
  * 「充电中」用中性文字的小胶囊，不抢告警色（此刻低电量已经不告警了，见 batteryView）。 */
-.omkb-batt{display:inline-flex;align-items:center;color:var(--dsw-alias-label-secondary)}
-.omkb-batt--low{color:var(--dsw-alias-state-error-primary)}
-.omkb-batt__val{font-size:13px;font-weight:600;color:var(--dsw-alias-label-secondary);min-width:34px;text-align:right}
-.omkb-batt__val--low{color:var(--dsw-alias-state-error-primary)}
-.omkb-batt__tag{font-size:11px;color:var(--dsw-alias-label-tertiary);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:1px 6px}
-.omkb-select{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:5px 8px;font-size:13px}
-.omkb-switch{position:relative;width:38px;height:22px;border-radius:999px;border:none;background:var(--dsw-alias-label-tertiary);cursor:pointer;transition:background .15s}
-.omkb-switch[data-on]{background:var(--dsw-alias-brand-primary)}
-.omkb-switch::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:999px;background:#fff;transition:transform .15s}
-.omkb-switch[data-on]::after{transform:translateX(16px)}
-.omkb-ghost{background:0 0;border:none;color:var(--dsw-alias-label-secondary);font-size:13px;cursor:pointer;padding:4px 8px;border-radius:8px}
-.omkb-ghost:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.micro-batt{display:inline-flex;align-items:center;color:var(--dsw-alias-label-secondary)}
+.micro-batt--low{color:var(--dsw-alias-state-error-primary)}
+.micro-batt__val{font-size:13px;font-weight:600;color:var(--dsw-alias-label-secondary);min-width:34px;text-align:right}
+.micro-batt__val--low{color:var(--dsw-alias-state-error-primary)}
+.micro-batt__tag{font-size:11px;color:var(--dsw-alias-label-tertiary);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:1px 6px}
+.micro-select{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:5px 8px;font-size:13px}
+.micro-switch{position:relative;width:38px;height:22px;border-radius:999px;border:none;background:var(--dsw-alias-label-tertiary);cursor:pointer;transition:background .15s}
+.micro-switch[data-on]{background:var(--dsw-alias-brand-primary)}
+.micro-switch::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:999px;background:#fff;transition:transform .15s}
+.micro-switch[data-on]::after{transform:translateX(16px)}
+.micro-ghost{background:0 0;border:none;color:var(--dsw-alias-label-secondary);font-size:13px;cursor:pointer;padding:4px 8px;border-radius:8px}
+.micro-ghost:hover{background:var(--dsw-alias-interactive-bg-hover)}
 /* 破坏性操作（「移除」）：平时与其它 ghost 按钮同形，只有文字用告警色 ——
  * 按钮长得越像普通按钮，越要让人一眼看出它不一样。 */
-.omkb-ghost--danger{color:var(--dsw-alias-state-error-primary)}
-.omkb-ghost--danger:hover{background:var(--dsw-alias-interactive-bg-hover-danger)}
-.omkb-modal .omkb-primary--danger{background:var(--dsw-alias-state-error-primary)}
-.omkb-modal .omkb-primary--danger:hover{opacity:.88}
+.micro-ghost--danger{color:var(--dsw-alias-state-error-primary)}
+.micro-ghost--danger:hover{background:var(--dsw-alias-interactive-bg-hover-danger)}
+.micro-modal .micro-primary--danger{background:var(--dsw-alias-state-error-primary)}
+.micro-modal .micro-primary--danger:hover{opacity:.88}
 /* ---------- 保存提示：顶部悬浮 message ----------
- * 由设置页 OmkbSaveToast 渲染，只在 saved / saving / error 时存在。
+ * 由设置页 MicroSaveToast 渲染，只在 saved / saving / error 时存在。
  * 三条硬约束：
  *   1) position:fixed —— 必须**脱离文档流**（原来的行内文本每次出现都把下方卡片顶动一行）；
- *   2) z-index 高于本插件的弹窗遮罩（.omkb-modal-overlay 9999 / 二级 10002），
+ *   2) z-index 高于本插件的弹窗遮罩（.micro-modal-overlay 9999 / 二级 10002），
  *      否则在「编辑键帽」弹窗关掉的那一拍会被盖住 —— 保存提示恰好出现在那一拍；
  *   3) pointer-events:none —— 它是通知不是控件，绝不能挡住底下任何点击
  *      （视口顶部正中在设置弹窗的头部区域，那里有 DSH 自己的关闭按钮附近的可点区域）。
  * 颜色走 DSH 主题令牌：浅色/深色主题自动跟随，不写死背景。 */
-.omkb-toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:10050;display:flex;align-items:center;gap:7px;max-width:70vw;padding:7px 14px 7px 12px;border-radius:999px;background:var(--dsw-alias-bg-layer-1,#fff);border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));box-shadow:0 10px 26px rgba(15,18,25,.16),0 2px 6px rgba(15,18,25,.08);font-size:13px;font-weight:500;line-height:1.25;color:var(--dsw-alias-label-primary,#111);pointer-events:none;animation:omkb_toast_in .18s ease-out}
-.omkb-toast__ico{display:flex;align-items:center;justify-content:center;flex:none;width:14px;height:14px}
-.omkb-toast__text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.omkb-toast--saving .omkb-toast__ico{color:var(--dsw-alias-label-secondary,#6b7280)}
-.omkb-toast--saved .omkb-toast__ico{color:var(--dsw-alias-state-success-primary,#16a34a)}
-.omkb-toast--error .omkb-toast__ico{color:var(--dsw-alias-state-error-primary,#dc2626)}
-.omkb-toast--error{color:var(--dsw-alias-state-error-primary,#dc2626)}
+.micro-toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:10050;display:flex;align-items:center;gap:7px;max-width:70vw;padding:7px 14px 7px 12px;border-radius:999px;background:var(--dsw-alias-bg-layer-1,#fff);border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));box-shadow:0 10px 26px rgba(15,18,25,.16),0 2px 6px rgba(15,18,25,.08);font-size:13px;font-weight:500;line-height:1.25;color:var(--dsw-alias-label-primary,#111);pointer-events:none;animation:micro_toast_in .18s ease-out}
+.micro-toast__ico{display:flex;align-items:center;justify-content:center;flex:none;width:14px;height:14px}
+.micro-toast__text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.micro-toast--saving .micro-toast__ico{color:var(--dsw-alias-label-secondary,#6b7280)}
+.micro-toast--saved .micro-toast__ico{color:var(--dsw-alias-state-success-primary,#16a34a)}
+.micro-toast--error .micro-toast__ico{color:var(--dsw-alias-state-error-primary,#dc2626)}
+.micro-toast--error{color:var(--dsw-alias-state-error-primary,#dc2626)}
 /* 「保存中」用转圈而不是静态图标：写盘快慢不定，转圈说明还在进行中。 */
-.omkb-toast__spin{box-sizing:border-box;width:13px;height:13px;border-radius:50%;border:2px solid currentColor;border-top-color:transparent;animation:omkb_toast_spin .7s linear infinite}
-@keyframes omkb_toast_in{from{opacity:0;transform:translate(-50%,-10px)}to{opacity:1;transform:translate(-50%,0)}}
-@keyframes omkb_toast_spin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.omkb-toast{animation:none}.omkb-toast__spin{animation-duration:1.6s}}
+.micro-toast__spin{box-sizing:border-box;width:13px;height:13px;border-radius:50%;border:2px solid currentColor;border-top-color:transparent;animation:micro_toast_spin .7s linear infinite}
+@keyframes micro_toast_in{from{opacity:0;transform:translate(-50%,-10px)}to{opacity:1;transform:translate(-50%,0)}}
+@keyframes micro_toast_spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.micro-toast{animation:none}.micro-toast__spin{animation-duration:1.6s}}
 
-.omkb-page-wrap {
+.micro-page-wrap {
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
-.omkb-keyboard-wrap {
+.micro-keyboard-wrap {
   width: 420px;
   padding: 24px;
   background: #eae8e3;
@@ -174,13 +174,13 @@
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
 }
 
-.omkb-grid-4col {
+.micro-grid-4col {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
 }
 
-.omkb-key {
+.micro-key {
   aspect-ratio: 1 / 1;
   background: #f7f5f1;
   border-radius: 18px;
@@ -194,28 +194,28 @@
   border: 1px solid rgba(255, 255, 255, 0.6);
 }
 
-.omkb-key:active {
+.micro-key:active {
   transform: translateY(2px);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 /* 真机按键时布局里对应键的按压特效（纯视觉，见 components/settings/keyboard-layout.jsx 的 useHidSignals）：
    按下 = 陷下去 + 内阴影 + 底色变暗；松开时用上面的回弹曲线弹回来。 */
-.omkb-key--pressed {
+.micro-key--pressed {
   transform: translateY(3px) scale(0.95);
   background: #e9e6df;
   box-shadow: 0 0 0 rgba(0, 0, 0, 0.05), inset 0 2px 6px rgba(0, 0, 0, 0.14);
   transition-duration: 0.06s;
 }
 
-.omkb-key-dot {
+.micro-key-dot {
   width: 22px;
   height: 22px;
   border-radius: 50%;
   background: #7b68bc;
 }
 
-.omkb-control-item {
+.micro-control-item {
   aspect-ratio: 1 / 1;
   display: flex;
   align-items: center;
@@ -226,12 +226,12 @@
   cursor: default;
 }
 
-/* 旋钮 / 摇杆的**凹槽底盘**：必须跟里面的圆零件（.omkb-circle-knob-inner / .omkb-joystick-dot）
+/* 旋钮 / 摇杆的**凹槽底盘**：必须跟里面的圆零件（.micro-circle-knob-inner / .micro-joystick-dot）
  * 同形 —— 都是正圆。改回 px 圆角会让"圆零件"看上去像被套进一个圆角方框里
  * （用户 2026-09-23 报的「原来圆形的图标变成圆角形状」就是这层底盘造成的：
  *  白芯 #f1f1ef 与底盘 #e6e4df 对比度极低，整体看就是个圆角方形）。
  * 契约由 test/verify_layout.js 的【圆形零件】一节守着。 */
-.omkb-control-base {
+.micro-control-base {
   width: 92px;
   height: 92px;
   border-radius: 50%;
@@ -243,10 +243,10 @@
   border: 1px solid rgba(0, 0, 0, 0.04);
 }
 
-.omkb-circle-knob-inner {
+.micro-circle-knob-inner {
   width: 72px;
   height: 72px;
-  /* 定位祖先：转动指示的环与蓝点都画在它里面（见下面 .omkb-knob-ring / .omkb-knob-dot） */
+  /* 定位祖先：转动指示的环与蓝点都画在它里面（见下面 .micro-knob-ring / .micro-knob-dot） */
   position: relative;
   border-radius: 50%;
   background: #f1f1ef;
@@ -260,7 +260,7 @@
  * 静止时与以前完全一样，看不见环也看不见点。
  * 几何：盘半径 36、环宽 2 → 内缘 34；点到圆心 27 + 点半径 6 = 33，外缘贴着环内侧
  * （KNOB_DOT_R，见 components/settings/keyboard-layout.jsx）。 */
-.omkb-knob-ring {
+.micro-knob-ring {
   position: absolute;
   inset: 0;
   border-radius: 50%;
@@ -269,7 +269,7 @@
   transition: opacity 0.18s ease;
 }
 
-.omkb-knob-dot {
+.micro-knob-dot {
   position: absolute;
   left: 50%;
   top: 50%;
@@ -284,10 +284,10 @@
   transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.18s ease;
 }
 
-.omkb-control-base.omkb-knob--active .omkb-knob-ring { opacity: 1; }
-.omkb-control-base.omkb-knob--active .omkb-knob-dot { opacity: 1; }
+.micro-control-base.micro-knob--active .micro-knob-ring { opacity: 1; }
+.micro-control-base.micro-knob--active .micro-knob-dot { opacity: 1; }
 
-.omkb-joystick-dot {
+.micro-joystick-dot {
   width: 72px;
   height: 72px;
   border-radius: 50%;
@@ -298,12 +298,12 @@
   will-change: transform;
 }
 
-.omkb-svg-icon {
+.micro-svg-icon {
   width: 32px;
   height: 32px;
 }
 
-.omkb-bottom-row {
+.micro-bottom-row {
   margin-top: 16px;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -311,7 +311,7 @@
   align-items: stretch;
 }
 
-.omkb-knob-panel {
+.micro-knob-panel {
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -319,23 +319,23 @@
   gap: 8px;
 }
 
-.omkb-knob-lights {
+.micro-knob-lights {
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
 
-.omkb-knob-light {
+.micro-knob-light {
   width: 10px;
   height: 10px;
   border-radius: 50%;
 }
 
-.omkb-blue { background: #74a9ff; }
-.omkb-green { background: #90c968; }
-.omkb-amber { background: #e0c05a; }
+.micro-blue { background: #74a9ff; }
+.micro-green { background: #90c968; }
+.micro-amber { background: #e0c05a; }
 
-.omkb-circle-knob {
+.micro-circle-knob {
   width: 70px;
   height: 70px;
   border-radius: 50%;
@@ -343,18 +343,18 @@
   flex-shrink: 0;
 }
 
-.omkb-key-mic {
+.micro-key-mic {
   grid-column: span 2;
   aspect-ratio: unset;
 }
 
 /* 预览模式（首次连接引导里的键盘插图，见 components/modals/guide.jsx）：
  * 只画不响应 —— 整张插图对指针透明（连 :active 的按压回弹也不要），背景交还给外层卡片。 */
-.omkb-page-wrap--preview{background:transparent}
-.omkb-page-wrap--preview .omkb-key{cursor:default;pointer-events:none}
+.micro-page-wrap--preview{background:transparent}
+.micro-page-wrap--preview .micro-key{cursor:default;pointer-events:none}
 /* 示意色圆点（引导里那 6 颗智能体键）：白色/黑色在浅色键面上会看不见，
  * 统一加一圈极淡的内描边，让「灯珠」在四种颜色下都有轮廓。 */
-.omkb-key-dot--swatch{box-shadow:inset 0 0 0 1px rgba(0,0,0,.18)}
+.micro-key-dot--swatch{box-shadow:inset 0 0 0 1px rgba(0,0,0,.18)}
 
 /* ---------- 首次连接引导 ----------
  * 层级夹在本插件自己的弹窗（9999 / 二级 10002）之上、保存提示（10050）之下：
@@ -362,24 +362,24 @@
  * 万一同时出现也不该被引导盖住。
  * 注意：**没有**「点遮罩关闭」——引导一旦关掉就永久记住「看过了」（见 modals/guide.jsx 顶部），
  * 误点一次等于再也看不到，所以出口只有右上角 × / 跳过 / 走完两步。 */
-.omkb-guide-overlay{z-index:10040}
-.omkb-guide{position:relative;width:min(600px,94vw);max-height:92vh;overflow:auto;padding:18px 18px 0;display:flex;flex-direction:column}
-.omkb-guide-x{position:absolute;top:6px;right:8px;z-index:2}
-.omkb-guide-shot{display:flex;justify-content:center;margin-bottom:14px;pointer-events:none}
-.omkb-guide-shot .omkb-keyboard-wrap{width:min(480px,100%);box-sizing:border-box;padding:18px;border-radius:22px;box-shadow:0 6px 20px rgba(0,0,0,.08)}
-.omkb-guide-body{padding:0 6px}
-.omkb-guide-title{font-size:20px;font-weight:700;color:#1f2937;text-align:center}
-.omkb-guide-desc{margin-top:8px;font-size:13px;line-height:1.65;color:#4b5563;text-align:center}
-.omkb-guide-status{margin-top:12px;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:7px;font-size:13px;font-weight:500}
-.omkb-guide-sep{color:#c9c9c9}
-.omkb-guide-legend{margin-top:14px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px;text-align:left;border:1px solid #ececec;border-radius:12px;padding:12px 14px}
-.omkb-guide-legend-row{display:flex;align-items:center;gap:8px;font-size:12.5px;min-width:0}
-.omkb-guide-swatch{width:12px;height:12px;border-radius:50%;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.18)}
-.omkb-guide-legend-name{font-weight:600;color:#374151;flex:none}
-.omkb-guide-legend-hint{color:#9ca3af;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.omkb-guide-note{margin-top:14px;padding:12px 14px;border-radius:12px;background:#f7f5f1;font-size:12.5px;line-height:1.65;color:#4b5563;text-align:left}
-.omkb-guide-foot{margin-top:16px;padding-bottom:18px;justify-content:center}
-@media (max-width:560px){.omkb-guide-legend{grid-template-columns:1fr}}
+.micro-guide-overlay{z-index:10040}
+.micro-guide{position:relative;width:min(600px,94vw);max-height:92vh;overflow:auto;padding:18px 18px 0;display:flex;flex-direction:column}
+.micro-guide-x{position:absolute;top:6px;right:8px;z-index:2}
+.micro-guide-shot{display:flex;justify-content:center;margin-bottom:14px;pointer-events:none}
+.micro-guide-shot .micro-keyboard-wrap{width:min(480px,100%);box-sizing:border-box;padding:18px;border-radius:22px;box-shadow:0 6px 20px rgba(0,0,0,.08)}
+.micro-guide-body{padding:0 6px}
+.micro-guide-title{font-size:20px;font-weight:700;color:#1f2937;text-align:center}
+.micro-guide-desc{margin-top:8px;font-size:13px;line-height:1.65;color:#4b5563;text-align:center}
+.micro-guide-status{margin-top:12px;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:7px;font-size:13px;font-weight:500}
+.micro-guide-sep{color:#c9c9c9}
+.micro-guide-legend{margin-top:14px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px;text-align:left;border:1px solid #ececec;border-radius:12px;padding:12px 14px}
+.micro-guide-legend-row{display:flex;align-items:center;gap:8px;font-size:12.5px;min-width:0}
+.micro-guide-swatch{width:12px;height:12px;border-radius:50%;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.18)}
+.micro-guide-legend-name{font-weight:600;color:#374151;flex:none}
+.micro-guide-legend-hint{color:#9ca3af;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.micro-guide-note{margin-top:14px;padding:12px 14px;border-radius:12px;background:#f7f5f1;font-size:12.5px;line-height:1.65;color:#4b5563;text-align:left}
+.micro-guide-foot{margin-top:16px;padding-bottom:18px;justify-content:center}
+@media (max-width:560px){.micro-guide-legend{grid-template-columns:1fr}}
 
 /* ---------- 侧边栏底部：设置按钮旁边的方形键盘入口 ----------
  * 展开态：36×36 方块，**覆盖定位**贴到「设置」那一行的右端（与齿轮同一行并列），
@@ -387,20 +387,20 @@
  * （见 components/sidebar/action.jsx 的 placeFootAction）：DSH 的类名是模块哈希、行高还会随
  * 展开/收起变化，量着放才稳。量不到就退回文档流（仍可用，只是多占一行）。
  * 收起成 56px 导轨时留在流里：36×36 居中，正好落在齿轮正上方（与 DSH 自己的导轨按钮同规格）。 */
-.omkb-foot-action{box-sizing:border-box;position:relative;width:36px;height:36px;color:var(--dsw-alias-label-primary);cursor:pointer;background:0 0;border:none;border-radius:10px;flex:none;align-items:center;justify-content:center;margin:0;padding:0;font-family:inherit;display:flex;overflow:hidden}
-.omkb-foot-action:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.omkb-foot-action>svg{flex:none;display:block}
+.micro-foot-action{box-sizing:border-box;position:relative;width:36px;height:36px;color:var(--dsw-alias-label-primary);cursor:pointer;background:0 0;border:none;border-radius:10px;flex:none;align-items:center;justify-content:center;margin:0;padding:0;font-family:inherit;display:flex;overflow:hidden}
+.micro-foot-action:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.micro-foot-action>svg{flex:none;display:block}
 /* 覆盖到设置行右端时：抬一层（压住设置行的 hover 反馈也不影响点击），并确保外边距为 0
  * ——绝对定位的 top/right 是从**外边距盒**起算的，留白由几何常量控制。 */
-.omkb-foot-action--pinned{position:absolute;z-index:1;margin:0}
+.micro-foot-action--pinned{position:absolute;z-index:1;margin:0}
 /* 导轨态：留在文档流，居中（footerActions 是横向 flex，这里只有它一个）。 */
-.omkb-foot-action--rail{align-self:center;margin:0 0 4px}
+.micro-foot-action--rail{align-self:center;margin:0 0 4px}
 /* 「键盘已断开」的红点（判据在 utils/device.js 的 isDeviceOffline，见 sidebar/action.jsx）。
  * 画在按钮**内圈**：按钮是 overflow:hidden（画到框外会被裁掉），而按钮 36px、图标 20px 居中，
  * 所以贴着内圈右上角 = 看起来正落在图标右上。描边用底层的颜色给红点垫开一点，
- * 免得它跟图标的线条糊在一起（`corner-shape` 由 core.js 的 omkb- 兜底规则抵掉，这里是正圆）。
+ * 免得它跟图标的线条糊在一起（`corner-shape` 由 core.js 的 micro- 兜底规则抵掉，这里是正圆）。
  * pointer-events:none：它纯装饰，点下去仍然是「打开键盘设置页」，不把点击语义劈成两个。 */
-.omkb-foot-action__dot{position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:999px;background:var(--dsw-alias-state-error-primary,#ef4444);box-shadow:0 0 0 1.5px var(--dsw-alias-bg-layer-1,#fff);pointer-events:none}
+.micro-foot-action__dot{position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:999px;background:var(--dsw-alias-state-error-primary,#ef4444);box-shadow:0 0 0 1.5px var(--dsw-alias-bg-layer-1,#fff);pointer-events:none}
 
 /* ---------- 「与后台断开」气泡（替代 DSH 画在「设置」那一行里的连接指示器）----------
  * 背景：DSH 的 triggerRow 里除了「设置」按钮，还并排放着一个连接状态指示器 —— 与后台断开时
@@ -408,7 +408,7 @@
  * 设置按钮是 `flex:1`（吃满剩余宽度），所以指示器**正好落在我们贴右端的地方**：要么被键盘
  * 图标压住（2026-09-25 第一版用户截图），要么逼得我们退回文档流、图标孤零零多占一行
  * （第二版用户截图：「这个错误更加严重了」）。
- * 现行处置：**把那个指示器藏起来**（宿主 DOM 上打 data-omkb-conn-hide，React 重渲染也顶不掉），
+ * 现行处置：**把那个指示器藏起来**（宿主 DOM 上打 data-micro-conn-hide，React 重渲染也顶不掉），
  * 改用这个气泡展示同一句话 —— 那一行恢复成「只有一个设置按钮」，覆盖定位照常；
  * 提示没丢，点气泡还能「立即重连」（= 点那颗被藏起来的指示器，见 sidebar/action.jsx）。
  * 深色 + 小尾巴是用户指定的样式（与原生 tooltip 一致），明暗两套主题下都用深色。
@@ -420,19 +420,19 @@
  * ② 不在 React 管的子树里，React 重渲染不会把它顶掉（它压根管不着这个节点）。
  * top/right 由 JS 现场量（sidebar/action.jsx 的 placeConnTip），这里只管长相。
  * 小尾巴是个真元素（不是 ::after）：位置要按方块中心算，真元素写 inline style 更省事。 */
-[data-omkb-conn-hide]{display:none!important}
-.omkb-conn-tip{position:fixed;z-index:60;box-sizing:border-box;display:block;max-width:calc(100vw - 20px);padding:6px 10px;border-radius:10px;background:#1f2124;color:#fff;font-size:12.5px;line-height:18px;white-space:nowrap;box-shadow:0 6px 18px rgba(0,0,0,.28);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .12s ease}
-.omkb-conn-tip--on{opacity:1;visibility:visible;pointer-events:auto;cursor:pointer}
-.omkb-conn-tip__text{display:block;overflow:hidden;text-overflow:ellipsis}
-.omkb-conn-tip__tail{position:absolute;top:100%;right:11px;width:0;height:0;border:6px solid transparent;border-bottom:0;border-top-color:#1f2124;font-size:0;line-height:0;pointer-events:none}
-.omkb-conn-tip--below .omkb-conn-tip__tail{top:auto;bottom:100%;border-top:0;border-bottom:6px solid #1f2124}
+[data-micro-conn-hide]{display:none!important}
+.micro-conn-tip{position:fixed;z-index:60;box-sizing:border-box;display:block;max-width:calc(100vw - 20px);padding:6px 10px;border-radius:10px;background:#1f2124;color:#fff;font-size:12.5px;line-height:18px;white-space:nowrap;box-shadow:0 6px 18px rgba(0,0,0,.28);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .12s ease}
+.micro-conn-tip--on{opacity:1;visibility:visible;pointer-events:auto;cursor:pointer}
+.micro-conn-tip__text{display:block;overflow:hidden;text-overflow:ellipsis}
+.micro-conn-tip__tail{position:absolute;top:100%;right:11px;width:0;height:0;border:6px solid transparent;border-bottom:0;border-top-color:#1f2124;font-size:0;line-height:0;pointer-events:none}
+.micro-conn-tip--below .micro-conn-tip__tail{top:auto;bottom:100%;border-top:0;border-bottom:6px solid #1f2124}
 
 /* ── 「设置」的悬停提示：挪到行上方 + 补一根朝下的小尾巴（2026-09-26）────────────
  * DSH 的 Tooltip（dsh-client-ui-primitives）默认 side:"right"：`left = 锚点右缘 + 10px`、
  * 竖直居中。「设置」按钮被我们收窄之后，那个落点在侧边栏里面、正好压住键盘方块。
  * 用户要的位置是「在设置上面」——这里把它改到**行上方**：
- *   * 行打 data-omkb-gear-row（sidebar/action.jsx 的 markGearTip）→ position:relative 做包含块；
- *   * 提示打 data-omkb-gear-tip → 改成 absolute、贴着行上缘、左缘对齐齿轮。
+ *   * 行打 data-micro-gear-row（sidebar/action.jsx 的 markGearTip）→ position:relative 做包含块；
+ *   * 提示打 data-micro-gear-tip → 改成 absolute、贴着行上缘、左缘对齐齿轮。
  * ⚠ 内联 left/top 是 DSH 的 JS 写的（悬停时算一次、ResizeObserver 每次重算都重写），
  *   不带 !important 压不住；transform 也要清 —— [data-side=right] 自带 translateY(-50%)。
  * ⚠ `calc(100% + 8px)` 里的 8 = sidebar/action.jsx 的 TIP_ABOVE_GAP，两处数字改要一起改。
@@ -444,15 +444,15 @@
  * 颜色用 DSH 的 tooltip 令牌（跟主题走），别写死深色。::after 不会被裁：bubble 的 CSS 里没有
  * overflow:hidden（`.{bubble}` 只有 display/position/padding/圆角这些）。
  * `left:14px` = 齿轮左缘往右 14px，正落在齿轮图标（20px、左内边距约 10px）那一片上。 */
-[data-omkb-gear-row]{position:relative}
-[data-omkb-gear-tip]{position:absolute!important;left:var(--omkb-gear-tip-left,0)!important;right:auto!important;top:auto!important;bottom:calc(100% + 8px)!important;transform:none!important}
-[data-omkb-gear-tip]::after{content:'';position:absolute;top:100%;left:14px;width:0;height:0;border:6px solid transparent;border-bottom:0;border-top-color:var(--dsw-alias-tooltip-bg,#1f2124);font-size:0;line-height:0;pointer-events:none}
+[data-micro-gear-row]{position:relative}
+[data-micro-gear-tip]{position:absolute!important;left:var(--micro-gear-tip-left,0)!important;right:auto!important;top:auto!important;bottom:calc(100% + 8px)!important;transform:none!important}
+[data-micro-gear-tip]::after{content:'';position:absolute;top:100%;left:14px;width:0;height:0;border:6px solid transparent;border-bottom:0;border-top-color:var(--dsw-alias-tooltip-bg,#1f2124);font-size:0;line-height:0;pointer-events:none}
 
 /* ── 第三方插件依赖（设置页底部；清单来自 config/default.js 的 PLUGIN_DEPS，
  * **清单为空则整卡不渲染**（用户 2026-09-29 口径）—— 所以这里只有行内徽标的样式，
  * 没有空态样式；见 settings/panel.jsx）──
- * 徽标复刻 .omkb-batt__tag 的胶囊造型，但用绿/红两态表达「已安装 / 未安装」。
+ * 徽标复刻 .micro-batt__tag 的胶囊造型，但用绿/红两态表达「已安装 / 未安装」。
  * 绿色/红色取 DSH 设计令牌的状态色，跟随主题（不写死色值，避免暗色主题下看不清）。 */
-.omkb-plugin-badge{font-size:11px;line-height:1;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:4px 8px;white-space:nowrap}
-.omkb-plugin-badge--on{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}
-.omkb-plugin-badge--off{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}
+.micro-plugin-badge{font-size:11px;line-height:1;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:4px 8px;white-space:nowrap}
+.micro-plugin-badge--on{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}
+.micro-plugin-badge--off{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}

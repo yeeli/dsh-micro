@@ -1,5 +1,5 @@
-// dsh-omkb · client/src/utils/press-state.js
-// 布局按键特效的「按压状态机」：把 /omkb/state 快照折成「哪些视觉键正按着」。
+// dsh-micro · client/src/utils/press-state.js
+// 布局按键特效的「按压状态机」：把 /micro/state 快照折成「哪些视觉键正按着」。
 //
 // 要的行为：**按下就陷下去，接到松开才抬起来**（不是按固定时长自己弹回）。
 // 设备给了这个信息（`params.act`：1 按下 / 0 松开，见 src/core/ble.js 的 HID_ACT），
@@ -55,7 +55,7 @@ export const createPressTracker = ({ now = () => Date.now() } = {}) => {
   let sawDown = false
 
   /**
-   * 喂一帧 /omkb/state。
+   * 喂一帧 /micro/state。
    * @param {object} s 状态快照。
    * @param {boolean} split 「独立麦克风键」是否打开（ACT10/ACT11 拆成两颗）。
    */

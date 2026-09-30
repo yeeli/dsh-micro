@@ -1,6 +1,6 @@
-// dsh-omkb · client/joystick.js
+// dsh-micro · client/joystick.js
 // 摇杆分派：宿主依 v.oai.rad 的角度把摇杆归一化为四方向（见 src/core/joystick.js），
-// 经 /omkb/state 的 `joy`（当前方向）+ `joyT`（方向变化计数）上报；
+// 经 /micro/state 的 `joy`（当前方向）+ `joyT`（方向变化计数）上报；
 // hid-bridge 检测到 joyT 前进一格后调用本控制器一次。
 //
 // 方向 → 动作 的映射**来自设置页**（`joystick` 字段，键 up/right/down/left、值为动作名），
@@ -91,7 +91,7 @@ export class JoystickController {
     const o = options || {}
     this.#ops = o.ops || null
     this.#voice = o.voice || null
-    this.#log = typeof o.log === 'function' ? o.log : (msg) => { try { console.log('[omkb] ' + msg) } catch (e) {} }
+    this.#log = typeof o.log === 'function' ? o.log : (msg) => { try { console.log('[micro] ' + msg) } catch (e) {} }
     if (typeof o.onGesture === 'function') this.#onGesture = o.onGesture
   }
 

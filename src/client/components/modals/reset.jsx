@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/components/modals/reset.jsx
+// dsh-micro · client/src/components/modals/reset.jsx
 // 「重置布局」确认弹窗。
 //
 // 重置是**破坏性**的（用户一颗一颗调出来的键帽、摇杆映射会被一次清空），所以动手前
@@ -32,30 +32,30 @@ const RESET_GROUPS = [
  * @param onCancel - 放弃重置。
  * @param onConfirm - 真的重置（由调用方负责 unset + 回读校验）。
  */
-export function OmkbResetModal({ onCancel, onConfirm }) {
+export function MicroResetModal({ onCancel, onConfirm }) {
   return (
-    <div className="omkb-modal-overlay" onMouseDown={onCancel}>
-      <div className="omkb-modal" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="omkb-modal-head">
+    <div className="micro-modal-overlay" onMouseDown={onCancel}>
+      <div className="micro-modal" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="micro-modal-head">
           <div>
-            <div className="omkb-modal-title">重置布局</div>
-            <div className="omkb-modal-sub">把下面这些改回出厂设置，并保存</div>
+            <div className="micro-modal-title">重置布局</div>
+            <div className="micro-modal-sub">把下面这些改回出厂设置，并保存</div>
           </div>
-          <button type="button" className="omkb-modal-x" onClick={onCancel}>×</button>
+          <button type="button" className="micro-modal-x" onClick={onCancel}>×</button>
         </div>
-        <div className="omkb-reset-body">
+        <div className="micro-reset-body">
           {RESET_GROUPS.map((g) => (
             <div key={g.title}>
-              <div className="omkb-sub-cat">{g.title}</div>
-              <ul className="omkb-reset-list">
+              <div className="micro-sub-cat">{g.title}</div>
+              <ul className="micro-reset-list">
                 {g.items.map((it) => <li key={it}>{it}</li>)}
               </ul>
             </div>
           ))}
         </div>
-        <div className="omkb-modal-foot">
-          <button type="button" className="omkb-ghost" onClick={onCancel}>取消</button>
-          <button type="button" className="omkb-primary" onClick={onConfirm}>重置</button>
+        <div className="micro-modal-foot">
+          <button type="button" className="micro-ghost" onClick={onCancel}>取消</button>
+          <button type="button" className="micro-primary" onClick={onConfirm}>重置</button>
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/components/modals/remove.jsx
+// dsh-micro · client/src/components/modals/remove.jsx
 // 「移除键盘」确认弹窗。
 //
 // 这是一次**破坏性**操作（清空全部偏好 + 把设置页分区与侧边栏入口一起收起来），所以动手前
@@ -22,27 +22,27 @@ const ITEM_KEYS = [
  * @param onCancel - 放弃移除。
  * @param onConfirm - 真的移除（调用方负责清空 + 回读校验）。
  */
-export function OmkbRemoveModal({ tt, onCancel, onConfirm }) {
+export function MicroRemoveModal({ tt, onCancel, onConfirm }) {
   const t = typeof tt === 'function' ? tt : ((k) => k)
   return (
-    <div className="omkb-modal-overlay" onMouseDown={onCancel}>
-      <div className="omkb-modal" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="omkb-modal-head">
+    <div className="micro-modal-overlay" onMouseDown={onCancel}>
+      <div className="micro-modal" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="micro-modal-head">
           <div>
-            <div className="omkb-modal-title">{t('remove.title')}</div>
-            <div className="omkb-modal-sub">{t('remove.sub')}</div>
+            <div className="micro-modal-title">{t('remove.title')}</div>
+            <div className="micro-modal-sub">{t('remove.sub')}</div>
           </div>
-          <button type="button" className="omkb-modal-x" aria-label={t('remove.cancel')} onClick={onCancel}>×</button>
+          <button type="button" className="micro-modal-x" aria-label={t('remove.cancel')} onClick={onCancel}>×</button>
         </div>
-        <div className="omkb-reset-body">
-          <ul className="omkb-reset-list">
+        <div className="micro-reset-body">
+          <ul className="micro-reset-list">
             {ITEM_KEYS.map((k) => <li key={k}>{t(k)}</li>)}
           </ul>
-          <div className="omkb-modal-hint">{t('remove.hint')}</div>
+          <div className="micro-modal-hint">{t('remove.hint')}</div>
         </div>
-        <div className="omkb-modal-foot">
-          <button type="button" className="omkb-ghost" onClick={onCancel}>{t('remove.cancel')}</button>
-          <button type="button" className="omkb-primary omkb-primary--danger" onClick={onConfirm}>{t('remove.confirm')}</button>
+        <div className="micro-modal-foot">
+          <button type="button" className="micro-ghost" onClick={onCancel}>{t('remove.cancel')}</button>
+          <button type="button" className="micro-primary micro-primary--danger" onClick={onConfirm}>{t('remove.confirm')}</button>
         </div>
       </div>
     </div>

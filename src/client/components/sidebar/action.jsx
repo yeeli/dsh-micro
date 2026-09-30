@@ -1,4 +1,4 @@
-// dsh-omkb · client/components/sidebar/action.jsx
+// dsh-micro · client/components/sidebar/action.jsx
 // 侧边栏最下层：**「设置」按钮同一行的右端**放一个方形键盘按钮，点一下直接打开键盘设置页。
 //
 // ── 位置：只能靠覆盖定位 ─────────────────────────────────────────────
@@ -18,7 +18,7 @@
 //    就干脆不收，宁可重叠也不压坏界面。
 // ② **「那一行」只能有一个定义** = `gearRowOf(gear)` = `layoutParent(gear)`（跳过 `display:contents`）。
 //    曾因另一处用 `gear.parentElement`（= launcher 出口）导致指示器既不被藏也弹不出气泡、就地压住方块。
-//    藏邻居（`data-omkb-conn-hide`）与标记行（`data-omkb-gear-row`）必须共用这一个函数。
+//    藏邻居（`data-micro-conn-hide`）与标记行（`data-micro-gear-row`）必须共用这一个函数。
 //
 // ── 邻居的处理：先问「占不占位」────────────────────────────────────
 // ① **认得出的连接指示器**（断开/重连时的橙条、刚恢复的绿条，正好落在我们要贴的位置）→
@@ -56,12 +56,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { DSVI, KeypadIcon } from '../../core.js'
 import { isDeviceOffline } from '../../utils/device.js'
-import { OmkbGuideHost } from '../modals/guide.jsx'
+import { MicroGuideHost } from '../modals/guide.jsx'
 
 /** 槽位名（与 core.js 的 SLOT_FOOT_ACTION 同值，导出便于自检引用）。 */
 export const FOOT_ACTION_SLOT = DSVI.SLOT_FOOT_ACTION
 /** 本插件在这个槽位里的条目 id。 */
-export const FOOT_ACTION_ID = 'omkb-keyboard'
+export const FOOT_ACTION_ID = 'micro-keyboard'
 
 /** 设置 UI 所在的槽位出口（renderer 给每个槽位加 data-slot 锚点）。 */
 export const SETTINGS_OUTLET_SEL = '[data-slot="sidebar.settings"]'
@@ -96,8 +96,8 @@ export const MIN_GEAR_WIDTH = 96
  * 认不出就不认：调用方会退回文档流（绝不重叠）。
  */
 export const CONN_NOTICE_SEL = 'button[data-phase],[role="status"]'
-/** 打在指示器上的标记属性：CSS 靠它把指示器藏起来（`[data-omkb-conn-hide]{display:none}`）。 */
-export const NOTICE_HIDE_ATTR = 'data-omkb-conn-hide'
+/** 打在指示器上的标记属性：CSS 靠它把指示器藏起来（`[data-micro-conn-hide]{display:none}`）。 */
+export const NOTICE_HIDE_ATTR = 'data-micro-conn-hide'
 /** 气泡与键盘方块之间的间隔（px）。 */
 export const TIP_GAP = 6
 /** 小尾巴的宽度（px，也是它三角形的高）。 */
@@ -107,12 +107,12 @@ export const TIP_TAIL = 12
  * 给我们贴着的那一行打的标记 —— CSS 靠它把行变成定位祖先（`position:relative`，
  * DSH 现在自己也有一条，但那是它的类名管着，不保险）。
  */
-export const GEAR_ROW_ATTR = 'data-omkb-gear-row'
+export const GEAR_ROW_ATTR = 'data-micro-gear-row'
 /**
  * 给「设置」的悬停提示打的标记。**只打紧跟在设置按钮后面那一个**：
  * 同一行里可能还有别的提示（桌面更新指示器也是 Tooltip，side:top），一起改就把别人的位置也挪了。
  */
-export const GEAR_TIP_ATTR = 'data-omkb-gear-tip'
+export const GEAR_TIP_ATTR = 'data-micro-gear-tip'
 /** 提示与那一行之间的间隔（px，CSS 里那条 `bottom: calc(100% + 8px)` 用的就是它）。 */
 export const TIP_ABOVE_GAP = 8
 
@@ -120,7 +120,7 @@ export const TIP_ABOVE_GAP = 8
 export const NAV_WAIT_MS = 1200
 const POLL_MS = 16
 
-const warn = (msg) => { try { console.warn('[omkb] ' + msg) } catch (e) {} }
+const warn = (msg) => { try { console.warn('[micro] ' + msg) } catch (e) {} }
 
 const winOf = () => (typeof window !== 'undefined' ? window : null)
 
@@ -295,7 +295,7 @@ const waitOf = (opts) => {
 }
 
 /**
- * 打开设置弹窗并直接落到「OMKB 键盘」分区（= 键盘设置页）。
+ * 打开设置弹窗并直接落到「DSH小键盘」分区（= 键盘设置页）。
  * @param label - 本插件分区标题（组件里传 t('nav')）；省略时只用词典里的候选。
  * @param opts.waitMs - 等导航行出现的预算（毫秒）；默认 NAV_WAIT_MS，自检用来调短。
  * @returns {Promise<boolean>} 是否成功把分区行点开（找不到就 false，不抛错）。
@@ -496,7 +496,7 @@ const noticeCandidates = (row) => (row ? (qa(row, CONN_NOTICE_SEL) || []) : [])
 /**
  * 藏 / 放连接指示器 —— 用**自定义属性**，不用 class 也不用 inline style：
  * 后两者都在 React 的管辖里，它重渲染时会按自己的 props 覆盖回去（本项目踩过）。而
- * `data-omkb-conn-hide` 它压根不认识，永远不会碰。
+ * `data-micro-conn-hide` 它压根不认识，永远不会碰。
  * @returns {boolean} 是否写成功；元素不在 DOM / 老浏览器没有这两个方法 → false，不抛错。
  */
 export const setNoticeHidden = (el, on) => {
@@ -540,7 +540,7 @@ export const narrowGear = (gear, width) => {
 // ── 「设置」的悬停提示：改到行上方（2026-09-26，见文件头「鼠标移到设置上」一节）────────
 // DSH 的 Tooltip 默认 side:"right"：left = 锚点右缘 + 10px。设置按钮被我们收窄后那个落点
 // 在侧边栏里、正好压住键盘方块。用户要的位置是「在设置上面」——提示挪到行上方这件事
-// 由 CSS 完成（assets/settings.css 的 [data-omkb-gear-tip]），这里只负责**打标记**：
+// 由 CSS 完成（assets/settings.css 的 [data-micro-gear-tip]），这里只负责**打标记**：
 // 给行打 GEAR_ROW_ATTR（它要做提示的定位祖先）、给提示打 GEAR_TIP_ATTR。
 
 /**
@@ -581,7 +581,7 @@ export const gearTipOf = (gear) => {
  *     行取 `gearRowOf(gear)` —— 与「找邻居」用的是**同一个函数**（这里曾经一个用
  *     layoutParent、另一个用 parentElement，于是提示对齐了、邻居却看不见，症状分裂成两半）。
  *     注意别用 `gear.parentElement`：那是 display:contents 的槽位出口，当不了包含块（没有盒子）。
- *   * 行上写 `--omkb-gear-tip-left` = 齿轮左端 − 行左端：提示的左缘对齐齿轮。
+ *   * 行上写 `--micro-gear-tip-left` = 齿轮左端 − 行左端：提示的左缘对齐齿轮。
  *     行若有内边距，`left:0` 会对不齐 —— 量着写，别猜（本项目的一贯做法）。
  *   * 提示此刻在 DOM 里就打 GEAR_TIP_ATTR；不在就只等着 —— 它出现时是 childList 变更，
  *     MutationObserver 会叫醒 place() 再进来打一次。
@@ -595,8 +595,8 @@ export const markGearTip = (gear) => {
     const rr = row.getBoundingClientRect()
     const gr = gear.getBoundingClientRect()
     const left = rr && gr ? Math.max(0, Math.round(gr.left - rr.left)) : 0
-    if (typeof row.style.setProperty === 'function') row.style.setProperty('--omkb-gear-tip-left', left + 'px')
-    else row.style['--omkb-gear-tip-left'] = left + 'px'
+    if (typeof row.style.setProperty === 'function') row.style.setProperty('--micro-gear-tip-left', left + 'px')
+    else row.style['--micro-gear-tip-left'] = left + 'px'
   } catch (e) {}
   const tip = gearTipOf(gear)
   if (tip) { try { tip.setAttribute(GEAR_TIP_ATTR, '1') } catch (e) {} }
@@ -612,8 +612,8 @@ export const unmarkGearTip = (gear) => {
   if (!row) return
   try { row.removeAttribute(GEAR_ROW_ATTR) } catch (e) {}
   try {
-    if (typeof row.style.removeProperty === 'function') row.style.removeProperty('--omkb-gear-tip-left')
-    else delete row.style['--omkb-gear-tip-left']
+    if (typeof row.style.removeProperty === 'function') row.style.removeProperty('--micro-gear-tip-left')
+    else delete row.style['--micro-gear-tip-left']
   } catch (e) {}
 }
 
@@ -678,11 +678,11 @@ export const placeFootAction = (button, opts = {}) => {
   //   ② 免得拿已经被收窄过的宽度再收窄一次（收一次瘦一圈）。
   narrowGear(hosts.gear, null)
   // 记下齿轮引用：结构万一变了（unpin 时 findFootHosts 返回 null）也还找得回它来恢复宽度。
-  button.__omkbGear = hosts.gear
+  button.__microGear = hosts.gear
 
   // 先脱离文档流再量：脱离后 footerActions 会塌成 0 高、设置行上移，量到的才是最终位置。
   button.style.position = 'absolute'
-  setClass(button, 'omkb-foot-action--pinned', true)
+  setClass(button, 'micro-foot-action--pinned', true)
   const box = container.getBoundingClientRect()
   const gearRect = hosts.gear.getBoundingClientRect()
   const pos = computePlacement(box, gearRect, size, inset)
@@ -702,7 +702,7 @@ export const placeFootAction = (button, opts = {}) => {
     // 继续静默下去用户只会看到「灰底还盖着图标」。告警不阻断摆放。
     warnIfNotNarrowed(hosts.gear, want)
   }
-  // 「设置」的悬停提示挪到行上方（打标记，CSS 见 assets/settings.css 的 [data-omkb-gear-tip]）。
+  // 「设置」的悬停提示挪到行上方（打标记，CSS 见 assets/settings.css 的 [data-micro-gear-tip]）。
   // 提示是悬停才出现的：此刻不在 DOM 也照样打行标记，等它出现时 MutationObserver 叫醒
   // place() 再补打。收窄没生效/没做都不影响这一步 —— 两件事独立。
   markGearTip(hosts.gear)
@@ -717,14 +717,14 @@ export const unpinFootAction = (button) => {
   const hosts0 = findFootHosts(button)
   for (const el of noticeCandidates(hosts0 ? gearRowOf(hosts0.gear) : null)) setNoticeHidden(el, false)
   // 行标记也摘掉：提示回 DSH 默认的位置（side:right）——我们不再管那一行，就别再改它的东西。
-  unmarkGearTip(button.__omkbGear || (hosts0 && hosts0.gear))
-  setClass(button, 'omkb-foot-action--pinned', false)
+  unmarkGearTip(button.__microGear || (hosts0 && hosts0.gear))
+  setClass(button, 'micro-foot-action--pinned', false)
   for (const k of ['position', 'top', 'right', 'left']) {
     try { button.style[k] = '' } catch (e) {}
   }
   // 宽度也要还回去（我们可能收窄过它，width 与 max-width 两个都写进去过）。优先用摆放时记下的
   // 引用，这样结构已经变了也能恢复；引用留在元素上不清理：它与按钮同生命周期，不会攒住别的东西。
-  narrowGear(button.__omkbGear || (findFootHosts(button) || {}).gear, null)
+  narrowGear(button.__microGear || (findFootHosts(button) || {}).gear, null)
 }
 
 // ── 「与后台断开」气泡（替代 DSH 那一行里的连接指示器）─────────────────────────
@@ -759,9 +759,9 @@ export const connTipNode = () => {
     tipTextEl = doc.createElement('span')
     tipTailEl = doc.createElement('span')
   } catch (e) { tipEl = null; tipTextEl = null; tipTailEl = null; return null }
-  setClass(tipEl, 'omkb-conn-tip', true)
-  setClass(tipTextEl, 'omkb-conn-tip__text', true)
-  setClass(tipTailEl, 'omkb-conn-tip__tail', true)
+  setClass(tipEl, 'micro-conn-tip', true)
+  setClass(tipTextEl, 'micro-conn-tip__text', true)
+  setClass(tipTailEl, 'micro-conn-tip__tail', true)
   // role=status：正常状态下它就是一条「状态播报」，读屏会念出来（原来那句提示也是这个语义）。
   try { tipEl.setAttribute('role', 'status') } catch (e) {}
   try { tipEl.appendChild(tipTextEl); tipEl.appendChild(tipTailEl) } catch (e) {}
@@ -798,7 +798,7 @@ export const placeConnTip = (tip, button, opts = {}) => {
   tip.style.right = Math.round(Math.max(0, right)) + 'px'
   tip.style.left = 'auto'
   if (tipTailEl && tipTailEl.style) tipTailEl.style.right = Math.round(size / 2 - tail / 2) + 'px'
-  setClass(tip, 'omkb-conn-tip--below', below)
+  setClass(tip, 'micro-conn-tip--below', below)
   return { top, right, below }
 }
 
@@ -812,7 +812,7 @@ export const placeConnTip = (tip, button, opts = {}) => {
 export const syncConnTip = (button, notice, opts = {}) => {
   const tip = connTipNode()
   // 没有提示（或没有方块）→ 收起气泡。这是最常见的一条，先走掉。
-  if (!button || !notice) { if (tip) setClass(tip, 'omkb-conn-tip--on', false); return false }
+  if (!button || !notice) { if (tip) setClass(tip, 'micro-conn-tip--on', false); return false }
   // 挂到 body 上。每次都查一次父节点：真机上是首次挂载，自检里每个场景换一份 document。
   let body = null
   try { body = (typeof document !== 'undefined' && (document.body || document.documentElement)) || null } catch (e) { body = null }
@@ -827,7 +827,7 @@ export const syncConnTip = (button, notice, opts = {}) => {
   // 只给可访问名、不给 title：气泡自己就把话说完了，再来一层原生 tooltip 是重复。
   try { tip.setAttribute('aria-label', String(opts.ariaLabel || text)) } catch (e) {}
   if (typeof opts.onClick === 'function') tip.onclick = opts.onClick
-  setClass(tip, 'omkb-conn-tip--on', true)
+  setClass(tip, 'micro-conn-tip--on', true)
   placeConnTip(tip, button, opts)
   return true
 }
@@ -835,7 +835,7 @@ export const syncConnTip = (button, notice, opts = {}) => {
 /** 收起气泡（卸载 / 收起成导轨 / 找不到提示时）。节点留着复用，只是摘下来。 */
 export const disposeConnTip = () => {
   if (!tipEl) return
-  setClass(tipEl, 'omkb-conn-tip--on', false)
+  setClass(tipEl, 'micro-conn-tip--on', false)
   try {
     const p = tipEl.parentElement
     if (p && typeof p.removeChild === 'function') p.removeChild(tipEl)
@@ -870,7 +870,7 @@ export const leaveOurSection = (label, roots) => {
   return false
 }
 
-// 浏览器控制台 / 自检的观测点：__dshOmkb.openKeyboardSettings() 可直接验证这条链路
+// 浏览器控制台 / 自检的观测点：__dshMicro.openKeyboardSettings() 可直接验证这条链路
 // （不用真的去点侧边栏那个图标）；footAction.* 是这条链路的内部零件，给自检与控制台调用。
 DSVI.openKeyboardSettings = openKeyboardSettings
 DSVI.openGeneralSettings = openGeneralSettings
@@ -891,7 +891,7 @@ DSVI.footAction = {
   gearRow: gearRowOf,
   sibling: visibleSiblingOf,
   // 连接指示器那条线：认相位、藏/放、以及替代它的气泡（控制台可
-  // `__dshOmkb.footAction.tipNode()` 看那颗气泡节点长什么样）。
+  // `__dshMicro.footAction.tipNode()` 看那颗气泡节点长什么样）。
   notice: connNoticeOf,
   noticePhase: noticePhaseOf,
   hideNotice: setNoticeHidden,
@@ -914,13 +914,13 @@ DSVI.footAction = {
  * @param props.wide - 侧边栏是否展开（owner props，见 sidebar.footer.action 槽位契约）。
  * @param props.t - 本插件命名空间的翻译函数（注册时声明 locale 由框架注入）。
  */
-export function OmkbSidebarAction({ wide, t }) {
+export function MicroSidebarAction({ wide, t }) {
   const ref = useRef(null)
   const tr = typeof t === 'function' ? t : null
   // locale 那一段没装配成功时 t 可能是空的：退到词典里的中文文案（只做 aria-label / title，
   // 不显示在界面上——这个入口只有图标）。
   const dict = (DSVI && DSVI.locales && DSVI.locales.zh) || {}
-  const label = (tr && tr('sidebar.action')) || dict['sidebar.action'] || 'OMKB'
+  const label = (tr && tr('sidebar.action')) || dict['sidebar.action'] || 'DSH Keypad'
 
   // 「这台键盘被移除了 + 现在没连上」→ 整个入口连引导浮层一起返回 null（用户点过移除，
   // 界面就该干净地消失；设备重新连上时控制器会把标记清掉，这里随之回来）。
@@ -1014,7 +1014,7 @@ export function OmkbSidebarAction({ wide, t }) {
           })
           // data-phase 也在观察列表里：指示器从「重连中」变「连接异常」时**只有它变**
           // （class 是同一套、我们自己的标记属性它不管），不盯它气泡上的字就会停在旧的那句。
-          // 我们自己的 data-omkb-conn-hide 不在列表里 → 藏/放不会把回调叫醒（不自激）。
+          // 我们自己的 data-micro-conn-hide 不在列表里 → 藏/放不会把回调叫醒（不自激）。
           mo.observe(gRow, {
             childList: true, subtree: true, attributes: true,
             attributeFilter: ['class', 'style', 'data-phase']
@@ -1037,7 +1037,7 @@ export function OmkbSidebarAction({ wide, t }) {
   const onClick = () => {
     // 分区标题取设置页注册时用的同一个 t('nav')——两边同源，导航行文字才对得上。
     openKeyboardSettings(tr ? tr('nav') : undefined).then((ok) => {
-      if (!ok) warn('没能直接打开键盘设置页，可手动从设置里进入「' + (dict.nav || 'OMKB') + '」')
+      if (!ok) warn('没能直接打开键盘设置页，可手动从设置里进入「' + (dict.nav || 'DSH小键盘') + '」')
     })
   }
 
@@ -1054,8 +1054,8 @@ export function OmkbSidebarAction({ wide, t }) {
       <button
         ref={ref}
         type="button"
-        data-omkb-foot="1"
-        className={'omkb-foot-action' + (wide ? '' : ' omkb-foot-action--rail')}
+        data-micro-foot="1"
+        className={'micro-foot-action' + (wide ? '' : ' micro-foot-action--rail')}
         aria-label={tip}
         title={tip}
         onClick={onClick}
@@ -1070,14 +1070,14 @@ export function OmkbSidebarAction({ wide, t }) {
         {offline ? (
           <>
             {KeypadIcon(ICON_SIZE)}
-            <span className="omkb-foot-action__dot" />
+            <span className="micro-foot-action__dot" />
           </>
         ) : KeypadIcon(ICON_SIZE)}
       </button>
       {/* 首次连接引导。挂在这里只因为这个槽位在应用外壳里一直在（不像设置页要打开才有），
           而弹窗自己是 `position:fixed` 的整屏遮罩，挂在哪个槽位都盖满视口。
           它只在「设备刚连上 + 还没看过」时渲染出东西，平时是 null，不影响上面那颗按钮的定位。 */}
-      <OmkbGuideHost t={tr} onOpenSettings={() => { onClick() }} />
+      <MicroGuideHost t={tr} onOpenSettings={() => { onClick() }} />
     </>
   )
 }

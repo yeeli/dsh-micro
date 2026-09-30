@@ -1,4 +1,4 @@
-// dsh-omkb · watch_build.js
+// dsh-micro · watch_build.js
 // 监听 src/ 的改动，自动重跑构建（等价于手动 `pnpm build`）。
 //
 //   pnpm watch              启动前先完整构建一次
@@ -43,7 +43,7 @@ const SRC = path.join(ROOT, 'src')
 const RELEASE = process.argv.includes('--release')
 const NO_INITIAL = process.argv.includes('--no-initial')
 const NO_SMOKE = process.argv.includes('--no-smoke')
-const DEBOUNCE_MS = Number(process.env.OMKB_WATCH_DEBOUNCE ?? 250) || 250
+const DEBOUNCE_MS = Number(process.env.MICRO_WATCH_DEBOUNCE ?? 250) || 250
 
 // 关心哪些扩展名（其余一律不看：.DS_Store、编辑器交换文件、临时文件都在这里被挡掉）
 const WATCHED_EXT = new Set(['.js', '.jsx', '.mjs', '.css', '.json'])
@@ -73,7 +73,7 @@ let running = false
 let timer = null
 
 const stamp = () => new Date().toTimeString().slice(0, 8)
-const log = (msg) => console.log(`[omkb/watch] ${msg}`)
+const log = (msg) => console.log(`[micro/watch] ${msg}`)
 
 /** 相对仓库根的 POSIX 路径；不在 src 下（或就是本脚本）返回 null。 */
 const relOf = (file) => {
@@ -141,7 +141,7 @@ async function tick() {
   // 忘了 import / 空指针」要到真跑那一行才抛（见 src/smoke_check.js 的真实事故）。
   // 失败**不退出监听** —— 用户多半正改到一半。
   if (!NO_SMOKE) {
-    const strip = (m) => String(m).replace('[omkb/smoke] ', 'smoke ')
+    const strip = (m) => String(m).replace('[micro/smoke] ', 'smoke ')
     const ok = await runSmoke({ log: (m) => log(strip(m)), error: (m) => log(strip(m)) })
     if (!ok) log('  ⚠ 冒烟自检发现**崩溃**（代码跑不起来）—— 监听继续，改好保存即自动重跑')
   }

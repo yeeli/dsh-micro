@@ -1,4 +1,4 @@
-// dsh-omkb · HTTP 桥接小工具
+// dsh-micro · HTTP 桥接小工具
 //
 // 宿主侧所有路由 handler 共用的一套读写原语。原来这些散在 ble.js 里（#jsonHead/#readBody/#json），
 // 搬到这里是因为它们与「BLE/HID 设备」无关，只跟「webserver 通信」有关 —— 属于 server/ 的职责。

@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/utils/guide.js
+// dsh-micro · client/src/utils/guide.js
 // 首次连接引导的**纯逻辑**：三屏步骤表、「什么时候该弹」的判据、以及智能体键的图例配色。
 //
 // 为什么单独放 utils/：引导弹窗本身是 JSX（Node 进不去），但上面那几条判据必须能被自检

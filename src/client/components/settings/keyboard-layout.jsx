@@ -1,8 +1,8 @@
-// dsh-omkb · client/src/components/settings/keyboard-layout.jsx
+// dsh-micro · client/src/components/settings/keyboard-layout.jsx
 // 设置页里的**布局可视化**：把设备画出来（三排键 + 底部一行），并让真机上的操作在布局里「演」出来。
 //
 // ---------- 布局特效：纯视觉，不触发任何功能 ----------
-// 数据只来自 /omkb/state（经 hid-bridge 的 subscribe 广播）：
+// 数据只来自 /micro/state（经 hid-bridge 的 subscribe 广播）：
 //   down  —— 当前**按住**的键名数组。设备对每个物理键都发一对事件（`params.act` 1/0），
 //            宿主把它翻译成这个字段（见 src/core/ble.js 的 HID_ACT）。特效就按它对齐：
 //            **按下就陷下去、接到松开才抬起来**，不再用「按固定时长自己弹回」去猜。
@@ -21,8 +21,8 @@ import { FLASH_MS, createPressTracker, samePressed } from '../../utils/press-sta
 import { KNOB_DOT_DEG, KNOB_DOT_REST_DEG, createKnobTracker } from '../../utils/knob-state.js'
 import { Key, KeyFace } from '../common/ui.jsx'
 import { CapTip, capTipHandlers, useCapTip } from '../common/cap-tip.jsx'
-import { OmkbKeycapModal } from '../modals/keycap.jsx'
-import { OmkbJoystickModal } from '../modals/joystick.jsx'
+import { MicroKeycapModal } from '../modals/keycap.jsx'
+import { MicroJoystickModal } from '../modals/joystick.jsx'
 
 /** 摇杆每个方向推出去多远（px）——「推拉摇动」的幅度。 */
 export const JOY_SHIFT = 9
@@ -117,7 +117,7 @@ const ACT_ROW_CODES = ['ACT06', 'ACT07', 'ACT08', 'ACT09']
  * @param t - 词典取值函数（**悬停气泡的第二行**要用；entry.js → panel.jsx → 这里）。可不传：
  *   不传时气泡自动省掉第二行（见 common/cap-tip.jsx 的 capTipLines），引导那张插图就不传。
  */
-export function OmkbLayout({ update, prefs = {}, clearField, preview = null, t }) {
+export function MicroLayout({ update, prefs = {}, clearField, preview = null, t }) {
   const actLabels = prefs.actLabels || {}
   const [editor, setEditor] = useState(null) // { target }
   const [joyOpen, setJoyOpen] = useState(false)
@@ -126,7 +126,7 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null, t }
   const swatch = (preview && preview.colors) || null
   const tt = typeof t === 'function' ? t : null
   // 悬停气泡：**只认键帽**（有功能的那些键）。6 颗智能体键不是键帽（它们是会话槽位），
-  // 旋钮/摇杆是连续控件 —— 都不挂气泡，`data-omkb-cap` 才是「这颗键有键帽」的判据。
+  // 旋钮/摇杆是连续控件 —— 都不挂气泡，`data-micro-cap` 才是「这颗键有键帽」的判据。
   const { tip, show, hide } = useCapTip()
   const tipProps = (capId) => (staticShot ? {} : capTipHandlers(show, hide, keycapOf(capId)))
   // 底部那颗两倍宽的 Mic 键下面有两个开关：开关打开时拆成两颗键画（模型见 utils/keycaps.js）。
@@ -161,32 +161,32 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null, t }
   // 智能体键的圆点：预览模式给定的示意色优先（引导要展示「这几颗键靠颜色说话」）。
   const dot = (visualId) => (
     <div
-      className={'omkb-key-dot' + (swatch && swatch[visualId] ? ' omkb-key-dot--swatch' : '')}
+      className={'micro-key-dot' + (swatch && swatch[visualId] ? ' micro-key-dot--swatch' : '')}
       style={swatch && swatch[visualId] ? { background: swatch[visualId] } : undefined}
     />
   )
   // 每个键挂上视觉 id（自检/探针按它定位）、键帽 id（探针据此核对「显示的是不是键帽」）
   // 与「正在按下」的 class。
   const slot = (visualId, onClick, extra = '') => ({
-    'data-omkb-key': visualId,
-    className: [extra, shownPressed[visualId] ? 'omkb-key--pressed' : ''].filter(Boolean).join(' '),
+    'data-micro-key': visualId,
+    className: [extra, shownPressed[visualId] ? 'micro-key--pressed' : ''].filter(Boolean).join(' '),
     onClick: staticShot ? undefined : (onClick || (() => tap(visualId)))
   })
   const [jx, jy] = JOY_OFFSET[shownJoy] || [0, 0]
   return (
-    <div className={'omkb-page-wrap' + (staticShot ? ' omkb-page-wrap--preview' : '')}>
-      <div className="omkb-keyboard-wrap">
-        <div className="omkb-grid-4col">
+    <div className={'micro-page-wrap' + (staticShot ? ' micro-page-wrap--preview' : '')}>
+      <div className="micro-keyboard-wrap">
+        <div className="micro-grid-4col">
           {/* Row1 左一旋钮：设备转动 / 按下时亮起蓝环，蓝点落在**这次转动的方向**上
               （顺时针 → 右侧 3 点、逆时针 → 左侧 9 点，判据见 utils/knob-state.js）。
               环与点都画在圆盘里面，所以圆盘那一层必须是定位祖先（见 settings.css）。 */}
-          <div className="omkb-control-item">
-            <div className={'omkb-control-base' + (shownKnob.active ? ' omkb-knob--active' : '')}>
-              <div className="omkb-circle-knob-inner">
-                <div className="omkb-knob-ring" />
+          <div className="micro-control-item">
+            <div className={'micro-control-base' + (shownKnob.active ? ' micro-knob--active' : '')}>
+              <div className="micro-circle-knob-inner">
+                <div className="micro-knob-ring" />
                 <div
-                  className="omkb-knob-dot"
-                  data-omkb-knob-dot={shownKnob.dir || 'off'}
+                  className="micro-knob-dot"
+                  data-micro-knob-dot={shownKnob.dir || 'off'}
                   style={{ transform: `translate(-50%, -50%) rotate(${knobDeg}deg) translateY(${-KNOB_DOT_R}px)` }}
                 />
               </div>
@@ -196,13 +196,13 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null, t }
           <Key {...slot('r1-3')}>{dot('r1-3')}</Key>
           {/* Row1 右一摇杆：点击弹出「模拟摇杆」方向配置；推杆时球体跟随方向偏移并回弹 */}
           <div
-            className="omkb-control-item omkb-joy-ctrl"
-            data-omkb-key="joy"
+            className="micro-control-item micro-joy-ctrl"
+            data-micro-key="joy"
             onClick={staticShot ? undefined : () => setJoyOpen(true)}
           >
-            <div className="omkb-control-base">
+            <div className="micro-control-base">
               <div
-                className="omkb-joystick-dot"
+                className="micro-joystick-dot"
                 data-joy={shownJoy || 'center'}
                 style={{
                   transform: `translate(${jx}px, ${jy}px)`,
@@ -229,8 +229,8 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null, t }
             return (
               <Key
                 key={code}
-                {...slot(visualId, openKeycap(code), 'omkb-key--act' + (capId ? '' : ' omkb-key--custom'))}
-                data-omkb-cap={capId || CUSTOM_ICON}
+                {...slot(visualId, openKeycap(code), 'micro-key--act' + (capId ? '' : ' micro-key--custom'))}
+                data-micro-cap={capId || CUSTOM_ICON}
                 {...tipProps(capId)}
               >
                 <KeyFace capId={capId} />
@@ -240,16 +240,16 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null, t }
         </div>
 
         {/* 底部一行：旋钮面板 · Mic 键（两个开关，见 utils/keycaps.js）· 发送键
-            data-omkb-mic 把当前状态写在 DOM 上：探针据此判断该期望一颗宽键还是两颗键，
+            data-micro-mic 把当前状态写在 DOM 上：探针据此判断该期望一颗宽键还是两颗键，
             不必去猜 aria-label 的本地化文案。 */}
-        <div className="omkb-bottom-row" data-omkb-mic={micSplit ? 'split' : 'merged'}>
-          <div className="omkb-knob-panel">
-            <div className="omkb-knob-lights">
-              <div className="omkb-knob-light omkb-blue"/>
-              <div className="omkb-knob-light omkb-green"/>
-              <div className="omkb-knob-light omkb-amber"/>
+        <div className="micro-bottom-row" data-micro-mic={micSplit ? 'split' : 'merged'}>
+          <div className="micro-knob-panel">
+            <div className="micro-knob-lights">
+              <div className="micro-knob-light micro-blue"/>
+              <div className="micro-knob-light micro-green"/>
+              <div className="micro-knob-light micro-amber"/>
             </div>
-            <div className="omkb-circle-knob"/>
+            <div className="micro-circle-knob"/>
           </div>
 
           {micKeys.map((k) => (
@@ -258,9 +258,9 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null, t }
               {...slot(
                 k.visualId,
                 openKeycap(k.code),
-                (k.wide ? 'omkb-key-mic ' : '') + 'omkb-key--act' + (k.custom ? ' omkb-key--custom' : '')
+                (k.wide ? 'micro-key-mic ' : '') + 'micro-key--act' + (k.custom ? ' micro-key--custom' : '')
               )}
-              data-omkb-cap={k.capId || CUSTOM_ICON}
+              data-micro-cap={k.capId || CUSTOM_ICON}
               {...tipProps(k.capId)}
             >
               <KeyFace capId={k.capId} />
@@ -271,8 +271,8 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null, t }
             const capId = capFor('ACT12', prefs)
             return (
               <Key
-                {...slot('act12', openKeycap('ACT12'), 'omkb-key--act' + (capId ? '' : ' omkb-key--custom'))}
-                data-omkb-cap={capId || CUSTOM_ICON}
+                {...slot('act12', openKeycap('ACT12'), 'micro-key--act' + (capId ? '' : ' micro-key--custom'))}
+                data-micro-cap={capId || CUSTOM_ICON}
                 {...tipProps(capId)}
               >
                 <KeyFace capId={capId} />
@@ -283,7 +283,7 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null, t }
       </div>
 
       {!staticShot && editor && (
-        <OmkbKeycapModal
+        <MicroKeycapModal
           target={editor.target}
           current={actLabels[editor.target] || null}
           fallback={capFor(editor.target, prefs)}
@@ -295,7 +295,7 @@ export function OmkbLayout({ update, prefs = {}, clearField, preview = null, t }
       )}
 
       {!staticShot && joyOpen && (
-        <OmkbJoystickModal
+        <MicroJoystickModal
           value={prefs.joystick}
           onClose={() => setJoyOpen(false)}
           onSave={(cfg) => { update('joystick', cfg); setJoyOpen(false) }}

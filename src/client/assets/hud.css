@@ -1,7 +1,7 @@
-/* dsh-omkb · assets/hud.css —— 摇杆提示卡片（会话界面顶部居中）的样式
+/* dsh-micro · assets/hud.css —— 摇杆提示卡片（会话界面顶部居中）的样式
  *
  * 结构见 ../joystick-hud.js：#ensure() 建的节点树与这里的类名一一对应：
- *   .omkb-joyhud              固定层（根，data-status / data-dir 供探针与状态色用）
+ *   .micro-joyhud              固定层（根，data-status / data-dir 供探针与状态色用）
  *     ├ __pad                方向盘外圈（含四向暗刻度，靠两层渐变画，不额外造节点）
  *     │  └ __dot             跟着推力走的蓝点
  *     └ __body               右侧三行 + 进度条
@@ -16,48 +16,48 @@
  *   ③ `[hidden]` 必须自己写一条 display:none —— 本文件给根节点设了 display:flex，
  *      作者样式会盖掉浏览器默认的 `[hidden]{display:none}`，漏了这条卡片就永远收不起来。
  */
-.omkb-joyhud{
-  --omkb-hud-accent:var(--dsw-alias-brand-primary,#2f6fed);
+.micro-joyhud{
+  --micro-hud-accent:var(--dsw-alias-brand-primary,#2f6fed);
   position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:10045;
   display:flex;align-items:center;gap:12px;
   min-width:206px;max-width:min(320px,80vw);padding:10px 16px 11px 12px;
   border-radius:16px;background:var(--dsw-alias-bg-layer-1,#fff);
   border:1px solid var(--dsw-alias-border-l2,rgba(47,111,237,.28));
   box-shadow:0 12px 30px rgba(15,18,25,.14),0 2px 6px rgba(15,18,25,.08);
-  pointer-events:none;animation:omkb_joyhud_in .16s ease-out;
+  pointer-events:none;animation:micro_joyhud_in .16s ease-out;
 }
 /* 别删：见文件头 ③。 */
-.omkb-joyhud[hidden]{display:none}
-/* 没成的那几种，整张卡片的强调色跟着收灰 / 转红（点、状态行、进度条都读 --omkb-hud-accent）。 */
-.omkb-joyhud[data-status="unbound"],.omkb-joyhud[data-status="unwired"]{--omkb-hud-accent:var(--dsw-alias-label-tertiary,#9aa3b2)}
-.omkb-joyhud[data-status="failed"]{--omkb-hud-accent:var(--dsw-alias-state-error-primary,#dc2626)}
+.micro-joyhud[hidden]{display:none}
+/* 没成的那几种，整张卡片的强调色跟着收灰 / 转红（点、状态行、进度条都读 --micro-hud-accent）。 */
+.micro-joyhud[data-status="unbound"],.micro-joyhud[data-status="unwired"]{--micro-hud-accent:var(--dsw-alias-label-tertiary,#9aa3b2)}
+.micro-joyhud[data-status="failed"]{--micro-hud-accent:var(--dsw-alias-state-error-primary,#dc2626)}
 
 /* 方向盘：正圆外圈 + 四向暗刻度（两条渐变各画一条十字线，中心留空） */
-.omkb-joyhud__pad{
+.micro-joyhud__pad{
   position:relative;flex:none;width:44px;height:44px;border-radius:50%;
   border:1px solid var(--dsw-alias-border-l2,rgba(47,111,237,.35));
   background:
     linear-gradient(to right,transparent 0 46%,var(--dsw-alias-border-l2,rgba(47,111,237,.22)) 46% 54%,transparent 54% 100%) center/100% 9px no-repeat,
     linear-gradient(to bottom,transparent 0 46%,var(--dsw-alias-border-l2,rgba(47,111,237,.22)) 46% 54%,transparent 54% 100%) center/9px 100% no-repeat;
 }
-.omkb-joyhud__dot{
+.micro-joyhud__dot{
   position:absolute;left:50%;top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;
-  background:var(--omkb-hud-accent);transition:transform .08s linear;
+  background:var(--micro-hud-accent);transition:transform .08s linear;
 }
-.omkb-joyhud__body{display:flex;flex-direction:column;gap:2px;min-width:0}
-.omkb-joyhud__dir{display:flex;align-items:center;gap:6px;font-size:12px;line-height:1.3;color:var(--dsw-alias-label-tertiary,#8b95a7)}
-.omkb-joyhud__arrow{font-size:13px;line-height:1}
-.omkb-joyhud__action{font-size:14px;font-weight:600;line-height:1.35;color:var(--dsw-alias-label-primary,#1f2937);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.omkb-joyhud__status{display:flex;align-items:center;gap:5px;font-size:13px;line-height:1.3;color:var(--omkb-hud-accent)}
-.omkb-joyhud__mark{font-size:12px;line-height:1}
-.omkb-joyhud__bar{display:block;width:34px;height:3px;margin-top:3px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover,rgba(47,111,237,.14));overflow:hidden}
+.micro-joyhud__body{display:flex;flex-direction:column;gap:2px;min-width:0}
+.micro-joyhud__dir{display:flex;align-items:center;gap:6px;font-size:12px;line-height:1.3;color:var(--dsw-alias-label-tertiary,#8b95a7)}
+.micro-joyhud__arrow{font-size:13px;line-height:1}
+.micro-joyhud__action{font-size:14px;font-weight:600;line-height:1.35;color:var(--dsw-alias-label-primary,#1f2937);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.micro-joyhud__status{display:flex;align-items:center;gap:5px;font-size:13px;line-height:1.3;color:var(--micro-hud-accent)}
+.micro-joyhud__mark{font-size:12px;line-height:1}
+.micro-joyhud__bar{display:block;width:34px;height:3px;margin-top:3px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover,rgba(47,111,237,.14));overflow:hidden}
 /* 停留多久就走多久：时长由 joystick-hud.js 写成 inline animation-duration。
    卡片是从 display:none 切回来的，所以每次显示都会重新起一次动画（这就是「续命」的机制）。 */
-.omkb-joyhud__fill{display:block;width:100%;height:100%;border-radius:999px;background:var(--omkb-hud-accent);transform-origin:left center;animation:omkb_joyhud_linger linear forwards}
-@keyframes omkb_joyhud_in{from{opacity:0;transform:translateX(-50%) translateY(-6px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
-@keyframes omkb_joyhud_linger{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+.micro-joyhud__fill{display:block;width:100%;height:100%;border-radius:999px;background:var(--micro-hud-accent);transform-origin:left center;animation:micro_joyhud_linger linear forwards}
+@keyframes micro_joyhud_in{from{opacity:0;transform:translateX(-50%) translateY(-6px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+@keyframes micro_joyhud_linger{from{transform:scaleX(1)}to{transform:scaleX(0)}}
 @media (prefers-reduced-motion:reduce){
-  .omkb-joyhud{animation:none}
-  .omkb-joyhud__fill{animation:none}
-  .omkb-joyhud__dot{transition:none}
+  .micro-joyhud{animation:none}
+  .micro-joyhud__fill{animation:none}
+  .micro-joyhud__dot{transition:none}
 }

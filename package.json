@@ -1,7 +1,7 @@
 {
-  "name": "dsh-omkb",
+  "name": "dsh-micro",
   "version": "0.1.0",
-  "description": "DeepSeek Harness 蓝牙 HID 小键盘（omkb）插件：宿主端用 node-hid 读取 omkb 设备（name=omkb & manufacturer=OM），浏览器端经 WebSocket 状态推送（宿主没带 ws 时退回 HTTP 轮询）桥接切换语音输入。",
+  "description": "DeepSeek Harness 蓝牙 HID 小键盘（DSH Micro / DSH小键盘）插件：宿主端用 node-hid 读取 DSH Micro 设备（name=DSH Micro & manufacturer=OMKB LAB），浏览器端经 WebSocket 状态推送（宿主没带 ws 时退回 HTTP 轮询）桥接切换语音输入。",
   "type": "module",
   "dependencies": {
     "node-hid": "^3.4.0"
@@ -72,12 +72,12 @@
     "probe:foot": "node test/ui_probe.mjs test/probes/foot.mjs",
     "probe:gap": "node test/ui_probe.mjs test/probes/foot-gap.mjs",
     "probe:gear": "node test/ui_probe.mjs test/probes/gear-hover.mjs",
-    "probe:hover": "node test/ui_probe.mjs test/probes/foot-hover.mjs --hover 140,726 --clip 0,690,300,70 --scale 4 --shot /tmp/omkb-foot-hover.png",
-    "probe:toast": "node test/ui_probe.mjs test/probes/toast.mjs --shot /tmp/omkb-save-toast.png",
-    "probe:notice": "node test/ui_probe.mjs test/probes/notice.mjs --shot /tmp/omkb-notice.png",
+    "probe:hover": "node test/ui_probe.mjs test/probes/foot-hover.mjs --hover 140,726 --clip 0,690,300,70 --scale 4 --shot /tmp/micro-foot-hover.png",
+    "probe:toast": "node test/ui_probe.mjs test/probes/toast.mjs --shot /tmp/micro-save-toast.png",
+    "probe:notice": "node test/ui_probe.mjs test/probes/notice.mjs --shot /tmp/micro-notice.png",
     "probe:mode": "node test/ui_probe.mjs test/probes/mode.mjs",
     "probe:effort": "node test/ui_probe.mjs test/probes/effort.mjs",
-    "probe:joyhud": "node test/ui_probe.mjs test/probes/joy-hud.mjs --shot /tmp/omkb-joy-hud.png",
+    "probe:joyhud": "node test/ui_probe.mjs test/probes/joy-hud.mjs --shot /tmp/micro-joy-hud.png",
     "probe:desc": "node test/ui_probe.mjs test/probes/settings-desc.mjs",
     "probe:knob": "node test/ui_probe.mjs test/probes/knob.mjs",
     "probe:knobnav": "node test/ui_probe.mjs test/probes/knob-nav.mjs",
@@ -91,9 +91,9 @@
     "probe:voice": "node test/ui_probe.mjs test/probes/voice-guard.mjs",
     "probe:officialvoice": "node test/ui_probe.mjs test/probes/official-voice.mjs",
     "probe:agentslots": "node test/ui_probe.mjs test/probes/agent-slots.mjs",
-    "watch:device": "node test/omkb_watch.mjs",
+    "watch:device": "node test/micro_watch.mjs",
     "probe:ring": "node test/ui_probe.mjs test/probes/reasoning-ring.mjs",
-    "probe:ringshot": "node test/ui_probe.mjs test/probes/reasoning-ring-shot.mjs --shot /tmp/omkb-ring.png --clip 912,510,272,180 --scale 3",
+    "probe:ringshot": "node test/ui_probe.mjs test/probes/reasoning-ring-shot.mjs --shot /tmp/micro-ring.png --clip 912,510,272,180 --scale 3",
     "verify:layout": "node test/verify_layout.js",
     "verify:press": "node test/verify_press.js",
     "verify:keypad": "node test/verify_keypad.js",
@@ -101,12 +101,12 @@
     "probe:keycaps": "node test/ui_probe.mjs test/probes/keycaps.mjs",
     "probe:interaction": "node test/ui_probe.mjs test/probes/interaction.mjs",
     "probe:brightness": "node test/ui_probe.mjs test/probes/brightness-drag.mjs",
-    "probe:micshot": "node test/ui_probe.mjs test/probes/mic-split-shot.mjs --shot /tmp/omkb-mic-split.png --clip 505,360,494,140 --scale 2 --then test/probes/mic-split-shot.mjs",
+    "probe:micshot": "node test/ui_probe.mjs test/probes/mic-split-shot.mjs --shot /tmp/micro-mic-split.png --clip 505,360,494,140 --scale 2 --then test/probes/mic-split-shot.mjs",
     "probe:hold": "node test/ui_probe.mjs test/probes/hold.mjs",
     "probe:shape": "node test/ui_probe.mjs test/probes/layout-shape.mjs",
     "probe:corner-shape": "node test/ui_probe.mjs test/probes/corner-shape.mjs",
-    "probe:layoutshot": "node test/ui_probe.mjs test/probes/layout-shot.mjs --shot /tmp/omkb-layout.png",
-    "probe:guide": "node test/ui_probe.mjs test/probes/guide.mjs --shot /tmp/omkb-guide.png",
+    "probe:layoutshot": "node test/ui_probe.mjs test/probes/layout-shot.mjs --shot /tmp/micro-layout.png",
+    "probe:guide": "node test/ui_probe.mjs test/probes/guide.mjs --shot /tmp/micro-guide.png",
     "probe:device": "node test/ui_probe.mjs test/probes/device.mjs",
     "verify:device": "node test/verify_device.js",
     "verify:statesock": "node test/verify_state_socket.js",
@@ -123,7 +123,7 @@
     "dsh-plugin",
     "hid",
     "ble",
-    "omkb"
+    "micro"
   ],
   "license": "MIT"
 }

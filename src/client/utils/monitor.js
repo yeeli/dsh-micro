@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/utils/monitor.js
+// dsh-micro · client/src/utils/monitor.js
 // 「输入监控」授权状态在浏览器侧的一条窄接口：端点常量 + 三态映射。
 //
 // 为什么要单独一个模块：状态判据要在自检里直接断言，而设置页那几个文件是 JSX + `?raw` CSS，
@@ -11,10 +11,10 @@
 // 「不知道」必须显示成中性灰的「无法判定」，不能混进「未授权」——那是无中生有的结论。
 
 /** 查询授权状态（宿主 spawn osascript 去问系统，见 src/core/monitor.js）。加 `?force=1` 强制重测。 */
-export const MONITOR_URL = '/omkb/monitor'
+export const MONITOR_URL = '/micro/monitor'
 
 /** 让宿主打开系统设置的隐私面板（浏览器不能启动进程）。 */
-export const PRIVACY_URL = '/omkb/open-privacy'
+export const PRIVACY_URL = '/micro/open-privacy'
 
 /**
  * 三态 → 界面用的类名与文案键。
@@ -22,9 +22,9 @@ export const PRIVACY_URL = '/omkb/open-privacy'
  * @returns {{cls: string, statusCls: string, labelKey: string}}
  */
 export const monitorDot = (m) => {
-  if (m && m.granted === true) return { cls: 'omkb-dot--ok', statusCls: 'omkb-status--ok', labelKey: 'monitor.granted' }
-  if (m && m.granted === false) return { cls: 'omkb-dot--err', statusCls: 'omkb-status--err', labelKey: 'monitor.denied' }
-  return { cls: 'omkb-dot--idle', statusCls: 'omkb-status--idle', labelKey: 'monitor.unknown' }
+  if (m && m.granted === true) return { cls: 'micro-dot--ok', statusCls: 'micro-status--ok', labelKey: 'monitor.granted' }
+  if (m && m.granted === false) return { cls: 'micro-dot--err', statusCls: 'micro-status--err', labelKey: 'monitor.denied' }
+  return { cls: 'micro-dot--idle', statusCls: 'micro-status--idle', labelKey: 'monitor.unknown' }
 }
 
 /** 这一份状态要不要显示这张卡片：**只在 macOS 显示**（宿主用 supported 字段回答）。 */

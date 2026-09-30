@@ -1,5 +1,5 @@
-// dsh-omkb · server/state-socket.js
-// **状态推送（WebSocket）** —— 把「浏览器每 120ms 问一次 /omkb/state」换成宿主主动推。
+// dsh-micro · server/state-socket.js
+// **状态推送（WebSocket）** —— 把「浏览器每 120ms 问一次 /micro/state」换成宿主主动推。
 //
 // ── 为什么换 ──────────────────────────────────────────────────────────────
 // HTTP 轮询的两条固有代价：
@@ -9,10 +9,10 @@
 // 推送把这两条一起解决：**事件驱动**（设备每上报一行、连接/断开、灯态写入、亮度变化都推），
 // 另加 500ms 心跳兜底。
 //
-// ── 为什么同一个路径既能 GET 又能升级（`/omkb/state`）─────────────────────
+// ── 为什么同一个路径既能 GET 又能升级（`/micro/state`）─────────────────────
 // DSH 的 webServer 内部有三张**互相独立**的表：exact / prefixes / **upgrades**。
 // `registerUpgrade({ path, handler })` 只动 upgrades，与 HTTP 路由表不冲突 ——
-// 于是 GET /omkb/state（快照，设置页与 curl 诊断仍在用）与 WS /omkb/state 并存。
+// 于是 GET /micro/state（快照，设置页与 curl 诊断仍在用）与 WS /micro/state 并存。
 // upgrade handler 自己拥有握手与 socket 的全部使用权（见 dsh-host-webserver 的注释）。
 //
 // ── 心跳为什么是 500ms，而且**内容不变也要发** ─────────────────────────────
@@ -110,7 +110,7 @@ export const createStateSocket = ({
     if (payload === null) return
     for (const c of [...clients]) {
       if (c.socket.readyState !== 1) continue // 1 = OPEN
-      try { c.socket.send(payload) } catch (e) { warn(`[omkb] 状态推送失败：${(e && e.message) || e}`) }
+      try { c.socket.send(payload) } catch (e) { warn(`[micro] 状态推送失败：${(e && e.message) || e}`) }
     }
   }
 
@@ -126,7 +126,7 @@ export const createStateSocket = ({
 
   const handleUpgrade = (req, socket, head) => {
     if (!originAllowed(req)) {
-      warn(`[omkb] 拒绝跨源 WebSocket 连接：Origin=${req && req.headers && req.headers.origin} Host=${req && req.headers && req.headers.host}`)
+      warn(`[micro] 拒绝跨源 WebSocket 连接：Origin=${req && req.headers && req.headers.origin} Host=${req && req.headers && req.headers.host}`)
       try { socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n') } catch (e) {}
       socket.destroy()
       return
@@ -138,12 +138,12 @@ export const createStateSocket = ({
     const c = { socket: ws, alive: true }
     clients.add(c)
     ws.on('pong', () => { c.alive = true })
-    ws.on('error', (e) => { warn(`[omkb] 状态推送连接异常：${(e && e.message) || e}`) })
+    ws.on('error', (e) => { warn(`[micro] 状态推送连接异常：${(e && e.message) || e}`) })
     ws.on('close', () => { clients.delete(c) })
     // 连上立刻给一帧：否则首屏按键/电量要等最多一个心跳（500ms）才出现。
     const payload = frame()
     if (payload !== null) { try { ws.send(payload) } catch (e) {} }
-    info(`[omkb] 状态推送客户端接入（当前 ${clients.size} 个）`)
+    info(`[micro] 状态推送客户端接入（当前 ${clients.size} 个）`)
   })
 
   /** 挂上事件源与两个定时器（**定时器一律 unref**，绝不因为推送把宿主进程留住）。 */
@@ -197,18 +197,18 @@ export const registerStateSocket = async (webServer, ble, logger = null, options
   const info = (msg) => { try { logger && logger.info && logger.info(msg) } catch (e) {} }
 
   if (!webServer || typeof webServer.registerUpgrade !== 'function') {
-    warn('[omkb] 宿主未提供 webServer.registerUpgrade，状态推送不可用（客户端退回 HTTP 轮询）')
+    warn('[micro] 宿主未提供 webServer.registerUpgrade，状态推送不可用（客户端退回 HTTP 轮询）')
     return null
   }
   const loaded = await loadDep('ws')
   if (!loaded.ok) {
-    warn(`[omkb] 未解析到 ws，状态推送不可用（客户端退回 HTTP 轮询）：${loaded.reason}`)
+    warn(`[micro] 未解析到 ws，状态推送不可用（客户端退回 HTTP 轮询）：${loaded.reason}`)
     return null
   }
   const WebSocketServer = (loaded.mod && loaded.mod.WebSocketServer) ||
     (loaded.mod && loaded.mod.default && loaded.mod.default.WebSocketServer)
   if (typeof WebSocketServer !== 'function') {
-    warn(`[omkb] ws 里没有 WebSocketServer（经 ${loaded.root}），状态推送不可用（客户端退回 HTTP 轮询）`)
+    warn(`[micro] ws 里没有 WebSocketServer（经 ${loaded.root}），状态推送不可用（客户端退回 HTTP 轮询）`)
     return null
   }
 
@@ -217,12 +217,12 @@ export const registerStateSocket = async (webServer, ble, logger = null, options
   try {
     removeRoute = webServer.registerUpgrade({ path: PATHS.state, handler: socket.handleUpgrade })
   } catch (e) {
-    warn(`[omkb] 注册 WebSocket 路由失败（${(e && e.message) || e}），状态推送不可用（客户端退回 HTTP 轮询）`)
+    warn(`[micro] 注册 WebSocket 路由失败（${(e && e.message) || e}），状态推送不可用（客户端退回 HTTP 轮询）`)
     socket.dispose()
     return null
   }
   socket.start()
-  info(`[omkb] 状态推送已启用：ws ${PATHS.state}（同一路径的 GET 快照保留；客户端连不上时仍退回 HTTP 轮询）`)
+  info(`[micro] 状态推送已启用：ws ${PATHS.state}（同一路径的 GET 快照保留；客户端连不上时仍退回 HTTP 轮询）`)
   return {
     socket,
     dispose: () => {

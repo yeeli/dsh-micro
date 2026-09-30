@@ -1,4 +1,4 @@
-// dsh-omkb · check_code.js
+// dsh-micro · check_code.js
 // **构建前的源码检查** —— 语法错误绝不许进产物（2026-09-27）。
 //
 // ── 为什么要有它 ──────────────────────────────────────────────────────────
@@ -109,10 +109,10 @@ export const runCheck = async ({ targets = ['src'], label = 'src' } = {}) => {
 /** 统一的报告格式：构建脚本与 CLI 都用它，终端里的样子只有一种。 */
 export const report = (r, { log = console.log, error = console.error } = {}) => {
   if (r.ok) {
-    log(`[omkb/check] ✓ ${r.label}：${r.files} 个文件语法检查通过`)
+    log(`[micro/check] ✓ ${r.label}：${r.files} 个文件语法检查通过`)
     return true
   }
-  error(`[omkb/check] ✗ ${r.label}：${r.errors.length} 处错误`)
+  error(`[micro/check] ✗ ${r.label}：${r.errors.length} 处错误`)
   for (const line of r.errors.slice(0, MAX_REPORT)) error(`  ${line}`)
   const rest = r.errors.length - MAX_REPORT
   if (rest > 0) error(`  …还有 ${rest} 行错误未列出`)

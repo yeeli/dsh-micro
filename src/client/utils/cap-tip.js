@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/utils/cap-tip.js
+// dsh-micro · client/src/utils/cap-tip.js
 // 悬停气泡的**纯判据**：三行文案 + 气泡该放哪儿。
 //
 // 为什么单拎一个文件（本项目的一条硬纪律）：「纯判据不许住带 `import React` 的模块」——
@@ -20,7 +20,7 @@
 
 import { CUSTOM_LABEL } from '../keypad.js'
 
-/** 气泡最大宽度（px）—— **必须与 assets/settings.css 的 .omkb-captip 一致**：夹取算的就是它。 */
+/** 气泡最大宽度（px）—— **必须与 assets/settings.css 的 .micro-captip 一致**：夹取算的就是它。 */
 export const CAP_TIP_MAX_W = 248
 /** 气泡与键之间的空隙（px）。 */
 export const CAP_TIP_GAP = 10

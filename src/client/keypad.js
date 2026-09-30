@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/client/keypad.js
+// dsh-micro · client/src/client/keypad.js
 // **按键功能**（keypad）：键码 → 动作名 → 谁来执行。这一件事的收口文件。
 //
 // 2026-09-26 从 keypad/ 目录收成一个文件（原来三份并排：index.js 分派器 / keycaps.js 键帽表 /
@@ -14,7 +14,7 @@
 //     拆分态下 ACT11 出厂未指派，见 ./utils/keycaps.js 的 MIC_CUSTOM_CODE）
 //   另外每颗键都可以改派成**任意**功能（含 FORK 分叉，见 ./actions/registry.js 的总表）。
 //
-// 由 hid-bridge 在 /omkb/state 计数变化、且 state.act 非空时调用 run(actKey)；
+// 由 hid-bridge 在 /micro/state 计数变化、且 state.act 非空时调用 run(actKey)；
 // **松开**时（宿主上报的 down 里没它了）调 release(actKey)。
 //
 // **按下、但没执行成** → 补一句顶部提示（2026-09-28，用户要求「只做 act06-12 按键」）：
@@ -156,7 +156,7 @@ export class KeypadController {
   micSplit = false
   /**
    * 诊断：最近几次真实按键「上报的键码 → 解析出的动作」（最多 8 条，最新的在后）。
-   * 设备按键类问题排查入口：`__dshOmkb.services.keypad.lastRuns`。
+   * 设备按键类问题排查入口：`__dshMicro.services.keypad.lastRuns`。
    * 为什么需要它：「按下没反应」有两种完全不同的原因——(a) 这个键码根本没送到浏览器
    * （那 hid.diagnose() 的 unhandled 里会有它），(b) 送到了但被解析成 null（明确设成
    * 保留 / 键码不在表里）。只看现象分不清，看这两条记录一眼就知道。

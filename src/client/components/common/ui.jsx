@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/components/common/ui.jsx
+// dsh-micro · client/src/components/common/ui.jsx
 // 设置页的**共用零件**：键的壳（Key）、SVG 包装（SvgIcon）、键帽的脸（CAP_ICON + KeyFace）。
 //
 // **一份图标表喂两处**：布局里的键、以及「编辑按键」弹窗里的候选。以前弹窗用的是
@@ -12,7 +12,7 @@
 // ---------- 文字放哪：布局不带、弹窗也不带（2026-09-28 起）----------
 // 键面（KeyFace）一直**只画图标**。以前图标下面还压着一行 9px 的键帽字（FAST/SEND…），
 // 于是布局看起来像一排标签而不是一排按键；更糟的是弹窗里的候选也走同一个 `<span>`，
-// 而那一行字是 `position:absolute` 且只在 `.omkb-key--act` 里定得住 —— `.omkb-cap` 不是
+// 而那一行字是 `position:absolute` 且只在 `.micro-key--act` 里定得住 —— `.micro-cap` 不是
 // 定位祖先，候选的名字全被甩到遮罩底部叠成一堆，跟键对不上号。
 // 2026-09-24 先改成「布局不带字、弹窗在键下面写名字」；2026-09-28 用户要求把那行名字也撤掉，
 // 换成**悬停气泡**（见 components/common/cap-tip.jsx）—— 两处（布局的键、弹窗的候选）共用
@@ -23,7 +23,7 @@ import { CUSTOM_ICON, keycapOf } from '../../keypad.js'
 /** 设置页里「一颗键」的壳：布局里的键、弹窗里的候选、按键特效都挂在这上面。 */
 export const Key = ({ children, onClick, className = '', ...rest }) => {
   return (
-    <div onClick={onClick} className={`omkb-key ${className}`} {...rest}>
+    <div onClick={onClick} className={`micro-key ${className}`} {...rest}>
       {children}
     </div>
   )
@@ -34,7 +34,7 @@ export const Key = ({ children, onClick, className = '', ...rest }) => {
  * 条长就是电量本身（不是装饰性闪烁），空读数是空壳 —— 宁可看着空，也不要画一条假电量。
  * @param props.pct - 0..100；null/越界 = 没有读数（只画外壳）。
  * @param props.charging - 在充电：壳里改画一个闪电（此时条会来回跳，不如直接告诉用户在充电）。
- * 颜色跟随 currentColor：低电量由外层 `.omkb-batt--low` 变红（见 assets/settings.css）。
+ * 颜色跟随 currentColor：低电量由外层 `.micro-batt--low` 变红（见 assets/settings.css）。
  */
 export const BatteryIcon = ({ pct, charging }) => {
   const known = typeof pct === 'number' && Number.isFinite(pct) && pct >= 0 && pct <= 100
@@ -54,7 +54,7 @@ export const BatteryIcon = ({ pct, charging }) => {
 
 /** 24 视窗的 SVG 包装（设置页里的小图标统一走它，颜色用 currentColor）。 */
 export const SvgIcon = ({ children }) => (
-  <svg viewBox="0 0 24 24" className="omkb-svg-icon" stroke="#222" strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round">
+  <svg viewBox="0 0 24 24" className="micro-svg-icon" stroke="#222" strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round">
     {children}
   </svg>
 )

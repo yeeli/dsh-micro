@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/actions/index.js
+// dsh-micro · client/src/actions/index.js
 // ★ DeepSeek Harness 能力门面 ★ —— client/ 目录下**唯一**直接操作 DSH 的目录。
 //
 // 谁调它：keypad.js（按键）、joystick.js（摇杆）、knob.js（旋钮）、
@@ -19,7 +19,7 @@
 //   会话 / 输入机   currentSessionId · input · send · undo · redo · writeDraft · clearInput
 //   待确认交互      respond(approve|reject) → uiSession.pendingInteractions（审批 / 计划确认）；
 //                   服务拿不到时退到面板上**按文案**点按钮（批准/允许/确认/下一步 · 拒绝/跳过）
-//   会话动作        archive           → uiWorkspace.archiveSession（退：POST /omkb/archive）
+//   会话动作        archive           → uiWorkspace.archiveSession（退：POST /micro/archive）
 //                   fork              → uiWorkspace.forkSession（退：sessions.fork + open）
 //                   newSession        → uiWorkspace.startSession（「新建」键）
 //   附件            pickUpload        → 点输入栏里那个原生 file input（上传键；无服务面可用）
@@ -44,7 +44,7 @@
 //   「拿不到…」分支）—— 静默 false = 按下去没反应且查不出，这是本项目最贵的一条纪律。
 //
 // 【2026-09-28 补：出声的两条腿】日志只解决「查得出」，不解决「看得见」——正式版日志只写
-//   `$DSH_HOME/logs/dsh-omkb.log`，用户那一侧仍然是静音的。所以「没派出去」的那些分支改成
+//   `$DSH_HOME/logs/dsh-micro.log`，用户那一侧仍然是静音的。所以「没派出去」的那些分支改成
 //   `#deny(reason, logText)`：**照旧记一行日志**，同时把「为什么没做成」记进本实例的
 //   `#lastDeny`（`lastDeny()` 读它）。谁把它显示出来由**调用方**决定 —— 今天只有按键分派
 //   （keypad.js 的 #refuse，且只对动作键 ACT06..ACT12 发顶部提示，见 client/notice.js）。
@@ -68,7 +68,7 @@
 // 原样再导出，控制台与真机探针共用同一份判据（探针里不许再复刻一份）。
 //
 // 【接线】entry.js 装配一个 DshOps 实例，注入给三个控制器，并挂在 DSVI.services.ops 上
-// （控制台可直接 `__dshOmkb.services.ops.togglePlan()` 手验）。
+// （控制台可直接 `__dshMicro.services.ops.togglePlan()` 手验）。
 
 import {
   focusCollect, highlight, clearHighlight, planChipEl, sidebarToggleEl,
@@ -91,7 +91,7 @@ export * from './session.js'
 export * from './reasoning.js'
 export * from './effort.js'
 // 功能总表也从这个入口转发：控制台/自检/三个控制器都只需认 actions/index.js 一条路
-// （`__dshOmkb.actions.run('fork')` 手验任意功能，不必真按设备）。
+// （`__dshMicro.actions.run('fork')` 手验任意功能，不必真按设备）。
 // 第三方插件依赖清单**不在**这里：它是配置，住在 config/default.js 的 PLUGIN_DEPS。
 export * from './registry.js'
 
@@ -119,14 +119,14 @@ export class DshOps {
    * @param options.conversation - conversation 服务（拿 composer 输入机）。
    * @param options.services - (name) => service，取 ctx 上的跨插件服务（layout / remote.commands）。
    *                            别的客户端插件晚于本插件加载，所以取值必须延后到调用那一刻。
-   * @param options.log - 记一行日志（默认 console.log 加 `[omkb] ` 前缀）。
+   * @param options.log - 记一行日志（默认 console.log 加 `[micro] ` 前缀）。
    */
   constructor(options = {}) {
     const o = options || {}
     this.sessions = o.sessions || null
     this.conversation = o.conversation || null
     this.#services = typeof o.services === 'function' ? o.services : (() => undefined)
-    this.#log = typeof o.log === 'function' ? o.log : (msg) => { try { console.log('[omkb] ' + msg) } catch (e) {} }
+    this.#log = typeof o.log === 'function' ? o.log : (msg) => { try { console.log('[micro] ' + msg) } catch (e) {} }
     // 「打开本插件设置页」的深链实现在 components/sidebar/action.jsx（候选标题、点击顺序都在那儿）。
     // **只能注入**：本文件 import 那个 JSX 模块会形成循环（action.jsx 也要读这边的门面），
     // 而且 Node 侧自检进不去 JSX（见技能 §2）。拿不到注入时 openSettings 如实返回 false。
@@ -338,7 +338,7 @@ export class DshOps {
    * 归档当前会话。
    * ① 官方客户端服务 `uiWorkspace.archiveSession` —— DSH 侧边栏里那个「归档」动作走的就是它
    *    （会同时处理「归档的正好是当前会话 → 清掉当前选择」）。
-   * ② 退路：宿主旁路路由 POST /omkb/archive（宿主 workspaceRegistry.archiveSession；见 src/core/index.js）。
+   * ② 退路：宿主旁路路由 POST /micro/archive（宿主 workspaceRegistry.archiveSession；见 src/core/index.js）。
    *    它要求宿主重启过，所以只当兜底。
    *
    * ⚠ 失败必须**出声**：`archiveSession` 在「会话还有活动在跑」时会拒绝（`rpcError.code ===
@@ -360,13 +360,13 @@ export class DshOps {
     }
     if (typeof fetch === 'function') {
       // 退路也要看响应：以前只 catch 网络异常，宿主路由返回 4xx/5xx 时连一行日志都没有。
-      fetch('/omkb/archive', {
+      fetch('/micro/archive', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ sessionId: sid })
       }).then(
-        (res) => { if (res && res.ok === false) this.log(`归档失败：宿主路由 /omkb/archive 返回 ${res.status}`) },
-        (e) => this.log(`归档失败：宿主路由 /omkb/archive 不可达（${(e && e.message) || e}）`)
+        (res) => { if (res && res.ok === false) this.log(`归档失败：宿主路由 /micro/archive 返回 ${res.status}`) },
+        (e) => this.log(`归档失败：宿主路由 /micro/archive 不可达（${(e && e.message) || e}）`)
       )
       return true
     }
@@ -535,7 +535,7 @@ export class DshOps {
    * 这里把四个答案一次说清，而且**判据与 cycleAgentMode 同源**（同一对纯函数：
    * agentPresetStateOf / nextPresetOf），不另写一份「看起来一样」的逻辑。
    *
-   * 控制台也能直接问：`await __dshOmkb.services.ops.modeInfo()`；
+   * 控制台也能直接问：`await __dshMicro.services.ops.modeInfo()`；
    * 真机探针 npm run probe:mode 走的就是它（探针**不按键** —— ACT06 会真的换掉当前会话的预设）。
    * @returns {Promise<object>} { sessionId, preset, blank, hasChannel, failure, presets, next }
    *   preset/blank 为 null = 读不到；failure = 取清单被拒的原因；next = 下一个预设 id。
@@ -811,7 +811,7 @@ export class DshOps {
     const d = dir >= 0 ? 1 : -1
     const list = focusCollect()
     if (!list.length) { this.#navIndex = -1; this.#navList = []; clearHighlight(); return false }
-    let idx = list.indexOf(document.querySelector('[data-omkb-knob]'))
+    let idx = list.indexOf(document.querySelector('[data-micro-knob]'))
     if (idx === -1) idx = list.indexOf(document.activeElement)
     let next
     if (idx === -1) next = d >= 0 ? list[0] : list[list.length - 1]
@@ -827,7 +827,7 @@ export class DshOps {
     const list = this.#navList.length ? this.#navList : focusCollect()
     if (!list.length) return false
     let idx = this.#navIndex
-    if (idx < 0 || idx >= list.length) idx = list.indexOf(document.querySelector('[data-omkb-knob]'))
+    if (idx < 0 || idx >= list.length) idx = list.indexOf(document.querySelector('[data-micro-knob]'))
     if (idx < 0) idx = 0
     const el = list[idx]
     if (!el) return false
@@ -950,7 +950,7 @@ export class DshOps {
    * 光看界面分不清，而这两颗键**会真的改设置**（所以探针不该盲按）。
    *
    * 判据与 reasoningAdjust **同源**（同一对纯函数：effortBaseOf / effortStepOf），这里不许再算一遍。
-   * 控制台：`await __dshOmkb.services.ops.effortInfo()`；真机探针：`npm run probe:effort`。
+   * 控制台：`await __dshMicro.services.ops.effortInfo()`；真机探针：`npm run probe:effort`。
    * ⚠ 唯一的副作用：`directoryFor()` 会像官方那条路一样给这条会话**惰性建**一个模型目录
    *   （DSH 自己的模型按钮挂载时也这么做），所以这是「官方入口同款」，不是我们另开门路。
    * @returns {Promise<object>} { sessionId, hasService, failure, status, current, pending, routable,

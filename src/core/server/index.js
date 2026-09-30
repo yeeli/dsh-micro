@@ -1,12 +1,12 @@
-// dsh-omkb · server/index.js
+// dsh-micro · server/index.js
 //
-// 「宿主与 webserver 通信」的唯一入口。所有 /omkb/* 路由（7 条）都在这里汇总注册，
+// 「宿主与 webserver 通信」的唯一入口。所有 /micro/* 路由（7 条）都在这里汇总注册，
 // 由 server/ 下按功能域拆分的三个模块各自认领：
 //   device.js  —— state / config / reconnect（与设备直接相关）
 //   agents.js  —— agents（灯态，最重的一条）
 //   system.js  —— monitor / open-privacy / archive（系统与宿主能力）
 // 另有一条**不是 HTTP 路由**的挂点：
-//   state-socket.js —— ws `/omkb/state`（状态推送；与 device.js 那条 GET 同路径，
+//   state-socket.js —— ws `/micro/state`（状态推送；与 device.js 那条 GET 同路径，
 //                      占的是 webserver 的 upgrades 表，见那边的注释）
 //
 // 与 ble.js / index.js 的分界：
@@ -23,7 +23,7 @@ import { registerSystemRoutes } from './system.js'
 import { registerStateSocket } from './state-socket.js'
 
 /**
- * 汇总注册全部 7 条 /omkb/* 路由。
+ * 汇总注册全部 7 条 /micro/* 路由。
  *
  * @param {object} ctx - 宿主插件上下文（有 inject / get）。
  * @param {object} deps
@@ -42,7 +42,7 @@ export const registerServerRoutes = (ctx, deps) => {
   ctx.inject(['webServer'], (wctx) => {
     const webServer = wctx.webServer
     if (!webServer || typeof webServer.register !== 'function') {
-      warn('[omkb] 宿主未提供 webServer 服务，HTTP 路由不可用')
+      warn('[micro] 宿主未提供 webServer 服务，HTTP 路由不可用')
       return
     }
 
@@ -54,7 +54,7 @@ export const registerServerRoutes = (ctx, deps) => {
       ws = null
     }
     if (!ws || typeof ws.archiveSession !== 'function') {
-      warn('[omkb] 宿主未提供 workspaceRegistry.archiveSession，归档键不可用')
+      warn('[micro] 宿主未提供 workspaceRegistry.archiveSession，归档键不可用')
     }
 
     const disposers = [
@@ -64,7 +64,7 @@ export const registerServerRoutes = (ctx, deps) => {
     ]
     disposeAll = () => { for (const d of disposers) d() }
 
-    // ---- 状态推送（WebSocket）：与 GET /omkb/state **同一条路径** ----
+    // ---- 状态推送（WebSocket）：与 GET /micro/state **同一条路径** ----
     // DSH webserver 的 upgrades 表与 HTTP 路由表互相独立（见 state-socket.js 顶部），
     // 所以这里不新增地址，客户端 URL 一个字都不用改。
     //
@@ -82,7 +82,7 @@ export const registerServerRoutes = (ctx, deps) => {
         if (socketTorn) { sock.dispose(); return }
         disposeSocket = sock.dispose
       })
-      .catch((e) => warn(`[omkb] 状态推送注册异常（客户端退回 HTTP 轮询）：${(e && e.message) || e}`))
+      .catch((e) => warn(`[micro] 状态推送注册异常（客户端退回 HTTP 轮询）：${(e && e.message) || e}`))
     disposeAll = () => {
       socketTorn = true
       registerRoutes()

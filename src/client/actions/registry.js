@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/actions/registry.js
+// dsh-micro · client/src/actions/registry.js
 // ★ 功能按键总表 ★ —— **所有**「按一下就干一件事」的功能都登记在这里，一个功能一条。
 //
 // 为什么要有这张表（用户原话：「将所有功能按键方法都放在 actions 目录下同一个文件内方便调用，
@@ -7,7 +7,7 @@
 //     ① 键帽候选（components/modals/keycap.jsx）→ 写进 actLabels；
 //     ② 按键分派（keypad.js）→ 按下时执行；
 //     ③ 旋钮自定义分配（settings/panel.jsx 的下拉 → knob.js 执行）；
-//     ④ 控制台 / 自检（`__dshOmkb.actions`）。
+//     ④ 控制台 / 自检（`__dshMicro.actions`）。
 //   四处各写一份清单，迟早漂移（本项目踩过一次：键帽显示改了、按下还是录音）。
 //   现在只有这一份：**加功能 = 在 ACTIONS 里加一条；删功能 = 删掉那一条** ——
 //   四个消费面自动跟着变，不必再去别处找「还有哪张表要同步」。
@@ -52,7 +52,7 @@
 // 它仍然是旋钮下拉里的「无」，但当不了键帽（keycapActions() 按 capId 过滤）。
 
 /** 动作执行失败的兜底日志（控制器没给 log 时用；与控制台其它日志同一前缀）。 */
-const defaultLog = (msg) => { try { console.log('[omkb] ' + msg) } catch (e) {} }
+const defaultLog = (msg) => { try { console.log('[micro] ' + msg) } catch (e) {} }
 
 /**
  * 调门面上的一个方法：没有这个方法 / 返回 false 都算「没执行成功」。
@@ -189,7 +189,7 @@ export const ACTIONS = [
     id: 'open_settings',
     name: '键盘设置', icon: 'keyboard', capId: 'SETTINGS',
     label: 'act.openSettings',
-    desc: '打开 OMKB 键盘设置页（**长按旋钮**也是它 —— 同一份深链，不会一处能开一处打不开）',
+    desc: '打开 DSH小键盘设置页（**长按旋钮**也是它 —— 同一份深链，不会一处能开一处打不开）',
     // 仍是固定手势那条：**不进旋钮下拉**（长按旋钮已经绑定它了，再多一个下拉项只会让人以为要配）。
     knob: false,
     run: (c) => call(c.ops, 'openSettings')
@@ -387,7 +387,7 @@ const invoke = (entry, fn, ctx, phase) => {
 }
 
 /**
- * 点一下执行（旋钮自定义手势、控制台 `__dshOmkb.actions.run(id)`）。
+ * 点一下执行（旋钮自定义手势、控制台 `__dshMicro.actions.run(id)`）。
  *
  * **按住型动作在这里走 run，不走 press** —— 这一条踩过：`voice` 那条同时有两种界面语义，
  * 键帽/按键 = 按住说话（press/release），旋钮手势 = 没有「按住」这回事，一转/一按就是开关。

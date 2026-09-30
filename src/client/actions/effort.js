@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/actions/effort.js
+// dsh-micro · client/src/actions/effort.js
 // 【推理强度（reasoning effort）】：当前模型提供哪几档、现在在哪一档、升/降一档该选谁。
 //
 // ── 与 ./reasoning.js 的分工（两个文件都「关于推理」，判据不同）────────────────

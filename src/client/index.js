@@ -1,4 +1,4 @@
-// dsh-omkb · client/index.js
+// dsh-micro · client/index.js
 // 组装入口（Vite/Rollup 入口）：副作用导入全部模块使其挂载到共享 DSVI，
 // 再导出 apply/inject。Vite 以 CJS 打包后，这两个会成为 module.exports.apply/inject，
 // 恰好满足 DSH __ModuleLoader__ 的 factory 契约。

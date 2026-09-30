@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/entry.js
+// dsh-micro · client/src/entry.js
 // 客户端插件入口：按依赖序实例化各控制器并挂到 DSVI.services，再注册 slots / locale /
 // 设置表单（configForms）/ 全局 LED 刷新 effect。
 // 每一段装配相互隔离（try/catch + 显式报错），避免某一段抛错拖垮整个 apply，
@@ -11,14 +11,14 @@ import { KnobController } from './knob.js'
 import { AttentionController } from './attention.js'
 import { JoystickController } from './joystick.js'
 import { JoystickHud } from './joystick-hud.js'
-import { OmkbNotice, NOTICE_REASON, NOTICE_TEXT_FALLBACK, NOTICE_MS, NOTICE_COALESCE_MS } from './notice.js'
+import { MicroNotice, NOTICE_REASON, NOTICE_TEXT_FALLBACK, NOTICE_MS, NOTICE_COALESCE_MS } from './notice.js'
 import { HidBridge } from './hid-bridge.js'
 import { GuideController } from './guide.js'
 import { DeviceController } from './device.js'
 import { DshOps, levelRows, parseLevelFromLabel, currentLevelIndex, openReasoningLevels, closeReasoningLevels, ringTo, commitLevel, findReasoningTrigger, scrollStepSize, findScrollContainer, scrollToBottomDir, focusCollect, isTextEntry, interactionPanelRoot, panelAnswerOf, pickPanelButton, ACTIONS, runAction, keycapActions, knobActions } from './actions/index.js'
-import { OmkbSettingsSection } from './components/settings/panel.jsx'
+import { MicroSettingsSection } from './components/settings/panel.jsx'
 import { VoiceInputButton } from './components/common/voice-button.jsx'
-import { OmkbSidebarAction, FOOT_ACTION_ID, FOOT_ACTION_SLOT, openKeyboardSettings, openGeneralSettings } from './components/sidebar/action.jsx'
+import { MicroSidebarAction, FOOT_ACTION_ID, FOOT_ACTION_SLOT, openKeyboardSettings, openGeneralSettings } from './components/sidebar/action.jsx'
 import { installNavIconPatch, setNavRowHidden, NAV_ICON_SIZE } from './sidebar.js'
 // 摇杆提示卡片的样式（会话界面顶部那张）。与设置页的 settings.css 同一套做法：模块级追加到
 // DSVI.css，随第 1 段的 installStyles 一次性注入 <style>。
@@ -31,14 +31,14 @@ DSVI.css += hudCss
 DSVI.css += noticeCss
 
 // 声明式依赖：**只列这里真的整份离不开的服务**（缺一个，runner 就让整个客户端入口
-// 停在这一行，web boot 会报 `dsh-omkb: pending (waiting for service: …)`——不是设置页
+// 停在这一行，web boot 会报 `dsh-micro: pending (waiting for service: …)`——不是设置页
 // 坏掉，是界面与按键分派一起不激活）。
 // 「可能没有、没有也要能跑」的服务一律**不进列表**，改用 `ctx.get(name)` 现场可选查找
 // （0.1.7-rc.2 的 runner 明确把它当可选取用：`ctx.get` 不要求声明，直读 `ctx.xxx` 才要求）。
 // uiWorkspace / layout / conversation / remote.commands 都走这条路，见下面各处注释。
 DSVI.inject = ['slots', 'locale', 'configForms', 'sessions', 'workspaces'];
 
-const err = (tag, e) => { try { console.error('[omkb] 装配失败 ' + tag + ':', e) } catch (_) {} }
+const err = (tag, e) => { try { console.error('[micro] 装配失败 ' + tag + ':', e) } catch (_) {} }
 
 DSVI.apply = (ctx) => {
   // 1) 样式
@@ -61,7 +61,7 @@ DSVI.apply = (ctx) => {
     // 顶部提示（「这颗键在当前页面做不了」，见 notice.js）：**纯 DOM**，节点第一次真要显示时才建，
     // 所以在这里建实例不必等任何界面挂载。词典**延迟取** —— 这一段比第 4 段的 locale.register 早，
     // 而提示要到真按了键才需要文案（同下面 joy-hud 那条的 tt 做法）。
-    notice = new OmkbNotice({
+    notice = new MicroNotice({
       t: (key) => { try { return ctx.locale.bind(DSVI.NS)(key) } catch (e) { return key } }
     });
     // DSH 功能门面：按键/摇杆/旋钮要执行的每一个 DSH 操作都从它走（见 actions/）。
@@ -86,35 +86,35 @@ DSVI.apply = (ctx) => {
     // 弹窗注意力（用户 2026-09-29）：批准弹窗 → 当前会话那颗键转黄；旋钮 / 输入框「+」打开的
     // 弹窗 → 转粉，直到弹窗关闭。它只**看界面 + 上报**，颜色怎么用全在宿主（见 attention.js 顶注）。
     // 「按下旋钮」这一刻只有 knob 知道（见 knob.js 的 setOnPress），所以在这里接上。
-    attention = new AttentionController({ agents, log: (m) => { try { console.log('[omkb] ' + m) } catch (e) {} } });
+    attention = new AttentionController({ agents, log: (m) => { try { console.log('[micro] ' + m) } catch (e) {} } });
     knob.setOnPress(attention.arm);
     joystick = new JoystickController({ ops, voice });
     // 桥接层**不收 voice**：语音只能由显式动作触发（ACT10/ACT11 或设置页里绑定的动作），
     // 不让它碰语音控制器，就从结构上堵死「认不出来的事件 → 误开语音」那类问题。
     hid = new HidBridge({ agents, keypad, knob, joystick });
-    // 首次连接引导：**只读** /omkb/state 的 `open`，不参与任何按键分派（见 guide.js 顶部）。
+    // 首次连接引导：**只读** /micro/state 的 `open`，不参与任何按键分派（见 guide.js 顶部）。
     // 设置表单要等下面 UI 段才拿得到，所以先建实例、那边再 setScope。
     guide = new GuideController({ hid });
     // 设备级状态（「这台键盘被移除了没有」）：同样只订阅广播读 `open`。清空偏好要用到
-    // 默认字段清单 —— 直接给它设置页那份（DSVI.OMKB_DEFAULTS 与宿主 schema 逐字段对齐）。
-    device = new DeviceController({ hid, defaults: DSVI.OMKB_DEFAULTS });
+    // 默认字段清单 —— 直接给它设置页那份（DSVI.MICRO_DEFAULTS 与宿主 schema 逐字段对齐）。
+    device = new DeviceController({ hid, defaults: DSVI.MICRO_DEFAULTS });
     DSVI.services = { voice, agents, keypad, knob, joystick, hid, ops, guide, device, notice, attention };
     // 旋钮「仅推理 / 对话滚动 / 输入区导航」用到的定位函数（纯函数）：控制台与自检直接验，
-    // 不必真的去转硬件 —— __dshOmkb.knobTools.levelRows() / .focusCollect()。
+    // 不必真的去转硬件 —— __dshMicro.knobTools.levelRows() / .focusCollect()。
     DSVI.knobTools = {
       levelRows, parseLevelFromLabel, currentLevelIndex, findReasoningTrigger,
       openReasoningLevels, closeReasoningLevels, ringTo, commitLevel, scrollStepSize,
       findScrollContainer, scrollToBottomDir, focusCollect, isTextEntry,
       // 待确认弹窗那三件：探针要能直接问「现在这张弹窗我认出来了吗、这两颗键会点哪个」，
-      // 控制台也能手验（`__dshOmkb.knobTools.interactionPanelRoot()`）—— 判据只有一份。
+      // 控制台也能手验（`__dshMicro.knobTools.interactionPanelRoot()`）—— 判据只有一份。
       interactionPanelRoot, panelAnswerOf, pickPanelButton
     };
     DSVI.actions = { list: () => ACTIONS, run: runAction, keycaps: keycapActions, knob: knobActions };
     // 顶部提示的**原因表**也挂出来：探针要能把每一种提示逐条显示一遍看措辞
-    // （`__dshOmkb.noticeTools.NOTICE_REASON` 的键就是可以丢给 notice.showKey 的 id）。
+    // （`__dshMicro.noticeTools.NOTICE_REASON` 的键就是可以丢给 notice.showKey 的 id）。
     // 与 knobTools 同一条理由：判据只有一份，探针/控制台里不许再抄一份 id 清单。
     DSVI.noticeTools = { NOTICE_REASON, NOTICE_TEXT_FALLBACK, NOTICE_MS, NOTICE_COALESCE_MS };
-    try { if (typeof window !== 'undefined') window.__dshOmkb = DSVI } catch (e) {}
+    try { if (typeof window !== 'undefined') window.__dshMicro = DSVI } catch (e) {}
   } catch (e) { err('controllers', e) }
 
   // 3) 启动 BLE/HID 轮询（独立隔离：即使上方某段失败，只要 hid 实例在就继续轮询）
@@ -184,7 +184,7 @@ DSVI.apply = (ctx) => {
   try {
     ctx.effect(() => ctx.locale.register(DSVI.NS, DSVI.locales), `${DSVI.NS}: locale`);
     const t = ctx.locale.bind(DSVI.NS);
-    // 设置表单：0.1.7-rc.2 起唯一入口。命名空间就是宿主那条 loader 条目的 id（dsh-omkb），
+    // 设置表单：0.1.7-rc.2 起唯一入口。命名空间就是宿主那条 loader 条目的 id（dsh-micro），
     // 表单面跟着旧 scope 的形状（getSnapshot/subscribe/set/unset/mutate）—— 宿主没把
     // schema 登记上时它恒为 unavailable，写入被丢弃（设置页会如实报「保存失败」）。
     const scope = ctx.configForms.get(DSVI.NS);
@@ -227,14 +227,14 @@ DSVI.apply = (ctx) => {
 
     // 注入麦克风按钮 → 输入框工具行左侧
     ctx.slots.inject(DSVI.SLOT_INPUT, () =>
-      ctx.slots.register({ name: DSVI.SLOT_INPUT, id: 'omkb-voice', order: 100 }, VoiceInputButton)
+      ctx.slots.register({ name: DSVI.SLOT_INPUT, id: 'micro-voice', order: 100 }, VoiceInputButton)
     );
 
-    // 注入设置页 → omkb 键盘
+    // 注入设置页 → micro 键盘
     ctx.slots.inject('settings.section', () => {
       const dispose = ctx.slots.register({
         name: 'settings.section',
-        id: 'omkb',
+        id: 'micro',
         order: 60,
         label: () => t('nav'),
         inject: () => ({
@@ -246,7 +246,7 @@ DSVI.apply = (ctx) => {
           // PLUGIN_DEPS，静态、不检测系统）。
           workspaces: ctx.workspaces
         })
-      }, OmkbSettingsSection);
+      }, MicroSettingsSection);
       return () => { dispose() };
     });
   } catch (e) { err('ui', e) }
@@ -260,12 +260,12 @@ DSVI.apply = (ctx) => {
         id: FOOT_ACTION_ID,
         order: 50,
         locale: DSVI.NS
-      }, OmkbSidebarAction);
+      }, MicroSidebarAction);
       return () => { dispose() };
     });
   } catch (e) { err('sidebar-action', e) }
 
-  // 6) 设置页左侧导航里「OMKB 键盘」那一项的图标 → 我们的键盘图标。
+  // 6) 设置页左侧导航里「DSH小键盘」那一项的图标 → 我们的键盘图标。
   // 独立一段：DSH 那边只按 section id 查表给图标（插件注册时没有 icon 字段可给），
   // 想让它是键盘就得改 DOM —— 这段坏了最多图标退回齿轮，不能连累别的。
   try {

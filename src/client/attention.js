@@ -1,4 +1,4 @@
-// dsh-omkb · client/attention.js
+// dsh-micro · client/attention.js
 // **弹窗注意力探测**（用户 2026-09-29）：界面上有弹窗时，让**当前会话**那颗键换一个颜色提醒你。
 //
 //   ① 批准弹窗（审批 / 计划确认 / 多步确认）在场 → **琥珀黄**；
@@ -47,7 +47,7 @@ export class AttentionController {
   /** 上一次上报给 agents 的值（null = 没有弹窗）。 */
   #reported = null
   #onClick = null
-  #log = (msg) => { try { console.log('[omkb] ' + msg) } catch (e) {} }
+  #log = (msg) => { try { console.log('[micro] ' + msg) } catch (e) {} }
 
   pollMs = ATTENTION_POLL_MS
   armMs = ATTENTION_ARM_MS
@@ -87,7 +87,7 @@ export class AttentionController {
   /** 旋钮按下（由 KnobController.setOnPress 调）→ 进入待命，等它招来的弹窗。 */
   arm = () => this.#arm()
 
-  /** 诊断快照（`__dshOmkb.services.attention.diagnose()`）。 */
+  /** 诊断快照（`__dshMicro.services.attention.diagnose()`）。 */
   diagnose = () => ({
     attention: this.#reported, armed: this.#armed, sawPopup: this.#sawPopup,
     pollMs: this.pollMs, armMs: this.armMs

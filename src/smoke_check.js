@@ -1,4 +1,4 @@
-// dsh-omkb · smoke_check.js
+// dsh-micro · smoke_check.js
 // **构建后的冒烟自检** —— 把「改完跑不起来」挡在构建这一步（2026-09-27）。
 //
 // ── 为什么需要它（真实事故）──────────────────────────────────────────────
@@ -95,18 +95,18 @@ export const runSmoke = async ({ log = console.log, error = console.error, quiet
   }
 
   if (crashes.length === 0 && asserts.length === 0) {
-    if (!quiet) log(`[omkb/smoke] ✓ ${SUITES.length} 套冒烟自检通过（${SUITES.map(([, l]) => l).join(' / ')}）`)
+    if (!quiet) log(`[micro/smoke] ✓ ${SUITES.length} 套冒烟自检通过（${SUITES.map(([, l]) => l).join(' / ')}）`)
     return true
   }
   if (asserts.length > 0) {
-    error(`[omkb/smoke] ⚠ ${asserts.length} 套的行为断言未通过（**不阻断构建**，详见 npm run verify）：`)
+    error(`[micro/smoke] ⚠ ${asserts.length} 套的行为断言未通过（**不阻断构建**，详见 npm run verify）：`)
     for (const [file, label, r] of asserts) {
       error(`  · ${label}（test/${file}，${r.failed} 条 ✗）`)
       for (const line of r.lines.slice(-MAX_LINES)) error(`      ${line}`)
     }
   }
   if (crashes.length > 0) {
-    error(`[omkb/smoke] ✗ ${crashes.length} 套自检**崩溃**（代码根本跑不起来）：`)
+    error(`[micro/smoke] ✗ ${crashes.length} 套自检**崩溃**（代码根本跑不起来）：`)
     for (const [file, label, r] of crashes) {
       error(`  · ${label}（test/${file}，exit ${r.code}）`)
       for (const line of r.lines.slice(-MAX_LINES)) error(`      ${line}`)

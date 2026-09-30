@@ -1,9 +1,9 @@
-// dsh-omkb · server/device.js
+// dsh-micro · server/device.js
 //
 // 与「设备」直接相关的三条只读/写回路由：
-//   GET  /omkb/state     —— 状态快照（设备状态 + 灯态 + 诊断面）。
-//   POST /omkb/config    —— 配置写回（亮度 / 自动调暗）。
-//   ANY  /omkb/reconnect —— 手动重连（关句柄再 open）。
+//   GET  /micro/state     —— 状态快照（设备状态 + 灯态 + 诊断面）。
+//   POST /micro/config    —— 配置写回（亮度 / 自动调暗）。
+//   ANY  /micro/reconnect —— 手动重连（关句柄再 open）。
 //
 // 业务体（#state / applyConfig / 重连）都在 ble.js，这里只做 HTTP 壳。
 
@@ -43,7 +43,7 @@ export const registerDeviceRoutes = (webServer, ble, log = null) => {
   ]
   return () => {
     for (const d of disposers) {
-      try { d && d() } catch (e) { log && log.warn && log.warn(`[omkb] 设备路由注销失败: ${e && e.message}`) }
+      try { d && d() } catch (e) { log && log.warn && log.warn(`[micro] 设备路由注销失败: ${e && e.message}`) }
     }
   }
 }

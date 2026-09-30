@@ -1,12 +1,12 @@
-// dsh-omkb · 宿主侧（Host）入口
+// dsh-micro · 宿主侧（Host）入口
 // 职责：
-//   1. 加载 BLE/HID 读取器（src/host/core/ble.js）：用 node-hid 读 omkb 小键盘，
-//      按 name='omkb' & manufacturer='OM' 匹配设备，解析按键（AG00..AG05 智能键、
-//      ACT06..ACT12 动作键），并把触发计数器/按键码暴露到 GET /omkb/state。
-//   2. 注册 /omkb/archive：归档当前会话（宿主 workspaceRegistry.archiveSession）。
-//   3. 声明 `dsh-omkb` 设置命名空间：由本模块导出的 Config 承载（见 ./settings.js），
+//   1. 加载 BLE/HID 读取器（src/host/core/ble.js）：用 node-hid 读 micro 小键盘，
+//      按 name='micro' & manufacturer='OM' 匹配设备，解析按键（AG00..AG05 智能键、
+//      ACT06..ACT12 动作键），并把触发计数器/按键码暴露到 GET /micro/state。
+//   2. 注册 /micro/archive：归档当前会话（宿主 workspaceRegistry.archiveSession）。
+//   3. 声明 `dsh-micro` 设置命名空间：由本模块导出的 Config 承载（见 ./settings.js），
 //      落盘在 profile 的 patch 文件里；影响硬件的字段（亮度/自动调暗）回灌到 BLE。
-//   4. 浏览器客户端订阅 /omkb/state 的状态推送（ws，与 GET 同路径；宿主没带 ws 时
+//   4. 浏览器客户端订阅 /micro/state 的状态推送（ws，与 GET 同路径；宿主没带 ws 时
 //      客户端自动退回 120ms HTTP 轮询），按键变化即切换会话/语音/发送等。
 //   5. 订阅宿主总线的 agent/error（运行失败 → 红灯 + 状态码 3）、agent/turn-stopping（跑完一轮
 //      → 状态码 2）与 agent/status（该会话重新开跑 → 收掉上面那个结果态）。前两者是**结果态、
@@ -22,13 +22,13 @@ import { logSink } from './log.js'
 
 // 设置命名空间 = 插件在 profile 里那条 loader 条目的 Config（见 ./settings.js 顶部）。
 // 导出即注册：loader 读 `entry.fiber.runtime.Config`，客户端用
-// `ctx.configForms.get('dsh-omkb')` 读写同一个命名空间。
+// `ctx.configForms.get('dsh-micro')` 读写同一个命名空间。
 export { Config }
 
-export const name = 'dsh-omkb'
+export const name = 'dsh-micro'
 
 // 设置诊断探针（只读，不改行为）：把「schema 建起来没有 / 字段都标 volatile 没有 /
-// 宿主 describe() 里有没有我们这条命名空间」报给 /omkb/state。
+// 宿主 describe() 里有没有我们这条命名空间」报给 /micro/state。
 // 命名空间本身由上面导出的 Config 承载，这里没有注册动作可做。
 const settingsProbe = createSettingsProbe()
 
@@ -39,13 +39,13 @@ const settingsProbe = createSettingsProbe()
  *   引用对象（`.get()` 取值），一律经 settings.js 的 readConfig 摊平后再用。
  */
 export function apply(ctx, config) {
-  const logger = ctx.logger('omkb')
-  logger.info('[omkb] 蓝牙 HID 小键盘插件已加载（name=omkb, manufacturer=OM）')
+  const logger = ctx.logger('micro')
+  logger.info('[micro] 蓝牙 HID 小键盘插件已加载（name=micro, manufacturer=OM）')
   // 同一件事也写进**我们自己的**出口（见 ./log.js）：正式版终端是安静的，日志文件里
   // 必须留下「这一轮是什么时候起的、跑的是哪个版本」，否则那份文件只剩中间过程。
-  logSink.info('蓝牙 HID 小键盘插件已加载（name=omkb, manufacturer=OM）')
+  logSink.info('蓝牙 HID 小键盘插件已加载（name=micro, manufacturer=OM）')
 
-  // 宿主把这份诊断挂到 GET /omkb/state 上：settings.served === true 才代表宿主真的
+  // 宿主把这份诊断挂到 GET /micro/state 上：settings.served === true 才代表宿主真的
   // 在服务我们这条命名空间（终端日志不一定会转发到 stdout，这里由 HTTP 说话）。
   const ble = createBleReader({ logger, diagnostics: () => settingsProbe.diagnose() })
 
@@ -57,7 +57,7 @@ export function apply(ctx, config) {
   // 连带地，这些 dispose* 变量都得先声明 —— 否则 dispose 提前触发会在闭包里踩 TDZ。
   let disposeRoute = null
   ctx.on('dispose', () => {
-    // 原来是一句裸的 `console.log('dispose')`（连 [omkb] 前缀都没有）：走日志出口，
+    // 原来是一句裸的 `console.log('dispose')`（连 [micro] 前缀都没有）：走日志出口，
     // 正式版才不至于在插件卸载时往终端漏一行。
     logSink.info('dispose')
     // ble.dispose() 不只是关句柄：它会**先关灯、再关句柄**（把键盘 LED 全熄，见 ble.js 的
@@ -83,12 +83,12 @@ export function apply(ctx, config) {
     try {
       const id = agent && agent.id
       if (!ble.reportError(id)) {
-        logger.info(`[omkb] 会话 ${id} 运行失败，但它当前没有占键（不在侧边栏），不亮灯`)
+        logger.info(`[micro] 会话 ${id} 运行失败，但它当前没有占键（不在侧边栏），不亮灯`)
       }
     } catch (e) {
-      logger.warn('[omkb] 失败红灯下发异常:', e && e.message ? e.message : e)
+      logger.warn('[micro] 失败红灯下发异常:', e && e.message ? e.message : e)
     }
-  }), 'omkb: agent error → LED')
+  }), 'micro: agent error → LED')
 
   // ---- 跑完一轮 → 对应键报「成功」状态（同样是结果态）----
   // agent/turn-stopping 是「这一轮要收尾了」的钩子：dsh-agent-loop 在 turn 正常结束时
@@ -102,9 +102,9 @@ export function apply(ctx, config) {
     try {
       ble.reportSuccess(agent && agent.id)
     } catch (e) {
-      logger.warn('[omkb] 成功状态下发异常:', e && e.message ? e.message : e)
+      logger.warn('[micro] 成功状态下发异常:', e && e.message ? e.message : e)
     }
-  }), 'omkb: agent turn done → LED status')
+  }), 'micro: agent turn done → LED status')
 
   // ---- 该会话重新开跑 → 只收掉上面那个结果态，**不额外发报文** ----
   // 为什么订阅 agent/status 而不是等浏览器下发的 st=1：那是 agent loop 的**相位变化**
@@ -126,11 +126,11 @@ export function apply(ctx, config) {
     try {
       if (status !== 'running') return
       const id = agent && agent.id
-      if (ble.clearOutcome(id)) logger.info(`[omkb] 会话 ${id} 重新开始运行 → 收掉结果灯（红/成功，不额外发报文）`)
+      if (ble.clearOutcome(id)) logger.info(`[micro] 会话 ${id} 重新开始运行 → 收掉结果灯（红/成功，不额外发报文）`)
     } catch (e) {
-      logger.warn('[omkb] 结果灯收尾异常:', e && e.message ? e.message : e)
+      logger.warn('[micro] 结果灯收尾异常:', e && e.message ? e.message : e)
     }
-  }), 'omkb: agent running → clear outcome LED')
+  }), 'micro: agent running → clear outcome LED')
 
   // ---- 设置持久化 ----
   // 命名空间与 schema 由本模块导出的 Config 承载（导出即注册，没有 installSection 可调）。
@@ -146,15 +146,15 @@ export function apply(ctx, config) {
       try {
         ble.setPrefs(readHardwarePrefs(readConfig(config)))
       } catch (e) {
-        logger.warn('[omkb] 应用持久化偏好失败:', e && e.message ? e.message : e)
+        logger.warn('[micro] 应用持久化偏好失败:', e && e.message ? e.message : e)
       }
     }
     applyPrefs()
-    ctx.effect(() => ctx.on('loader/volatile-update', applyPrefs), 'omkb: 设置变更 → BLE')
+    ctx.effect(() => ctx.on('loader/volatile-update', applyPrefs), 'micro: 设置变更 → BLE')
   }
 
   // 让 DSH 不要为这条条目**再自动生成**一个设置页：本插件自带界面（settings.section
-  // 分区的 'omkb'），两份入口只会让人以为「改这份没用」。
+  // 分区的 'micro'），两份入口只会让人以为「改这份没用」。
   // 用官方写法：configure 的第二个参数是「哪条条目」，默认是调用者自己的 fiber —— 显式传
   // ctx.fiber 以免 ctx 经代理后指向别处；重复配置会抛，所以必须包在 ctx.effect 里（卸载时
   // 自动撤销），并吞掉异常（这只是界面政策，失败不该连累按键）。
@@ -163,12 +163,12 @@ export function apply(ctx, config) {
       try {
         child.effect(() => child.settings.configure({ auto: false }, ctx.fiber))
       } catch (e) {
-        logger.warn('[omkb] 声明「自带设置页」失败（不影响功能，只影响设置里会不会多出一个自动页）:', e && e.message ? e.message : e)
+        logger.warn('[micro] 声明「自带设置页」失败（不影响功能，只影响设置里会不会多出一个自动页）:', e && e.message ? e.message : e)
       }
       try { settingsProbe.attach(child) } catch (e) {}
     })
   } catch (e) {
-    logger.warn('[omkb] 等待 settings 服务失败:', e && e.message ? e.message : e)
+    logger.warn('[micro] 等待 settings 服务失败:', e && e.message ? e.message : e)
   }
 
   // 延后一次探测：describe() 只收已经 active 的条目，apply 期间自己还没 active。
@@ -178,10 +178,10 @@ export function apply(ctx, config) {
     timer.unref?.()
   }
 
-  // ---- 全部 /omkb/* 路由（7 条）都交给 server/ 汇总注册 ----
+  // ---- 全部 /micro/* 路由（7 条）都交给 server/ 汇总注册 ----
   // server/index.js 是「宿主与 webserver 通信」的唯一入口：它负责在 ctx.inject(['webServer'])
   // 的上下文里把 state/config/reconnect/agents/monitor/open-privacy/archive 七条路由挂上去，
-  // **外加** ws `/omkb/state` 那条状态推送（与 GET 同路径、占 upgrades 表），
+  // **外加** ws `/micro/state` 那条状态推送（与 GET 同路径、占 upgrades 表），
   // 并返回一个统一 disposer。业务体（灯态、归档、权限检测）仍在各自模块里，这里只递材料。
   // 输入监控检测器要在 apply 期间建一次（带缓存），路由与后续调用共用同一个实例。
   const monitor = createMonitorProbe()

@@ -1,8 +1,8 @@
-// dsh-omkb · client/src/components/common/cap-tip.jsx
+// dsh-micro · client/src/components/common/cap-tip.jsx
 // ★ 悬停提示气泡（渲染层）★ —— 键盘上「这颗键是干什么的」的唯一展示处。
 //
 // 为什么有它（用户 2026-09-28 要求，配一张设计稿）：
-//   「编辑按键」弹窗以前把键的名字写在**键下面**一行（`.omkb-cap-name`）——
+//   「编辑按键」弹窗以前把键的名字写在**键下面**一行（`.micro-cap-name`）——
 //   于是每一格都拖着一行小字，网格看着像标签墙；更糟的是布局里的键**没有**这行字，
 //   同一个「键帽」在两处长成两个样子。现在两处一致：**键面只有图标**，
 //   鼠标移上去才浮出一个深色气泡，把三行信息（短名 / 功能名 / 说明）一次说完。
@@ -12,7 +12,7 @@
 //
 // 两条实现上的硬约束（都由 utils/cap-tip.js 的 capTipPlacement 保证）：
 //   * **位置用 `position:fixed` + JS 量出来的坐标**，不能靠 CSS 相对定位：
-//     弹窗的候选网格是 `overflow:auto` 的滚动容器（见 assets/settings.css 的 .omkb-modal-grid），
+//     弹窗的候选网格是 `overflow:auto` 的滚动容器（见 assets/settings.css 的 .micro-modal-grid），
 //     子元素的绝对定位会被裁掉 —— 滚到下半屏的候选，气泡就没了。fixed 永远贴着视口。
 //     ⚠ 顺带一条：弹窗遮罩带 `backdrop-filter`，那会让它成为 fixed 后代的**包含块** ——
 //     所以调用方把气泡渲染成遮罩的**兄弟**，不要放进去（见 modals/keycap.jsx）。
@@ -52,7 +52,7 @@ export const capTipHandlers = (show, hide, cap) => ({
 /**
  * 气泡本体。`tip` 为空时渲染 `null`（不占 DOM）。
  * 位置（left/top）由 capTipPlacement 算好后一次性写在 style 上，CSS 只管长相
- * （见 assets/settings.css 的 .omkb-captip：深底圆角 + 三行层级 + 小箭头）。
+ * （见 assets/settings.css 的 .micro-captip：深底圆角 + 三行层级 + 小箭头）。
  */
 export function CapTip({ tip, t }) {
   if (!tip) return null
@@ -61,13 +61,13 @@ export function CapTip({ tip, t }) {
   const at = capTipPlacement(tip, { width: vw })
   return (
     <div
-      className={'omkb-captip' + (at.below ? ' omkb-captip--below' : '')}
+      className={'micro-captip' + (at.below ? ' micro-captip--below' : '')}
       style={{ left: at.x, top: at.y }}
       role="tooltip"
     >
-      <div className="omkb-captip-name">{lines.name}</div>
-      {lines.func ? <div className="omkb-captip-func">{lines.func}</div> : null}
-      {lines.desc ? <div className="omkb-captip-desc">{lines.desc}</div> : null}
+      <div className="micro-captip-name">{lines.name}</div>
+      {lines.func ? <div className="micro-captip-func">{lines.func}</div> : null}
+      {lines.desc ? <div className="micro-captip-desc">{lines.desc}</div> : null}
     </div>
   )
 }

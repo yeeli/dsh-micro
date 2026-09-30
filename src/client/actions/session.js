@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/actions/session.js
+// dsh-micro · client/src/actions/session.js
 // 【会话与输入机】：从 DSH 的 sessions / conversation 服务上读东西、算东西 —— 全是纯函数。
 //
 // 为什么单独一个文件：门面（./index.js）的每个动作都要先回答「现在动的是哪个会话、它的输入机

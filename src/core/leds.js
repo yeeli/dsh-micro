@@ -1,4 +1,4 @@
-// dsh-omkb · core/leds.js
+// dsh-micro · core/leds.js
 // **灯态引擎** —— 「浏览器下发的期望灯态 + 宿主收到的结果态 ⇒ 实际写给设备的灯」。
 // 从 ble.js 分拆出来：它是设备灯语（v.oai.rgbcfg / v.oai.thstatus）的**唯一出口**，
 // 而「谁持有 HID 句柄」是 transport.js 的事 —— 本模块只会调 transport.writeRpc()。
@@ -41,7 +41,7 @@ export class LedEngine {
   /**
    * 成功绿灯亮多久（毫秒）—— 到点自动回落到浏览器下发的期望色（用户 2026-09-28 选定「固定时长」，默认 3 秒）。
    *
-   * `DSH_OMKB_SUCCESS_HOLD_MS` 覆盖；**0 = 关掉绿灯**（成功不再改色，回到这条改动之前的行为）。
+   * `DSH_MICRO_SUCCESS_HOLD_MS` 覆盖；**0 = 关掉绿灯**（成功不再改色，回到这条改动之前的行为）。
    * 关掉这一档是给自检用的：那几套盯的是「一次只发一条 / st 只响一次」，与颜色无关，
    * 开着绿灯只会让每一处 success 断言多改一个色值。绿灯本身的行为在 verify_led_error 里单独验。
    */
@@ -78,7 +78,7 @@ export class LedEngine {
   /**
    * **当前会话** = 主视图正在看的那一条（DSH 官方判据 `retainedBy.mainView > 0`；**只有浏览器算得
    * 出来** —— 由 `src/client/utils/session-list.js` 的 `currentSessionIdIn` 算出，随 POST
-   * /omkb/agents 的 `current` 字段报上来）。
+   * /micro/agents 的 `current` 字段报上来）。
    *
    * ⚠ **规则 1**：`st` 只报当前会话占的那颗键，其余槽位一律 `IDLE`，**颜色照旧**（别的会话在跑
    * 就还是蓝的，那由 `c` 说）。判据压平在 `#stOfSlot`，全项目**只此一处**。
@@ -176,7 +176,7 @@ export class LedEngine {
    * ⚠ **窗口到点 ≠ 可以写**：要先确认浏览器那条真到了（看待写内容有没有被消费掉），
    * 窗口只是「回头看一眼」的检查点 —— 取值因此不需要「比对方长」。一直不来由 `#outcomeMaxMs` 兜底。
    *
-   * 诊断面不受影响（`#state.agents` 仍在同一拍同步更新）。0 = 立即写（`DSH_OMKB_OUTCOME_MS` 覆盖）。
+   * 诊断面不受影响（`#state.agents` 仍在同一拍同步更新）。0 = 立即写（`DSH_MICRO_OUTCOME_MS` 覆盖）。
    * 两轮演化与反证见技能 §2「一次只发一条 → 第三道防线」。
    */
   #outcomeWindowMs = 500
@@ -187,7 +187,7 @@ export class LedEngine {
    * 没有上限就变成「灯一直不变」，那是用户明确反对的另一头。
    * 为什么是 2s：正常路径下浏览器那条 350ms~1s 内必到（防抖 + 渲染 + 后台节流），
    * 2s 已是「这次真的不会来了」的量级；再长只会让「页面关了」的场景更迟钝。
-   * `DSH_OMKB_OUTCOME_MAX_MS` 覆盖（自检要调小，否则每节都得多等 2 秒）。
+   * `DSH_MICRO_OUTCOME_MAX_MS` 覆盖（自检要调小，否则每节都得多等 2 秒）。
    */
   #outcomeMaxMs = 2000
   /** 当前这轮结果态**首次**开窗的时刻（0 = 没在等）。算 `#outcomeMaxMs` 的起点，**不重排**。 */
@@ -245,13 +245,13 @@ export class LedEngine {
     this.#logger = logger
     this.#state = state
     // 结果态窗口（见 #outcomeWindowMs）：自检设 0 退回「同拍合并后立刻写」的老路径。
-    const outcome = Number(process.env.DSH_OMKB_OUTCOME_MS)
+    const outcome = Number(process.env.DSH_MICRO_OUTCOME_MS)
     if (Number.isFinite(outcome) && outcome >= 0) this.#outcomeWindowMs = outcome
     // 等浏览器那条的硬上限（见 #outcomeMaxMs）：自检调小，否则每节都得多等 2 秒。
-    const outcomeMax = Number(process.env.DSH_OMKB_OUTCOME_MAX_MS)
+    const outcomeMax = Number(process.env.DSH_MICRO_OUTCOME_MAX_MS)
     if (Number.isFinite(outcomeMax) && outcomeMax > 0) this.#outcomeMaxMs = outcomeMax
     // 成功绿灯亮多久（见 #successHoldMs）：自检设 0 = 关掉绿灯（那几套只关心条数与 st）。
-    const hold = Number(process.env.DSH_OMKB_SUCCESS_HOLD_MS)
+    const hold = Number(process.env.DSH_MICRO_SUCCESS_HOLD_MS)
     if (Number.isFinite(hold) && hold >= 0) this.#successHoldMs = hold
     this.#dimTimer = setInterval(() => this.#autoDimCheck(), 1000)
     this.#dimTimer.unref()
@@ -297,7 +297,7 @@ export class LedEngine {
     })
   }
 
-  // 应用来自设置面板的配置补丁（公开给 server/：POST /omkb/config 的 handler 调它）。
+  // 应用来自设置面板的配置补丁（公开给 server/：POST /micro/config 的 handler 调它）。
   applyConfig = (patch) => {
     if (!patch || typeof patch !== 'object') return
     if (typeof patch.brightness === 'number') {
@@ -496,7 +496,7 @@ export class LedEngine {
    * 安全网也可能在 exit 钩子上再调一次）。
    *
    * 它会让 `state.agents` 也变成全 0（`#sendThstatus` 的正常副作用）：这正是设备此刻
-   * 真实的样子，也是 /omkb/state 该报的事实。**期望灯态 `#desiredAgents` 一个字节都不动**。
+   * 真实的样子，也是 /micro/state 该报的事实。**期望灯态 `#desiredAgents` 一个字节都不动**。
    * @returns {boolean} 两条指令是否真的写出去了（没连上、或内容与上次完全相同被跳过时 false）。
    */
   #lightsOff = () => {
@@ -523,7 +523,7 @@ export class LedEngine {
   //   （微任务、同拍再多次也只是覆盖）→ 管**同拍**；跨拍的重复由 `#writeThstatus` 的**内容去重**
   //   兜住 → 管**跨拍**。两条防线各管一段，缺一不可（见技能 §2「一次只发一条」）。
   //
-  // ⚠ 诊断字段（`#state.agents` / `#state.outcomes`）必须留在**同步**这一半更新：读 /omkb/state
+  // ⚠ 诊断字段（`#state.agents` / `#state.outcomes`）必须留在**同步**这一半更新：读 /micro/state
   //   与自检的人不该被一个微任务的时序影响。**灭灯不走这里**：退出路径必须同步写。
   //
   // @param {{defer?: boolean, force?: boolean, from?: string}} [opts]
@@ -535,7 +535,7 @@ export class LedEngine {
     const { defer = false, force = false, from = 'leds' } = opts || {}
     if (!this.#desiredAgents.length) return false
     const params = this.#thstatusParams(this.#composeAgents())
-    // ⚠ 下面两行**同步**更新，与「什么时候写设备」无关：读诊断面的人（GET /omkb/state、
+    // ⚠ 下面两行**同步**更新，与「什么时候写设备」无关：读诊断面的人（GET /micro/state、
     //   自检）不该被一个写设备的时机左右。defer 只推迟 #pendingAgents 的落地。
     this.#state.agents = params
     // 排查用：哪些键此刻挂着结果态（红/成功）、分别是哪个会话。它们是**不会自己消失**的，
@@ -568,7 +568,7 @@ export class LedEngine {
    * 到点只写一条。**已经在窗口里就直接返回，起点不重排** —— 否则连续事件会把写入无限往后推，
    * 变成「一直不亮」。
    *
-   * 窗口为 0（自检 / `DSH_OMKB_OUTCOME_MS=0`）时走的还是老路径：同拍合并后立刻写。
+   * 窗口为 0（自检 / `DSH_MICRO_OUTCOME_MS=0`）时走的还是老路径：同拍合并后立刻写。
    * 这样「结果态延后」这件事不会把「同拍只发一条」那套既有语义搅乱。
    */
   #deferAgentsWrite = () => {
@@ -845,7 +845,7 @@ export class LedEngine {
   }
 
   // 来自设置面板的 Agent 键 LED 配置（{ slots: [{st,c,b,e,sid}...], errorColor, allIdle, current } 或纯数组）。
-  // 公开给 server/：POST /omkb/agents 的 handler 调它。
+  // 公开给 server/：POST /micro/agents 的 handler 调它。
   applyAgents = (payload) => {
     const list = Array.isArray(payload) ? payload : (payload && Array.isArray(payload.slots) ? payload.slots : null)
     if (!list) return

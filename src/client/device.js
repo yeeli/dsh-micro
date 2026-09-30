@@ -1,10 +1,10 @@
-// dsh-omkb · client/src/device.js
+// dsh-micro · client/src/device.js
 // **设备级状态的控制器**：管「这台键盘被移除了没有」这件事 —— 移除动作本身（清空全部偏好 +
 // 立标记）、被移除时把界面收起来、以及设备重新连上后自动恢复。
 //
 // 三条边界：
 //
-//  * **电量不在这里。** 它是 /omkb/state 的一个电平字段，设置页自己就在轮询那个端点
+//  * **电量不在这里。** 它是 /micro/state 的一个电平字段，设置页自己就在轮询那个端点
 //    （1s 一次，见 components/settings/panel.jsx），再经这里转一手只是多一条通路。
 //    这里只订阅 `open` 一个字段 —— 移除之后的恢复判据只需要它；顺带把「听到过宿主说话没有」
 //    记成 `known`，给侧边栏那个「已断开」的红点用（判据在 utils/device.js 的 isDeviceOffline）。
@@ -17,17 +17,17 @@
 //    「界面消失了、其实什么都没写、一刷新又回来了」这种最气人的假成功。
 //    （唯一的例外是重连后的自动恢复：那里乐观改本地态是有意的，见 #restore 的注释。）
 //
-// 与 guide.js 的关系：两者都订阅同一份 /omkb/state 广播，互不干扰。移除会**清掉 guideSeen**
+// 与 guide.js 的关系：两者都订阅同一份 /micro/state 广播，互不干扰。移除会**清掉 guideSeen**
 // （「移除 = 把这台键盘的痕迹清干净」，用户 2026-09-23 明确选的），于是重连之后首次连接引导
 // 会像新装一样再弹一次 —— 这是设计，不是 bug。
 import { REMOVED_KEY, SCOPE_RETRY, isDeviceHidden, isDeviceOffline, readbackOk, removeKeys, sameJson, snapValue } from './utils/device.js'
 
-/** 为什么界面是现在这样（诊断用；`__dshOmkb.services.device.diagnose()`）。 */
+/** 为什么界面是现在这样（诊断用；`__dshMicro.services.device.diagnose()`）。 */
 const WHY = {
   visible: 'ok（界面正常显示）',
   hidden: '已被移除 + 设备没连上 → 界面收起',
   connected: '设备已连上 → 界面显示（removed 会被自动清掉）',
-  nodeps: '没有 hid 桥（收不到 /omkb/state 广播）',
+  nodeps: '没有 hid 桥（收不到 /micro/state 广播）',
   noscope: '设置作用域不可写（移除/恢复都无法落盘）'
 }
 
@@ -211,7 +211,7 @@ export class DeviceController {
       .then((ok) => {
         if (ok || this.#restoreWarned) return
         this.#restoreWarned = true
-        try { console.warn('[omkb] 设备已重连，但没能把「已移除」标记写回设置（界面照常显示，只是下次拔掉设备会再收起来一次）') } catch (e) {}
+        try { console.warn('[micro] 设备已重连，但没能把「已移除」标记写回设置（界面照常显示，只是下次拔掉设备会再收起来一次）') } catch (e) {}
       })
       .catch(() => {})
     return true

@@ -1,6 +1,6 @@
-// dsh-omkb · HTTP 路由路径唯一真源
+// dsh-micro · HTTP 路由路径唯一真源
 //
-// 宿主侧对外暴露的 7 条 /omkb/* 路由，路径只在这里声明一次。其余模块（server/ 下的
+// 宿主侧对外暴露的 7 条 /micro/* 路由，路径只在这里声明一次。其余模块（server/ 下的
 // 各 handler、以及需要断言路径的自检）一律 import 这里，绝不各自写死字符串 ——
 // 否则「改一条路径要改 N 处」，改漏了就变成「浏览器打新地址、宿主还挂在旧地址上」的
 // 静默断连。
@@ -17,17 +17,17 @@ export const PATHS = Object.freeze({
    * 两种协议在 DSH webserver 里是**两张互相独立的表**（exact / upgrades），
    * 所以同一个 pathname 不会「撞车」——客户端连不上 WS 时自动退回 HTTP 轮询。
    */
-  state: '/omkb/state',
+  state: '/micro/state',
   /** 配置写回（POST）：亮度 / 自动调暗。 */
-  config: '/omkb/config',
+  config: '/micro/config',
   /** 手动重连（任意）：关句柄再 open。 */
-  reconnect: '/omkb/reconnect',
+  reconnect: '/micro/reconnect',
   /** 灯态上报（POST）：Agent 键 LED 配置 + 当前会话 + 结果态。 */
-  agents: '/omkb/agents',
+  agents: '/micro/agents',
   /** 归档当前会话（POST）：宿主 workspaceRegistry.archiveSession。 */
-  archive: '/omkb/archive',
+  archive: '/micro/archive',
   /** 输入监控授权状态（GET/POST，仅 macOS）：读系统权限。 */
-  monitor: '/omkb/monitor',
+  monitor: '/micro/monitor',
   /** 打开系统设置的隐私面板（POST）：浏览器不能 spawn，宿主代劳。 */
-  openPrivacy: '/omkb/open-privacy'
+  openPrivacy: '/micro/open-privacy'
 })

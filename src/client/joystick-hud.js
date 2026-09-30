@@ -1,4 +1,4 @@
-// dsh-omkb · client/joystick-hud.js
+// dsh-micro · client/joystick-hud.js
 // **摇杆提示卡片** —— 会话界面顶部居中的一张小卡片：左边一个方向盘（点跟着真实推力走），
 // 右边三行「方向 / 干的事 / 结果」，下面一条随停留时间走完的进度条。
 //
@@ -27,7 +27,7 @@ import { JOY_RESULT } from './joystick.js'
 export const HUD_LINGER_MS = 1500
 
 /** 卡片根节点的 class（探针 / 自检都靠它找）。 */
-export const HUD_CLASS = 'omkb-joyhud'
+export const HUD_CLASS = 'micro-joyhud'
 
 /** 四个方向的「正中角度」（度，与宿主同一套约定）。 */
 export const DIR_ANGLE = { right: 0, down: 90, left: 180, up: 270 }
@@ -128,10 +128,10 @@ export class JoystickHud {
     if (o.doc) this.#doc = o.doc
     this.#t = typeof o.t === 'function' ? o.t : null
     if (Number.isFinite(o.lingerMs) && o.lingerMs >= 0) this.#lingerMs = o.lingerMs
-    this.#log = typeof o.log === 'function' ? o.log : (msg) => { try { console.log('[omkb] ' + msg) } catch (e) {} }
+    this.#log = typeof o.log === 'function' ? o.log : (msg) => { try { console.log('[micro] ' + msg) } catch (e) {} }
   }
 
-  /** 给自检 / 探针看的一眼状态（不含 DOM 细节，量 DOM 请查 .omkb-joyhud）。 */
+  /** 给自检 / 探针看的一眼状态（不含 DOM 细节，量 DOM 请查 .micro-joyhud）。 */
   status = () => ({
     phase: this.#phase,
     visible: this.visible,
@@ -145,7 +145,7 @@ export class JoystickHud {
 
   /**
    * 每次轮询的状态快照。**只画画面，不执行任何动作**。
-   * @param snap - /omkb/state 的形状（只读 joy / joyD / joyA / open）。
+   * @param snap - /micro/state 的形状（只读 joy / joyD / joyA / open）。
    */
   feed = (snap) => {
     // 还没发生过任何手势 → 没有文案可画，整段跳过（否则每次轮询都在做无用功）。

@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/voice.js
+// dsh-micro · client/src/voice.js
 // 🎤 语音输入控制器：**优先用 DSH 官方那套语音输入，拿不到才回退到浏览器 Web Speech**
 // （由 entry.js 装配进 DSVI.services.voice）。
 //
@@ -62,7 +62,7 @@ export class VoiceController {
 
   /**
    * 诊断（控制台 / 真机探针）——「语音会走 / 正在走哪条链路」。
-   *   __dshOmkb.services.voice.diagnose()
+   *   __dshMicro.services.voice.diagnose()
    * ⚠ `route` 报的是「**下一次按下**会走哪条」（有进行中的则报进行中的那条），
    *   而**不是**「刚刚走完哪条」。若按后者写，折叠态下永远是 'browser' ——
    *   真机探针第一跑就被它骗了一次（明明官方 ready，读出来像「回退到浏览器了」）。

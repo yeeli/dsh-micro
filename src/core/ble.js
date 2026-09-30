@@ -1,4 +1,4 @@
-// dsh-omkb · core/ble.js
+// dsh-micro · core/ble.js
 // **装配门面** —— 原先那个上千行的单体（HID 传输 + 协议解析 + 输入翻译 + 灯态状态机全塞在一个
 // 类里）按职责拆成了四个模块，这里只剩「把它们接起来」这一件事：
 //
@@ -140,9 +140,9 @@ export class BleController {
   feedLine = (line) => { this.#input.handleLine(String(line)); this.#notify() }
 
   // 状态快照 = 硬件状态 + 可选诊断。诊断由宿主注入（目前是设置持久化是否在线）：
-  // 终端里的 logger 输出不一定会落到 stdout，把关键结论挂到 /omkb/state 上，
+  // 终端里的 logger 输出不一定会落到 stdout，把关键结论挂到 /micro/state 上，
   // 排查时一条 curl 就能看到，不用重启终端或翻日志。
-  // 公开给 server/：GET /omkb/state 的 handler 调它取「带诊断面」的快照。
+  // 公开给 server/：GET /micro/state 的 handler 调它取「带诊断面」的快照。
   snapshot = () => {
     if (!this.#diagnostics) return this.#state
     try { return { ...this.#state, settings: this.#diagnostics() } } catch (e) { return this.#state }
@@ -160,7 +160,7 @@ export class BleController {
     this.#notify()
   }
 
-  // 手动重连（公开给 server/：/omkb/reconnect 的 handler 调它）。
+  // 手动重连（公开给 server/：/micro/reconnect 的 handler 调它）。
   reconnect = () => {
     this.close()
     this.open()
@@ -175,7 +175,7 @@ export class BleController {
    */
   blackout = () => this.#transport.blackout()
 
-  // 应用来自设置面板的配置补丁（公开给 server/：POST /omkb/config）。
+  // 应用来自设置面板的配置补丁（公开给 server/：POST /micro/config）。
   // 六个门面方法的返回值一律**原样透传**（index.js 会读 reportError / clearOutcome 的布尔），
   // 通知只是捎带的一步。
   applyConfig = (patch) => { const r = this.#leds.applyConfig(patch); this.#notify(); return r }
@@ -183,7 +183,7 @@ export class BleController {
   // 持久化偏好回灌（宿主启动时从 settings.yaml 读到的亮度/自动调暗）。
   setPrefs = (prefs) => { const r = this.#leds.setPrefs(prefs); this.#notify(); return r }
 
-  // 来自设置面板的 Agent 键 LED 配置（公开给 server/：POST /omkb/agents）。
+  // 来自设置面板的 Agent 键 LED 配置（公开给 server/：POST /micro/agents）。
   applyAgents = (payload) => { const r = this.#leds.applyAgents(payload); this.#notify(); return r }
 
   // 结果态：某个会话失败（红）/ 跑完一轮（成功）/ 重新开始运行（收掉）。由宿主总线驱动。

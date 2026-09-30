@@ -1,16 +1,16 @@
-// dsh-omkb · 宿主侧设置（DSH 0.1.7-rc.2 契约）
+// dsh-micro · 宿主侧设置（DSH 0.1.7-rc.2 契约）
 //
 // ── 这一版为什么整块重写（第三次契约漂移）────────────────────────────────────
 // 0.1.5-rc.3 之前：@deepseek-ai/dsh-settings 导出两个自由函数
-//     installSettingsSection(ctx, settingsNamespace('dsh-omkb'), schema, entry, hooks)
+//     installSettingsSection(ctx, settingsNamespace('dsh-micro'), schema, entry, hooks)
 // 0.1.5-rc.3：改成服务方法 ctx.settings.installSection(owner, ns, schema, entry, hooks)
 // 0.1.7-rc.2：**installSection 与客户端 settingsScope 一起删掉了**。命名空间不再是
 //   「插件自己注册的东西」，而是**插件在 profile 里那条 loader 条目的 Config**：
-//     · 命名空间名 = 条目 id（我们就是 `dsh-omkb`，见 cordis.patch.yml 的 insert.id）
+//     · 命名空间名 = 条目 id（我们就是 `dsh-micro`，见 cordis.patch.yml 的 insert.id）
 //     · schema     = 插件模块导出的 `Config`（schemastery），**每个字段都要 .volatile()**
 //     · 可写性     = 只有标了 volatile 的字段才进设置表单；改它由 loader 就地提交
 //                    （updateVolatile + `loader/volatile-update`），**不会重启插件**
-//     · 客户端     = ctx.configForms.get('dsh-omkb')（settingsScope.bind 没了）
+//     · 客户端     = ctx.configForms.get('dsh-micro')（settingsScope.bind 没了）
 //   没有 volatile 字段的条目连 describe() 都不会出现（dsh-settings 的 volatileForm
 //   返回 undefined 就整条跳过）——所以「忘了标 volatile」的表现和当年「没注册」一模一样：
 //   设置页能看能改、一保存就丢。
@@ -36,16 +36,16 @@ import { resolveDep } from './resolve.js'
 
 /**
  * 命名空间。**必须与 profile 里那条 loader 条目的 id 逐字相同**（我们的
- * `cordis.patch.yml` 里 `insert: [{ id: dsh-omkb, name: dsh-omkb }]`）。
+ * `cordis.patch.yml` 里 `insert: [{ id: dsh-micro, name: dsh-micro }]`）。
  * 客户端 `ctx.configForms.get(DSVI.NS)` 用的也是这个字符串。
  */
-export const OMKB_NAMESPACE = 'dsh-omkb'
+export const MICRO_NAMESPACE = 'dsh-micro'
 
 /**
  * 默认值 —— schema 默认值与「读不到配置时的兜底」共用这一份，避免两处各写一份慢慢漂移。
- * 必须与客户端 DSVI.OMKB_DEFAULTS 逐字段一致（两侧分别构建、无法共享模块）。
+ * 必须与客户端 DSVI.MICRO_DEFAULTS 逐字段一致（两侧分别构建、无法共享模块）。
  */
-export const OMKB_DEFAULTS = {
+export const MICRO_DEFAULTS = {
   brightness: 0.9,
   autoDim: 0,
   actLabels: {},
@@ -110,42 +110,42 @@ try {
  * 就地提交（`loader/volatile-update`），**不会重启插件**——所以改亮度不会把 BLE 断一次。
  *
  * 依赖没解析到时这里是 undefined：条目没有 schema → 命名空间不存在 → 设置页只能读默认值。
- * 插件其余部分（按键/灯光）照常工作，诊断（/omkb/state 的 settings.error）会说清原因。
+ * 插件其余部分（按键/灯光）照常工作，诊断（/micro/state 的 settings.error）会说清原因。
  */
 export const Config = zMod
   ? zMod.object({
     /** 灯光亮度 0..1。 */
-    brightness: zMod.number().min(0).max(1).default(OMKB_DEFAULTS.brightness).volatile(),
+    brightness: zMod.number().min(0).max(1).default(MICRO_DEFAULTS.brightness).volatile(),
     /** 空闲自动调暗秒数，0 = 关闭。 */
-    autoDim: zMod.number().min(0).default(OMKB_DEFAULTS.autoDim).volatile(),
+    autoDim: zMod.number().min(0).default(MICRO_DEFAULTS.autoDim).volatile(),
     /**
      * 键帽覆盖：动作键 id（ACT06..ACT12）→ 选定的键帽 id（如 'ACT07'）。
-     * 值域与客户端 OMKB_KEYCAPS 的 id 一致；留空表示用物理键的出厂标签。
+     * 值域与客户端 MICRO_KEYCAPS 的 id 一致；留空表示用物理键的出厂标签。
      */
-    actLabels: zMod.dict(zMod.string()).default(OMKB_DEFAULTS.actLabels).volatile(),
+    actLabels: zMod.dict(zMod.string()).default(MICRO_DEFAULTS.actLabels).volatile(),
     /**
      * 模拟摇杆映射：{ up, right, down, left } → 动作名（取值域与出厂值见客户端
      * src/client/config/default.js 的 JOY_ACTION / JOY_DEFAULTS）。
      * 动作名是开放集合（含技能名），故用自由字典而非枚举；
      * 'none' 表示该方向不绑定任何动作（不能用 null：dict<string> 校验会拒掉）。
      */
-    joystick: zMod.dict(zMod.string()).default(OMKB_DEFAULTS.joystick).volatile(),
+    joystick: zMod.dict(zMod.string()).default(MICRO_DEFAULTS.joystick).volatile(),
     /** 智能体键映射模式。 */
-    agentKey: zMod.union(AGENT_KEY_MODES).default(OMKB_DEFAULTS.agentKey).volatile(),
+    agentKey: zMod.union(AGENT_KEY_MODES).default(MICRO_DEFAULTS.agentKey).volatile(),
     /** 自定义分配：槽位(0..5) → 会话 id（键按字符串存储）。 */
-    agentAssign: zMod.dict(zMod.string()).default(OMKB_DEFAULTS.agentAssign).volatile(),
+    agentAssign: zMod.dict(zMod.string()).default(MICRO_DEFAULTS.agentAssign).volatile(),
     /** 旋钮模式。 */
-    knob: zMod.union(KNOB_MODES).default(OMKB_DEFAULTS.knob).volatile(),
+    knob: zMod.union(KNOB_MODES).default(MICRO_DEFAULTS.knob).volatile(),
     /** 自定义旋钮分配：{ cw, ccw, click, long } → 动作名。 */
-    knobCustom: zMod.dict(zMod.string()).default(OMKB_DEFAULTS.knobCustom).volatile(),
+    knobCustom: zMod.dict(zMod.string()).default(MICRO_DEFAULTS.knobCustom).volatile(),
     /** 独立麦克风宽键。 */
-    micKey: zMod.boolean().default(OMKB_DEFAULTS.micKey).volatile(),
+    micKey: zMod.boolean().default(MICRO_DEFAULTS.micKey).volatile(),
     /**
      * 首次连接引导看过了没有（客户端 GuideController 在用户跳过/走完时写 true）。
      * 落在这里而不是 localStorage：它是「这台键盘的引导」而不是「这个浏览器的引导」，
      * 换台机器 / 重装浏览器不该再来一遍。重置布局会清掉它（于是下次连上再弹一次）。
      */
-    guideSeen: zMod.boolean().default(OMKB_DEFAULTS.guideSeen).volatile(),
+    guideSeen: zMod.boolean().default(MICRO_DEFAULTS.guideSeen).volatile(),
     /**
      * 「这台键盘已被移除」（客户端 DeviceController 在用户确认移除时写 true）。
      *
@@ -155,7 +155,7 @@ export const Config = zMod
      * 只记在浏览器里的话，一次刷新（或换浏览器）界面就又冒出来了 —— 用户看到的是
      * 「点了移除没用」。移除时清空的是**其余全部字段**，这个标记自己留着。
      */
-    removed: zMod.boolean().default(OMKB_DEFAULTS.removed).volatile()
+    removed: zMod.boolean().default(MICRO_DEFAULTS.removed).volatile()
   })
   : undefined
 
@@ -172,12 +172,12 @@ export const Config = zMod
 export function readConfig(config) {
   const src = config && typeof config === 'object' ? config : {}
   const out = {}
-  for (const key of Object.keys(OMKB_DEFAULTS)) {
+  for (const key of Object.keys(MICRO_DEFAULTS)) {
     const v = src[key]
-    if (v === undefined || v === null) out[key] = OMKB_DEFAULTS[key]
+    if (v === undefined || v === null) out[key] = MICRO_DEFAULTS[key]
     else if (typeof v === 'object' && typeof v.get === 'function') {
       const inner = v.get()
-      out[key] = inner === undefined ? OMKB_DEFAULTS[key] : inner
+      out[key] = inner === undefined ? MICRO_DEFAULTS[key] : inner
     } else out[key] = v
   }
   return out
@@ -195,7 +195,7 @@ export function readHardwarePrefs(section) {
 /**
  * schema 里到底标了几个 volatile 字段。
  *
- * 不去数 OMKB_DEFAULTS 的键数：那样「漏标 volatile」这种错误就永远断言不出来
+ * 不去数 MICRO_DEFAULTS 的键数：那样「漏标 volatile」这种错误就永远断言不出来
  * （整条链恰好死在那一处）。这里读的是**真的 schema**（toJSON → refs 里翻 meta）。
  * @returns {{total: number, volatile: number}}
  */
@@ -255,19 +255,19 @@ export function createSettingsProbe() {
       try {
         const rows = svc.describe() || []
         namespaces = rows.map((r) => r && r.ns).filter((n) => typeof n === 'string')
-        served = namespaces.includes(OMKB_NAMESPACE)
+        served = namespaces.includes(MICRO_NAMESPACE)
       } catch (e) {
         probeError = (e && e.message) || String(e)
       }
     },
-    /** @returns 诊断快照（挂在 /omkb/state 的 settings 上）。 */
+    /** @returns 诊断快照（挂在 /micro/state 的 settings 上）。 */
     diagnose: () => {
       const fields = countVolatileFields()
       return {
         // 契约代号：这一版是「条目 Config + volatile」。下次 DSH 再改，这行字直接指路。
         api: 'Config(volatile)',
         via: 'config',
-        namespace: OMKB_NAMESPACE,
+        namespace: MICRO_NAMESPACE,
         phase: Config ? 'ready' : 'failed',
         error: schemaError,
         schemaSource,

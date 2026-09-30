@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/utils/keycaps.js
+// dsh-micro · client/src/utils/keycaps.js
 // 布局模型：设备键码 ↔ 设置页「键盘布局」里的视觉键。
 //
 // 2026-09-26 从 client/keypad/layout.js 迁到这里（目录约定：布局模型是纯数据 + 纯函数，
@@ -75,7 +75,7 @@ export const factoryFuncOf = (code) => {
 /**
  * 某颗键**出厂**是哪个键帽（＝界面上画什么图标）。判据只有一处：默认配置里的功能名 + 总表的 capId。
  *
- * 为什么返回值必须走 capId 而不是功能名：DOM 上 `data-omkb-cap` 与图标表（components/common/ui.jsx
+ * 为什么返回值必须走 capId 而不是功能名：DOM 上 `data-micro-cap` 与图标表（components/common/ui.jsx
  * 的 CAP_ICON）认的都是**键帽 id**。直接返回功能名会让探针量到 `voice` 这种值、图标也取不到。
  * 顺带解决历史别名：MIC 那颗键帽的 id 是 'ACT10'，所以 ACT11 出厂也会翻成 'ACT10'，而不是
  * ../keypad.js 里那个只该用于**读老存档**的历史别名。
@@ -146,7 +146,7 @@ export const keyVisual = (name, split) => {
  * @param {object} prefs 设置页偏好；只看 micKey 与 actLabels。
  * @returns {Array<{code: string, visualId: string, wide: boolean, capId: string|null, custom: boolean}>}
  *   code —— 键帽弹窗写回的目标键码（＝actLabels 的键）；
- *   visualId —— `data-omkb-key`，也是按压特效的键；
+ *   visualId —— `data-micro-key`，也是按压特效的键；
  *   wide —— 是否占两格（合并态那颗宽键）；
  *   capId / custom —— 这颗键当前的键帽（null = 未指派）。
  *

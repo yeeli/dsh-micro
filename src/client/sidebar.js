@@ -1,5 +1,5 @@
-// dsh-omkb · src/client/sidebar.js
-// 设置页左侧导航里「OMKB 键盘」那一项的图标 —— 换成我们的键盘图标。
+// dsh-micro · src/client/sidebar.js
+// 设置页左侧导航里「DSH小键盘」那一项的图标 —— 换成我们的键盘图标。
 //
 // ── 为什么只能改 DOM，不能「注册」一个图标 ──────────────────────────────
 // DSH 的设置侧边栏（`dsh-tauri-ui/dist/client.cjs`）把图标**按 section id 硬编码查表**：
@@ -25,7 +25,7 @@ import { DSVI, keypadIconHTML } from './core.js'
 import { candidateLabels, findSectionRow, NAV_SCOPE_SEL, SETTINGS_OUTLET_SEL, SETTINGS_TRIGGER_SEL } from './components/sidebar/action.jsx'
 
 /** 我们插进去的 svg 上的标记（DOM 里就靠它认自己）。 */
-export const NAV_MARK = 'data-omkb-navicon'
+export const NAV_MARK = 'data-micro-navicon'
 /** DSH 渲染导航图标的 svg：类名带哈希前缀，只认后缀，认不出就退化为「行内第一个 svg」。 */
 export const NAV_ICON_SEL = 'svg.dshp-settings-nav-icon'
 /**
@@ -53,12 +53,12 @@ const svgOf = (row) => {
 // 多一个 display 开关是最小改动。
 //
 // 但这套「改 DOM」有四条必须守住的纪律 —— 2026-09-23 晚真机踩的坑：用户点完「移除」，
-// 设置菜单里「OMKB 键盘」那一项**还在**（旁边两处都收起来了，只有它没动）。根因是这一路
+// 设置菜单里「DSH小键盘」那一项**还在**（旁边两处都收起来了，只有它没动）。根因是这一路
 // 借用了「补图标」的判据，那条路有两处会静默失效：
 //   ① **藏行这条路不许走「廉价短路」**（原来借用 `run()` 里的 `NAV_SIDE_SEL` 短路）。短路是给
 //      「补图标」省开销的（弹窗关着占绝大多数时间）；一旦那个判据在真机上失效，藏行就静默变成
 //      「什么都不做」。藏行是**用户可见的承诺**，宁可多查一次 DOM。
-//   ② **不许靠文案找行**。补过图标之后，那一行里有我们自己的 `svg[data-omkb-navicon]`，
+//   ② **不许靠文案找行**。补过图标之后，那一行里有我们自己的 `svg[data-micro-navicon]`，
 //      「它的最近行祖先」就是要藏的行 —— 比文字匹配硬（不随语言 / 徽标 / 缩写漂移）。
 //      只有图标还没补上时才退回文案匹配。
 //   ③ **React 顶掉 style / 整行换新节点都要兜住**：藏行后先来两拍重试，再挂一个 1.5s 的守护
@@ -84,7 +84,7 @@ export const HIDE_GUARD_MS = 1500
 /** 导航行的标签选择器（我们那一行 = 设置弹窗导航里的一个按钮 / 链接）。 */
 export const ROW_SEL = 'button, [role="button"], a'
 
-const warn = (msg) => { try { console.warn('[omkb] ' + msg) } catch (e) {} }
+const warn = (msg) => { try { console.warn('[micro] ' + msg) } catch (e) {} }
 
 const restoreRow = () => {
   if (!hiddenRow) return

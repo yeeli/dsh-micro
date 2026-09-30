@@ -1,14 +1,14 @@
-// dsh-omkb · client/src/core.js
+// dsh-micro · client/src/core.js
 // 共享运行时：命名空间常量、样式、通用图标，以及所有模块共享的 `DSVI` 容器（持有 react）。
 // ESM 化后各模块显式从此导入。
 import React from 'react'
 export const react = React
 
-export const NS = 'dsh-omkb'
+export const NS = 'dsh-micro'
 export const SLOT_INPUT = 'conversation.input.left'
 /** 侧边栏底部「设置」旁边的动作位（DSH 官方槽位，见 dsh-client-ui-sidebar）。 */
 export const SLOT_FOOT_ACTION = 'sidebar.footer.action'
-/** 设置页分区槽位（本插件在它下面挂「OMKB 键盘」页）。 */
+/** 设置页分区槽位（本插件在它下面挂「DSH小键盘」页）。 */
 export const SLOT_SETTINGS_SECTION = 'settings.section'
 
 // 基础样式（设置模块会在此基础上追加）。使用 DSH 设计令牌。
@@ -21,13 +21,13 @@ export const css = [
   // DSH 在 html/body 上设了 `corner-shape: superellipse(1.5)`（超椭圆，即"方中带圆"那种
   // squircle）。这个属性**会被继承**，于是我们元素上的 `border-radius:50%` 不再渲染成
   // 正圆，而是超椭圆 —— 小尺寸下看着就是"圆角方形"。
-  // 症状：用户报「布局里原来是圆形的图标变成圆角的形状了」——像素法实测 `.omkb-key-dot`
+  // 症状：用户报「布局里原来是圆形的图标变成圆角的形状了」——像素法实测 `.micro-key-dot`
   // （22px / 50%）顶边第一行就有 16px 宽、整条轮廓与「圆角半径 = 边长 38% 的圆角方形」
   // 逐行吻合，而 computed 明明是 `50%`。
   // DSH 自己知道这个坑：它的组件逐条写了 `corner-shape: round` 抵消（跑 `probe:corner-shape`
   // 能看到一长串 `→ round`），我们的元素一个都没写。这里按同样办法补上。
   // 不认这个属性的浏览器直接忽略这条声明，无副作用。
-  '[class*="omkb-"],[class*="dsvi-"]{corner-shape:round}'
+  '[class*="micro-"],[class*="dsvi-"]{corner-shape:round}'
 ].join('')
 
 export const installStyles = () => {
@@ -118,7 +118,7 @@ export const KeypadIcon = (size = 20) =>
 /**
  * 同一个图标的 HTML 串（给 DOM 钩子用：设置页导航项那块 DOM 归 DSH 管，我们只能插节点）。
  * @param size - 渲染边长（px）。
- * @param attrs - 追加到 `<svg>` 上的额外属性串，如 `class="x" data-omkb-navicon="1"`。
+ * @param attrs - 追加到 `<svg>` 上的额外属性串，如 `class="x" data-micro-navicon="1"`。
  * @returns 完整的 `<svg>…</svg>` 字符串，颜色跟随 currentColor。
  */
 export const keypadIconHTML = (size = 16, attrs = '') => {

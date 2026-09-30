@@ -1,6 +1,6 @@
-// dsh-omkb · server/agents.js
+// dsh-micro · server/agents.js
 //
-// POST /omkb/agents —— 浏览器把「Agent 键 LED 配置 + 当前会话 + 结果态」上报给宿主。
+// POST /micro/agents —— 浏览器把「Agent 键 LED 配置 + 当前会话 + 结果态」上报给宿主。
 // 这是 7 条路由里最重的一条：它的业务体（期望灯态解析、结果态搬家、当前会话判据）都还在
 // ble.js 的 applyAgents() 里，这里只做「读 body → 调 applyAgents → 回 state」的薄壳。
 //
@@ -27,5 +27,5 @@ export const registerAgentsRoute = (webServer, ble, log = null) => {
     })
   })
   // 与改动前一致：注册失败不该连累按键功能，只告警。
-  return () => { try { disposer && disposer() } catch (e) { log && log.warn && log.warn(`[omkb] 灯态路由注销失败: ${e && e.message}`) } }
+  return () => { try { disposer && disposer() } catch (e) { log && log.warn && log.warn(`[micro] 灯态路由注销失败: ${e && e.message}`) } }
 }

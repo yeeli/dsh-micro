@@ -1,6 +1,6 @@
-// dsh-omkb · client/src/agents.js
+// dsh-micro · client/src/agents.js
 // 智能体键：把 6 个物理 Agent 键（AG00..AG05）映射到 DSH 会话（智能体），
-// 按每个会话的状态点亮键盘 LED（v.oai.thstatus，经 host 的 POST /omkb/agents）。
+// 按每个会话的状态点亮键盘 LED（v.oai.thstatus，经 host 的 POST /micro/agents）。
 // 按键回调由 hid-bridge 触发；LED 刷新由 entry.js 的全局 effect 驱动。
 //
 // 槽位来源必须与侧边栏一致：`listSessions` 用 core.js 的共享可见性判据（非子代理 /
@@ -100,7 +100,7 @@ export class AgentController {
   // 跨插件服务**延迟取值**（与 actions/index.js 的 DshOps 同一套写法）：别的客户端插件
   // 晚于本插件加载，建对象时缓存下来会永远是 undefined。
   #services = () => undefined
-  #log = (msg) => { try { console.log('[omkb] ' + msg) } catch (e) {} }
+  #log = (msg) => { try { console.log('[micro] ' + msg) } catch (e) {} }
 
   /** @param options.services - (name) => service（取 ctx 上的跨插件服务，如 uiWorkspace）。 */
   constructor(options = {}) {
@@ -283,7 +283,7 @@ export class AgentController {
       //   `Y !== 账本`，账本里只可能躺着「上次成功的那份」，Y 永远不会被它挡住。
       //   宿主侧同处完全一致（`#writeThstatus`：`if (ok) 记账`，失败分支不碰账本）——
       //   两边同源，才不会出现「浏览器以为宿主知道、宿主其实不知道」。
-      fetch('/omkb/agents', {
+      fetch('/micro/agents', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body

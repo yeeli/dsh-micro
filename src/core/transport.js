@@ -1,11 +1,11 @@
-// dsh-omkb · core/transport.js
+// dsh-micro · core/transport.js
 // **HID 传输层** —— 与 node-hid 打交道的那一半，从 ble.js 分拆出来。
 //
 // BLE = 蓝牙 HID。macOS 上标准 HID 键盘被系统独占，node-hid 读不到；
-// 只能读"厂商自定义类"设备。omkb 的 ReportMap 为 Usage Page 0xFF00、
+// 只能读"厂商自定义类"设备。DSH小键盘的 ReportMap 为 Usage Page 0xFF00、
 // Report ID 6、63 字节输入 + 63 字节输出，与 Codex Micro 同款。
 //
-// 设备识别：product 名包含 'omkb' 且 manufacturer 为 'OM'（均可通过环境变量覆盖）；
+// 设备识别：product 名包含 'DSH Micro' 且 manufacturer 为 'OMKB LAB'（均可通过环境变量覆盖）；
 // 优先按 VID:PID 精确匹配，默认 0x303A:0x8361，可用 DSH_HID_VID/DSH_HID_PID 覆盖。
 // 报告分帧：node-hid 每次给 63 字节数据 = [channel(1=debug,2=RPC), len, payload<=61]，
 // 首字节可能是 report id(0x06)。JSON 行以 '\n' 结尾，可能跨多帧，需累计重组。
@@ -36,7 +36,7 @@ export class HidTransport {
   // 未配置 VID/PID 时回退到旧的 name/manufacturer 匹配（DSH_HID_NAME/DSH_HID_MFR）
   #vendorId = this.#parseHex(process.env.DSH_HID_VID || '0x303A')
   #productId = this.#parseHex(process.env.DSH_HID_PID || '0x8361')
-  #deviceName = (process.env.DSH_HID_NAME || 'OMKB').toLowerCase()
+  #deviceName = (process.env.DSH_HID_NAME || 'DSH Micro').toLowerCase()
   #deviceMfr = (process.env.DSH_HID_MFR || 'OMKB LAB').toLowerCase()
 
   #state = null
@@ -75,7 +75,7 @@ export class HidTransport {
    * 专门修过的 bug）。代价只是链路真没建起来时白发一条 —— 那种情况写不出去，也不报错。
    */
   #probeTimer = null
-  #probeMs = 15000 // 兜底延迟；DSH_OMKB_PROBE_MS 覆盖（自检脚本调小它），0 = 不兜底
+  #probeMs = 15000 // 兜底延迟；DSH_MICRO_PROBE_MS 覆盖（自检脚本调小它），0 = 不兜底
 
   /** @param {{logger?: any, state: object, onLine: Function, onOpened?: Function, onClosed?: Function, onBlackout?: Function, guard?: {release: Function, blackout: Function, log?: Function}}} [options] */
   constructor(options = {}) {
@@ -86,7 +86,7 @@ export class HidTransport {
     this.#onOpened = onOpened
     this.#onClosed = onClosed
     this.#onBlackout = onBlackout
-    const probe = Number(process.env.DSH_OMKB_PROBE_MS)
+    const probe = Number(process.env.DSH_MICRO_PROBE_MS)
     if (Number.isFinite(probe) && probe >= 0) this.#probeMs = probe
     // 安全网只**建**不装：装的动作在 open() 成功之后（没设备就别碰进程信号）。
     // release / blackout 指向**上层**的公有落点（close / blackout，都是类字段、可被自检替换）：
@@ -103,8 +103,8 @@ export class HidTransport {
   get exitGuard() { return this.#exitGuard }
 
   // 日志同时打到 Cordis logger 和「我们自己那一份」（开发版 = 终端 stdout/stderr，方便
-  // 从命令行用 `dsh web` 调试；**正式版 = 只写 $DSH_HOME/logs/dsh-omkb.log**，终端安静）。
-  // 去向由 ./log.js 的 logSink 定（构建期常量 __OMKB_RELEASE__，见那边的注释）。
+  // 从命令行用 `dsh web` 调试；**正式版 = 只写 $DSH_HOME/logs/dsh-micro.log**，终端安静）。
+  // 去向由 ./log.js 的 logSink 定（构建期常量 __MICRO_RELEASE__，见那边的注释）。
   #log = (...a) => { try { this.#logger?.['info']?.(...a) } catch (e) {}; logSink.info(...a) }
 
   #warn = (...a) => { try { this.#logger?.['warn']?.(...a) } catch (e) {}; logSink.warn(...a) }

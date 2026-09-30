@@ -1,7 +1,7 @@
-// dsh-omkb · client/src/components/settings/panel.jsx
-// **设置面板本体**（DSH 设置页里的「OMKB 键盘」分区）：连接状态、输入监控提示、
+// dsh-micro · client/src/components/settings/panel.jsx
+// **设置面板本体**（DSH 设置页里的「DSH小键盘」分区）：连接状态、输入监控提示、
 // 亮度/自动调暗（写回 HID）、布局可视化（引用 settings/keyboard-layout.jsx）、以及按键/旋钮映射等
-// 本地偏好（持久化走 DSH 的设置表单 `ctx.configForms.get('dsh-omkb')`）。
+// 本地偏好（持久化走 DSH 的设置表单 `ctx.configForms.get('dsh-micro')`）。
 //
 // 这个文件同时是**设置样式 settings.css 的注入处**（DSVI.css += settings.css?raw）。
 // ⚠ **默认值不在这个文件里了**：2026-09-26 起全部集中到 `../config/default.js`
@@ -17,26 +17,26 @@ import { SCOPE_RETRY, batteryView, isDeviceHidden, readbackOk, sameJson } from '
 import { knobActions, actionById } from '../../actions/registry.js'
 // 默认配置（偏好默认值 + 第三方插件清单）只在 config/default.js 里写一份 —— 见下面的
 // 「默认偏好」段。这个 import 是**唯一**读默认值的地方，别在此处再手写一份字面量。
-import { OMKB_DEFAULTS, PLUGIN_DEPS } from '../../config/default.js'
+import { MICRO_DEFAULTS, PLUGIN_DEPS } from '../../config/default.js'
 import '../../config/locales.js'
 import settingsCss from '../../assets/settings.css?raw'
-import { OmkbLayout } from './keyboard-layout.jsx'
-import { OmkbResetModal } from '../modals/reset.jsx'
-import { OmkbRemoveModal } from '../modals/remove.jsx'
-import { OmkbSaveToast } from '../toast/save.jsx'
+import { MicroLayout } from './keyboard-layout.jsx'
+import { MicroResetModal } from '../modals/reset.jsx'
+import { MicroRemoveModal } from '../modals/remove.jsx'
+import { MicroSaveToast } from '../toast/save.jsx'
 import { BatteryIcon } from '../common/ui.jsx'
 // 移除之后要把设置弹窗从本分区切走（我们的导航行会被藏起来，停在原地只剩一块空白内容区）。
 // 导航行怎么找只有那一个地方知道（findSectionRow/candidateLabels 也在那儿）。
 import { leaveOurSection } from '../sidebar/action.jsx'
 
 // ---------- 默认偏好 ----------
-// **值不在这里**，在 ../config/default.js（客户端默认配置的唯一声明处，用户要求「把 OMKB 中的
+// **值不在这里**，在 ../config/default.js（客户端默认配置的唯一声明处，用户要求「把 DSH小键盘的
 // 默认设置参数配置都写在这个文件中，方便后续更换」）。这里只把它挂到共享 DSVI 上：
-//   · 本文件的 update/clearField/resetLayout 用 DSVI.OMKB_DEFAULTS[key] 取默认值；
+//   · 本文件的 update/clearField/resetLayout 用 DSVI.MICRO_DEFAULTS[key] 取默认值；
 //   · entry.js 把它交给 DeviceController（「移除键盘」要清空**全部**字段，清单从这里来）。
 // 为什么必须与宿主 schema（src/core/settings.js）逐字段对齐：任一字段只在一侧声明，
 // 设置页写它时就会被宿主判为「无契约」，重启后静默丢失。自检有两套断言守着这条。
-DSVI.OMKB_DEFAULTS = OMKB_DEFAULTS
+DSVI.MICRO_DEFAULTS = MICRO_DEFAULTS
 
 // 设置样式追加到共享 DSVI.css（随 installStyles 注入，见 ../assets/settings.css）
 DSVI.css += settingsCss
@@ -90,11 +90,11 @@ const AUTO_DIM_OPTIONS = [
 
 /**
  * 设置分区组件（由 entry.js 注册到 settings.section 槽位）。
- * @param scope - 设置表单的绑定（读写命名空间 dsh-omkb）。
+ * @param scope - 设置表单的绑定（读写命名空间 dsh-micro）。
  * @param t - 词典函数。
  * @param sessions / workspaces - 会话与工作区服务（自定义分配下拉要用）。
  */
-export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
+export function MicroSettingsSection({ scope, t, sessions, workspaces }) {
   const tt = t || ((k) => k)
 
   // 会话列表（供「自定义分配」下拉读取）：与键盘灯共用同一可见性判据
@@ -120,7 +120,7 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
       return v && typeof v === 'object' ? v : {}
     } catch (e) { return {} }
   })()
-  const [prefs, setPrefs] = useState(() => ({ ...DSVI.OMKB_DEFAULTS, ...initial }))
+  const [prefs, setPrefs] = useState(() => ({ ...DSVI.MICRO_DEFAULTS, ...initial }))
 
   // 订阅 scope 的后续变更，保持 UI 与持久化值同步
   useEffect(() => {
@@ -137,7 +137,7 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
     return off
   }, [scope])
 
-  // 保存状态反馈：idle / saving / saved / error —— 由顶部悬浮提示呈现（OmkbSaveToast）。
+  // 保存状态反馈：idle / saving / saved / error —— 由顶部悬浮提示呈现（MicroSaveToast）。
   // 成功留 1.8s（够看清又不碍事），失败留 3.2s（要读完「保存失败」这个坏消息）。
   const SAVE_TOAST_MS = { saved: 1800, error: 3200 }
   const [saveStatus, setSaveStatus] = useState(null) // null=idle, 'saving', 'saved', 'error'
@@ -149,7 +149,7 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
     saveTimer.current = hold ? setTimeout(() => setSaveStatus(null), hold) : null
   }
 
-  // 连接状态 + 电量：都来自同一个端点（/omkb/state），一次轮询一起取。
+  // 连接状态 + 电量：都来自同一个端点（/micro/state），一次轮询一起取。
   // 电量走这里而不是走 DeviceController，是因为**只有这一行要用它**（控制器只管移除/恢复）。
   const [conn, setConn] = useState({ open: false, product: null, battery: null, charging: false })
   /** 「重置布局」确认弹窗是否打开（破坏性操作，先摆清楚再动手）。 */
@@ -234,8 +234,8 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
       if (opts.silent !== true) showSaveStatus('error')
       return Promise.resolve(false)
     }
-    if (typeof sc.unset !== 'function') return persist(key, DSVI.OMKB_DEFAULTS[key], opts)
-    return persistWrite(key, () => sc.unset(key), DSVI.OMKB_DEFAULTS[key], opts)
+    if (typeof sc.unset !== 'function') return persist(key, DSVI.MICRO_DEFAULTS[key], opts)
+    return persistWrite(key, () => sc.unset(key), DSVI.MICRO_DEFAULTS[key], opts)
   }
 
   // 连续调整的控件（亮度滑杆）：**拖完之后才发一次**。
@@ -271,7 +271,7 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
   }
   const postConfig = (patch) => {
     if (typeof fetch === 'function') {
-      fetch('/omkb/config', {
+      fetch('/micro/config', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(patch)
@@ -298,7 +298,7 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
     const keys = ['agentKey', 'knob', 'micKey', 'agentAssign', 'knobCustom', 'actLabels', 'joystick', 'guideSeen']
     setPrefs((p) => {
       const next = { ...p }
-      for (const key of keys) next[key] = DSVI.OMKB_DEFAULTS[key]
+      for (const key of keys) next[key] = DSVI.MICRO_DEFAULTS[key]
       return next
     })
     const sc = scope
@@ -317,7 +317,7 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
       chain = chain.then(() => {
         const run = canUnset
           ? Promise.resolve(sc.unset(key))
-          : Promise.resolve(sc.set(key, DSVI.OMKB_DEFAULTS[key]))
+          : Promise.resolve(sc.set(key, DSVI.MICRO_DEFAULTS[key]))
         return run.catch(() => {}) // 单次失败不中断，成败由末尾的统一回读判定
       })
     }
@@ -325,7 +325,7 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
       // 「清掉了」有两种同样正确的样子：DSH 的镜像会把 schema 默认值补齐（unset 之后读回来
       // 是默认值），有的版本则干脆不返回这个字段。两种都算成功 —— 只认前者，换个 DSH
       // 版本就会把「写成功了」报成失败（见 client/device.js 里同一处判据）。
-      (key) => (snap.value || {})[key] === undefined || sameJson((snap.value || {})[key], DSVI.OMKB_DEFAULTS[key])
+      (key) => (snap.value || {})[key] === undefined || sameJson((snap.value || {})[key], DSVI.MICRO_DEFAULTS[key])
     ))).then((ok) => {
       if (seq === writeSeq.current) showSaveStatus(ok ? 'saved' : 'error')
     })
@@ -335,7 +335,7 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
   useEffect(() => {
     if (typeof fetch !== 'function') return undefined
     const poll = () => {
-      fetch('/omkb/state', { cache: 'no-store' })
+      fetch('/micro/state', { cache: 'no-store' })
         .then((r) => (r.ok ? r.json() : null))
         .then((s) => {
           if (!s || typeof s !== 'object') return
@@ -351,7 +351,7 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
   }, [])
 
   const reconnect = () => {
-    if (typeof fetch === 'function') fetch('/omkb/reconnect', { method: 'POST' }).catch(() => {})
+    if (typeof fetch === 'function') fetch('/micro/reconnect', { method: 'POST' }).catch(() => {})
   }
 
   // 输入监控授权状态：浏览器问不到系统权限，得让宿主去问（见 src/core/monitor.js）。
@@ -375,7 +375,7 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
       .then((s) => { if (s && typeof s === 'object') setMonitor(s) })
       .catch(() => {})
   }
-  // 跳系统设置的隐私面板：浏览器不能启动进程，交给宿主 open（POST /omkb/open-privacy）。
+  // 跳系统设置的隐私面板：浏览器不能启动进程，交给宿主 open（POST /micro/open-privacy）。
   const openPrivacy = () => {
     if (typeof fetch !== 'function') return
     fetch(PRIVACY_URL, {
@@ -406,7 +406,7 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
   // 打开本分区 → 让桥接层进入「只演示不执行」（见 hid-bridge 的 enterSim）。效果：
   // 这一页里的按键 / 旋钮 / 摇杆只演给用户看，不真的切会话、切规划模式、发消息、批准审批。
   // 一边一张：挂载进、卸载出 —— React 的清理函数就是那个释放函数（幂等），不必自己配对。
-  // 判据就是「本组件挂在树上」= 用户正看着 OMKB 键盘这一页（设置弹窗停在别的分区时按钮照常生效）。
+  // 判据就是「本组件挂在树上」= 用户正看着 DSH小键盘这一页（设置弹窗停在别的分区时按钮照常生效）。
   // **智能体键（AG00..AG05）不在此列**：按下去仍然真的打开会话（用户 2026-09-25 明确要求）。
   // ⚠ 位置有讲究：必须在下面 `if (hidden) return null` **之前**（所有 hooks 都要在早返回前），
   // 否则「设备被移除」那条路径上 hooks 数量会变，React 直接报错。
@@ -416,7 +416,7 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
     return hid.enterSim()
   }, [])
 
-  const brightnessPct = Math.round((prefs.brightness ?? DSVI.OMKB_DEFAULTS.brightness) * 100)
+  const brightnessPct = Math.round((prefs.brightness ?? DSVI.MICRO_DEFAULTS.brightness) * 100)
   const autoDim = prefs.autoDim ?? 0
   const agentKey = prefs.agentKey ?? 'recent'
   const knob = prefs.knob ?? 'navigate'
@@ -447,57 +447,57 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
   if (hidden) return null
 
   return (
-    <div className="omkb-wrap">
+    <div className="micro-wrap">
       {/* 保存提示：固定视口顶部（脱离文档流，出现/消失都不顶动下方布局） */}
-      <OmkbSaveToast status={saveStatus} t={tt} />
+      <MicroSaveToast status={saveStatus} t={tt} />
 
       {/* 标题（保存反馈已移到页面顶部的悬浮提示，不再挤在这里顶动布局） */}
-      <div className="omkb-heading">
-        <h2 className="omkb-title">{tt('settings.title')}</h2>
-        <p className="omkb-subtitle">{tt('settings.subtitle')}</p>
+      <div className="micro-heading">
+        <h2 className="micro-title">{tt('settings.title')}</h2>
+        <p className="micro-subtitle">{tt('settings.subtitle')}</p>
       </div>
 
       {/* 连接状态 + 电量。
           电量行**只在真的连上时展示**：没连上时设备报不出电量（宿主把读数清成 null），
           摆一行「—」只会让人以为坏了 —— 那时候该看的是下面那句「怎么让它连上」。 */}
-      <div className="omkb-card">
-        <div className="omkb-row" style={{ borderTop: 'none' }}>
-          <div className="omkb-row__label">
-            <div className="omkb-row__title">{tt('conn.title')}</div>
+      <div className="micro-card">
+        <div className="micro-row" style={{ borderTop: 'none' }}>
+          <div className="micro-row__label">
+            <div className="micro-row__title">{tt('conn.title')}</div>
           </div>
-          <div className="omkb-row__ctrl">
-            <span className={conn.open ? 'omkb-dot omkb-dot--ok' : 'omkb-dot omkb-dot--err'} />
-            <span className={conn.open ? 'omkb-status omkb-status--ok' : 'omkb-status omkb-status--err'}>
+          <div className="micro-row__ctrl">
+            <span className={conn.open ? 'micro-dot micro-dot--ok' : 'micro-dot micro-dot--err'} />
+            <span className={conn.open ? 'micro-status micro-status--ok' : 'micro-status micro-status--err'}>
               {conn.open ? tt('conn.connected') : tt('conn.disconnected')}
             </span>
           </div>
         </div>
         {conn.open ? (
-          <div className="omkb-row" data-omkb-battery={batt.known ? String(batt.pct) : 'unknown'}>
-            <div className="omkb-row__label">
-              <div className="omkb-row__title">{tt('conn.battery')}</div>
+          <div className="micro-row" data-micro-battery={batt.known ? String(batt.pct) : 'unknown'}>
+            <div className="micro-row__label">
+              <div className="micro-row__title">{tt('conn.battery')}</div>
             </div>
-            <div className="omkb-row__ctrl">
-              <span className={'omkb-batt' + (batt.low ? ' omkb-batt--low' : '')}>
+            <div className="micro-row__ctrl">
+              <span className={'micro-batt' + (batt.low ? ' micro-batt--low' : '')}>
                 <BatteryIcon pct={batt.pct} charging={batt.charging} />
               </span>
-              <span className={'omkb-batt__val' + (batt.low ? ' omkb-batt__val--low' : '')}>
+              <span className={'micro-batt__val' + (batt.low ? ' micro-batt__val--low' : '')}>
                 {batt.known ? batt.pct + '%' : '—'}
               </span>
-              {batt.charging ? <span className="omkb-batt__tag">{tt('conn.charging')}</span> : null}
+              {batt.charging ? <span className="micro-batt__tag">{tt('conn.charging')}</span> : null}
             </div>
           </div>
         ) : null}
         {conn.open ? null : (
-          <div className="omkb-row">
-            <div className="omkb-row__label">
-              <div className="omkb-hint" style={{ marginTop: 0 }}>{tt('conn.desc')}</div>
+          <div className="micro-row">
+            <div className="micro-row__label">
+              <div className="micro-hint" style={{ marginTop: 0 }}>{tt('conn.desc')}</div>
             </div>
-            <div className="omkb-row__ctrl">
-              <button type="button" className="omkb-ghost" onClick={reconnect}>{tt('conn.retry')}</button>
+            <div className="micro-row__ctrl">
+              <button type="button" className="micro-ghost" onClick={reconnect}>{tt('conn.retry')}</button>
               {/* 移除：连不上时告诉用户「不用了就把这台键盘摘掉」。
-                  它清空的是**这台键盘的全部设置**，所以先弹确认（见 OmkbRemoveModal）。 */}
-              <button type="button" className="omkb-ghost omkb-ghost--danger" onClick={() => setRemoveOpen(true)}>
+                  它清空的是**这台键盘的全部设置**，所以先弹确认（见 MicroRemoveModal）。 */}
+              <button type="button" className="micro-ghost micro-ghost--danger" onClick={() => setRemoveOpen(true)}>
                 {tt('conn.remove')}
               </button>
             </div>
@@ -506,7 +506,7 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
       </div>
 
       {removeOpen ? (
-        <OmkbRemoveModal
+        <MicroRemoveModal
           tt={tt}
           onCancel={() => setRemoveOpen(false)}
           onConfirm={doRemove}
@@ -516,65 +516,65 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
       {/* 输入监控（**仅 macOS 展示**）：状态由宿主去问系统，见 src/core/monitor.js。
           三态：已授权 / 未授权 / 无法判定 —— 不知道就说不确定，不猜、也不写死一句「请授权」。 */}
       {monitorVisible(monitor) ? (
-        <div className="omkb-card">
-          <div className="omkb-row">
-            <div className="omkb-row__label">
-              <div className="omkb-row__title">{tt('monitor.title')}</div>
-              <div className="omkb-row__desc">{tt('monitor.desc')}</div>
+        <div className="micro-card">
+          <div className="micro-row">
+            <div className="micro-row__label">
+              <div className="micro-row__title">{tt('monitor.title')}</div>
+              <div className="micro-row__desc">{tt('monitor.desc')}</div>
             </div>
-            <div className="omkb-row__ctrl">
-              <span className={'omkb-dot ' + monitorDot(monitor).cls} />
-              <span className={'omkb-status ' + monitorDot(monitor).statusCls}>{tt(monitorDot(monitor).labelKey)}</span>
+            <div className="micro-row__ctrl">
+              <span className={'micro-dot ' + monitorDot(monitor).cls} />
+              <span className={'micro-status ' + monitorDot(monitor).statusCls}>{tt(monitorDot(monitor).labelKey)}</span>
             </div>
           </div>
-          <div className="omkb-row">
-            <div className="omkb-row__label">
-              <div className="omkb-hint" style={{ marginTop: 0 }}>
+          <div className="micro-row">
+            <div className="micro-row__label">
+              <div className="micro-hint" style={{ marginTop: 0 }}>
                 {monitor.granted === false ? tt('monitor.hintDenied')
                   : monitor.granted === true ? (monitor.detail || '')
                     : tt('monitor.hintUnknown')}
               </div>
             </div>
-            <div className="omkb-row__ctrl">
+            <div className="micro-row__ctrl">
               {monitorNeedsSettings(monitor) ? (
-                <button type="button" className="omkb-ghost" onClick={openPrivacy}>{tt('monitor.open')}</button>
+                <button type="button" className="micro-ghost" onClick={openPrivacy}>{tt('monitor.open')}</button>
               ) : null}
-              <button type="button" className="omkb-ghost" onClick={recheckMonitor}>{tt('monitor.retry')}</button>
+              <button type="button" className="micro-ghost" onClick={recheckMonitor}>{tt('monitor.retry')}</button>
             </div>
           </div>
         </div>
       ) : null}
 
       {/* 亮度 */}
-      <div className="omkb-card">
-        <div className="omkb-row">
-          <div className="omkb-row__label">
-            <div className="omkb-row__title">{tt('brightness.title')}</div>
-            <div className="omkb-row__desc">{tt('brightness.desc')}</div>
+      <div className="micro-card">
+        <div className="micro-row">
+          <div className="micro-row__label">
+            <div className="micro-row__title">{tt('brightness.title')}</div>
+            <div className="micro-row__desc">{tt('brightness.desc')}</div>
           </div>
-          <div className="omkb-row__ctrl">
+          <div className="micro-row__ctrl">
             <input
               type="range"
               min={0}
               max={100}
               step={1}
               value={brightnessPct}
-              className="omkb-slider"
+              className="micro-slider"
               aria-label={tt('brightness.title')}
               onChange={(e) => setBrightness(Number(e.target.value) / 100)}
             />
-            <span className="omkb-val">{brightnessPct + '%'}</span>
+            <span className="micro-val">{brightnessPct + '%'}</span>
           </div>
         </div>
         {/* 自动调暗 */}
-        <div className="omkb-row">
-          <div className="omkb-row__label">
-            <div className="omkb-row__title">{tt('autoDim.title')}</div>
-            <div className="omkb-row__desc">{tt('autoDim.desc')}</div>
+        <div className="micro-row">
+          <div className="micro-row__label">
+            <div className="micro-row__title">{tt('autoDim.title')}</div>
+            <div className="micro-row__desc">{tt('autoDim.desc')}</div>
           </div>
-          <div className="omkb-row__ctrl">
+          <div className="micro-row__ctrl">
             <select
-              className="omkb-select"
+              className="micro-select"
               value={String(autoDim)}
               aria-label={tt('autoDim.title')}
               onChange={(e) => setAutoDim(Number(e.target.value))}
@@ -588,16 +588,16 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
       </div>
 
       {/* 布局 */}
-      <div className="omkb-card">
-        <div className="omkb-row">
-          <div className="omkb-row__label">
-            <div className="omkb-row__title">{tt('layout.title')}</div>
-            <div className="omkb-row__desc">{tt('layout.desc')}</div>
+      <div className="micro-card">
+        <div className="micro-row">
+          <div className="micro-row__label">
+            <div className="micro-row__title">{tt('layout.title')}</div>
+            <div className="micro-row__desc">{tt('layout.desc')}</div>
           </div>
-          <div className="omkb-row__ctrl">
+          <div className="micro-row__ctrl">
             <button
               type="button"
-              className="omkb-ghost"
+              className="micro-ghost"
               onClick={() => setResetOpen(true)}
             >
               {tt('layout.reset')}
@@ -607,28 +607,28 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
         {/* 说明：这一页打开期间设备只做演示（见本组件顶部的 enterSim 与 hid-bridge 的闸门）。
             为什么必须写在界面上：用户在设置页里按设备、转旋钮、推摇杆，看到布局有反应却
             「什么都没发生」，第一反应是键盘坏了 —— 这行字是唯一的解释。
-            data-omkb-simhint 是给探针/自检定位用的锚点（不靠文案）。 */}
-        <div className="omkb-hint omkb-sim-hint" data-omkb-simhint="1">{tt('layout.simHint')}</div>
-        <OmkbLayout prefs={prefs} update={update} clearField={clearField} t={tt} />
+            data-micro-simhint 是给探针/自检定位用的锚点（不靠文案）。 */}
+        <div className="micro-hint micro-sim-hint" data-micro-simhint="1">{tt('layout.simHint')}</div>
+        <MicroLayout prefs={prefs} update={update} clearField={clearField} t={tt} />
       </div>
 
       {resetOpen ? (
-        <OmkbResetModal
+        <MicroResetModal
           onCancel={() => setResetOpen(false)}
           onConfirm={() => { setResetOpen(false); resetLayout() }}
         />
       ) : null}
 
       {/* 选项 */}
-      <div className="omkb-card">
-        <div className="omkb-row">
-          <div className="omkb-row__label">
-            <div className="omkb-row__title">{tt('opts.agentKey')}</div>
-            <div className="omkb-row__desc">{tt('opts.agentKeyDesc')}</div>
+      <div className="micro-card">
+        <div className="micro-row">
+          <div className="micro-row__label">
+            <div className="micro-row__title">{tt('opts.agentKey')}</div>
+            <div className="micro-row__desc">{tt('opts.agentKeyDesc')}</div>
           </div>
-          <div className="omkb-row__ctrl">
+          <div className="micro-row__ctrl">
             <select
-              className="omkb-select"
+              className="micro-select"
               value={agentKey}
               aria-label={tt('opts.agentKey')}
               onChange={(e) => update('agentKey', e.target.value)}
@@ -641,13 +641,13 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
           </div>
         </div>
         {agentKey === 'custom' ? [0, 1, 2, 3, 4, 5].map((n) => (
-          <div className="omkb-row" key={'agent-slot-' + n}>
-            <div className="omkb-row__label">
-              <div className="omkb-row__title">{tt('opts.agentAssign.slot') + ' ' + (n + 1)}</div>
+          <div className="micro-row" key={'agent-slot-' + n}>
+            <div className="micro-row__label">
+              <div className="micro-row__title">{tt('opts.agentAssign.slot') + ' ' + (n + 1)}</div>
             </div>
-            <div className="omkb-row__ctrl">
+            <div className="micro-row__ctrl">
               <select
-                className="omkb-select"
+                className="micro-select"
                 value={String(((prefs.agentAssign || {})[n]) || '')}
                 aria-label={tt('opts.agentAssign.slot') + ' ' + (n + 1)}
                 onChange={(e) => {
@@ -665,14 +665,14 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
             </div>
           </div>
         )) : null}
-        <div className="omkb-row">
-          <div className="omkb-row__label">
-            <div className="omkb-row__title">{tt('opts.knob')}</div>
-            <div className="omkb-row__desc">{tt('opts.knob.' + knob + '.desc')}</div>
+        <div className="micro-row">
+          <div className="micro-row__label">
+            <div className="micro-row__title">{tt('opts.knob')}</div>
+            <div className="micro-row__desc">{tt('opts.knob.' + knob + '.desc')}</div>
           </div>
-          <div className="omkb-row__ctrl">
+          <div className="micro-row__ctrl">
             <select
-              className="omkb-select"
+              className="micro-select"
               value={knob}
               aria-label={tt('opts.knob')}
               onChange={(e) => update('knob', e.target.value)}
@@ -686,27 +686,27 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
         </div>
         {/* 长按是**与模式无关**的固定手势 → 提示单独一行，四种模式下都看得见
             （塞进某个模式的 desc 里就只有选中该模式时才显示）。 */}
-        <div className="omkb-row">
-          <div className="omkb-row__label">
-            <div className="omkb-row__desc">{tt('opts.knob.longHint')}</div>
+        <div className="micro-row">
+          <div className="micro-row__label">
+            <div className="micro-row__desc">{tt('opts.knob.longHint')}</div>
           </div>
         </div>
         {knob === 'custom' ? (
-          <div className="omkb-row">
-            <div className="omkb-row__label">
-              <div className="omkb-row__title">{tt('opts.knobCustom')}</div>
-              <div className="omkb-row__desc">{tt('opts.knobCustomDesc')}</div>
+          <div className="micro-row">
+            <div className="micro-row__label">
+              <div className="micro-row__title">{tt('opts.knobCustom')}</div>
+              <div className="micro-row__desc">{tt('opts.knobCustomDesc')}</div>
             </div>
           </div>
         ) : null}
         {knob === 'custom' ? GESTURES.map(([g, labelKey]) => (
-          <div className="omkb-row" key={'knob-gesture-' + g}>
-            <div className="omkb-row__label">
-              <div className="omkb-row__title">{tt(labelKey)}</div>
+          <div className="micro-row" key={'knob-gesture-' + g}>
+            <div className="micro-row__label">
+              <div className="micro-row__title">{tt(labelKey)}</div>
             </div>
-            <div className="omkb-row__ctrl">
+            <div className="micro-row__ctrl">
               <select
-                className="omkb-select"
+                className="micro-select"
                 value={String(knobCustom[g] || 'none')}
                 aria-label={tt(labelKey)}
                 onChange={(e) => update('knobCustom', { ...knobCustom, [g]: e.target.value })}
@@ -718,18 +718,18 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
             </div>
           </div>
         )) : null}
-        <div className="omkb-row">
-          <div className="omkb-row__label">
-            <div className="omkb-row__title">{tt('opts.micKey')}</div>
-            <div className="omkb-row__desc">{tt('opts.micKeyDesc')}</div>
+        <div className="micro-row">
+          <div className="micro-row__label">
+            <div className="micro-row__title">{tt('opts.micKey')}</div>
+            <div className="micro-row__desc">{tt('opts.micKeyDesc')}</div>
           </div>
-          <div className="omkb-row__ctrl">
+          <div className="micro-row__ctrl">
             <button
               type="button"
               role="switch"
               aria-checked={!!prefs.micKey}
               aria-label={tt('opts.micKey')}
-              className="omkb-switch"
+              className="micro-switch"
               data-on={prefs.micKey || undefined}
               onClick={() => update('micKey', !prefs.micKey)}
             />
@@ -738,7 +738,7 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
         {/* 首次连接引导：这里原本有一行「重新播放」（2026-09-24 按用户要求去掉）。
             引导本身照旧 —— 设备第一次连上时自动弹一次，判据在 utils/guide.js 的
             shouldShowGuide（`open && !seen`），弹过就写 guideSeen。要手验三屏就调
-            `__dshOmkb.services.guide.replay()`（不写 guideSeen、不看设备在不在）。 */}
+            `__dshMicro.services.guide.replay()`（不写 guideSeen、不看设备在不在）。 */}
       </div>
 
       {/* 第三方插件依赖：**清单为空就整卡隐藏**（用户 2026-09-29 口径）。
@@ -753,25 +753,25 @@ export function OmkbSettingsSection({ scope, t, sessions, workspaces }) {
           每一行：左边插件名 + 说明（可选再带上「用于：」哪些按键功能），右边安装状态徽标
           （照配置里手写的 installed 字段渲染，见本组件顶部 plugins 的计算）。 */}
       {plugins.length ? (
-        <div className="omkb-card" data-omkb-plugins="1">
-          <div className="omkb-row">
-            <div className="omkb-row__label">
-              <div className="omkb-row__title">{tt('plugins.title')}</div>
-              <div className="omkb-row__desc">{tt('plugins.desc')}</div>
+        <div className="micro-card" data-micro-plugins="1">
+          <div className="micro-row">
+            <div className="micro-row__label">
+              <div className="micro-row__title">{tt('plugins.title')}</div>
+              <div className="micro-row__desc">{tt('plugins.desc')}</div>
             </div>
           </div>
           {plugins.map((p) => (
-            <div className="omkb-row" key={p.plugin} data-omkb-plugin={p.plugin}>
-              <div className="omkb-row__label">
-                <div className="omkb-row__title">{p.name}</div>
-                <div className="omkb-row__desc">
+            <div className="micro-row" key={p.plugin} data-micro-plugin={p.plugin}>
+              <div className="micro-row__label">
+                <div className="micro-row__title">{p.name}</div>
+                <div className="micro-row__desc">
                   {p.desc || null}
                   {p.desc && p.usedBy.length ? ' · ' : null}
                   {p.usedBy.length ? tt('plugins.usedBy') + p.usedBy.map((id) => pluginKeyLabel(id, tt)).join('、') : null}
                 </div>
               </div>
-              <div className="omkb-row__ctrl">
-                <span className={'omkb-plugin-badge' + (p.installed ? ' omkb-plugin-badge--on' : ' omkb-plugin-badge--off')}>
+              <div className="micro-row__ctrl">
+                <span className={'micro-plugin-badge' + (p.installed ? ' micro-plugin-badge--on' : ' micro-plugin-badge--off')}>
                   {p.installed ? tt('plugins.installed') : tt('plugins.missing')}
                 </span>
               </div>

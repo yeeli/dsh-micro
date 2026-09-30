@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/utils/session-list.js
+// dsh-micro · client/src/utils/session-list.js
 // **sessions.list 快照上的纯判据**：哪一条是眼前这条会话、侧边栏看得见哪几条。
 //
 // 为什么单拎一个文件（2026-09-26）：这两条判断要给**三个**地方用 ——

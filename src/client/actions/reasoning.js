@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/actions/reasoning.js
+// dsh-micro · client/src/actions/reasoning.js
 // 【仅推理】：把旋钮的旋转/按下翻译成「模型推理等级菜单」上的操作。
 //
 // 实机结构（`npm run probe -- test/probes/reasoning-levels.mjs` 量到的）：

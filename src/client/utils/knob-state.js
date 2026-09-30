@@ -1,5 +1,5 @@
-// dsh-omkb · client/src/utils/knob-state.js
-// 布局里旋钮的「转动指示」：把 /omkb/state 的旋钮计数折成「环亮不亮、蓝点停哪一侧」。
+// dsh-micro · client/src/utils/knob-state.js
+// 布局里旋钮的「转动指示」：把 /micro/state 的旋钮计数折成「环亮不亮、蓝点停哪一侧」。
 //
 // 设备事实（src/core/ble.js）：`ENC_CW` → `enc + 1`（顺时针）、`ENC_CC` → `enc - 1`（逆时针），
 // `knobPress` 是按下计数。enc 是**带符号累计**，所以「差值 > 0 就是顺时针」这一条
@@ -65,7 +65,7 @@ export const createKnobTracker = ({ now = () => Date.now() } = {}) => {
   let until = 0
 
   /**
-   * 喂一帧 /omkb/state。
+   * 喂一帧 /micro/state。
    * @param {object} s 状态快照（只看 enc 与 knobPress）。
    */
   const fold = (s) => {

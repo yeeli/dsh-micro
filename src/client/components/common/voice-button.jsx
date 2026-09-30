@@ -1,4 +1,4 @@
-// dsh-omkb · client/src/components/common/voice-button.jsx
+// dsh-micro · client/src/components/common/voice-button.jsx
 // 输入框工具行左侧的**麦克风按钮**（注册在 conversation.input.left 槽位）。
 //
 // 它只做界面与「按钮 → 共享语音控制器」的转发；识别本身在 ../../voice.js。

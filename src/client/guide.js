@@ -1,10 +1,10 @@
-// dsh-omkb · client/src/guide.js
-// 首次连接引导的**控制器**：盯着 /omkb/state 的 `open`，在「设备刚连上 + 用户还没看过」时
+// dsh-micro · client/src/guide.js
+// 首次连接引导的**控制器**：盯着 /micro/state 的 `open`，在「设备刚连上 + 用户还没看过」时
 // 把引导弹出来，并把「已看过」落盘。
 //
 // 三条边界，都别越：
 //
-//  * **只读状态，不写 HID。** 它订阅的是 hid-bridge 的广播（每帧 /omkb/state 都发一次），
+//  * **只读状态，不写 HID。** 它订阅的是 hid-bridge 的广播（每帧 /micro/state 都发一次），
 //    只取 `open` 一个字段。引导是纯界面，绝不参与按键分派 —— 这里多认一个字段，
 //    就等于给「认不出来的事件」又开了一条通路（见 hid-bridge.js 顶部那段教训）。
 //
@@ -24,10 +24,10 @@ import { GUIDE_STEPS, nextStep, prevStep, shouldShowGuide } from './utils/guide.
 const WHY = {
   ready: 'ok',
   seen: '已看过（guideSeen=true）',
-  offline: '设备未连接（/omkb/state.open !== true）',
+  offline: '设备未连接（/micro/state.open !== true）',
   already: '本次页面会话里已经弹过',
   norecord: '设置作用域不可写，弹了也记不住',
-  nodeps: '没有 hid 桥（收不到 /omkb/state 广播）'
+  nodeps: '没有 hid 桥（收不到 /micro/state 广播）'
 }
 
 export class GuideController {
@@ -97,7 +97,7 @@ export class GuideController {
   }
 
   /**
-   * 每帧 /omkb/state 都会走这里 —— 所以第一件事就是短路，
+   * 每帧 /micro/state 都会走这里 —— 所以第一件事就是短路，
    * 别让一个纯界面的判断跑在 120ms 的热路径上做大动作。
    */
   #onState = (s) => {
@@ -166,7 +166,7 @@ export class GuideController {
     return true
   }
 
-  /** 诊断快照：`__dshOmkb.services.guide.diagnose()` 直接答「为什么没弹」。 */
+  /** 诊断快照：`__dshMicro.services.guide.diagnose()` 直接答「为什么没弹」。 */
   diagnose = () => {
     let why = WHY.ready
     if (this.#shown || this.#open) why = WHY.already
