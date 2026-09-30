@@ -16,11 +16,8 @@
 import { useEffect, useState } from 'react'
 import { DSVI } from '../../core.js'
 import { MONITOR_URL, monitorDot, monitorVisible } from '../../utils/monitor.js'
-import { GUIDE_LEGEND, agentSwatchByVisualId, isFirstStep, isLastStep, rgbHex } from '../../utils/guide.js'
+import { GUIDE_LEGEND, isFirstStep, isLastStep, rgbHex } from '../../utils/guide.js'
 import { MicroLayout } from '../settings/keyboard-layout.jsx'
-
-/** 6 颗智能体键的示意配色（四种状态都摆出来），在模块加载时算一次即可。 */
-const SWATCH = agentSwatchByVisualId()
 
 /** 三屏的标题 / 正文文案键。 */
 const TITLE = { welcome: 'guide.welcome.title', agents: 'guide.agents.title', commands: 'guide.commands.title' }
@@ -93,9 +90,9 @@ function MicroGuide({ t, guide, step, onOpenSettings }) {
       <div className="micro-modal micro-guide" data-micro-guide={step} role="dialog" aria-modal="true">
         <button type="button" className="micro-modal-x micro-guide-x" onClick={close} aria-label={tt('guide.close')}>×</button>
 
-        {/* 键盘插图：同一份布局代码的预览模式 */}
+        {/* 键盘插图：同一份布局代码的预览模式（只画不响应，键面不上色 —— 与设置页同一副面孔）。 */}
         <div className="micro-guide-shot">
-          <MicroLayout update={noop} prefs={guide.prefs || {}} preview={{ colors: SWATCH }} />
+          <MicroLayout update={noop} prefs={guide.prefs || {}} preview />
         </div>
 
         <div className="micro-guide-body">

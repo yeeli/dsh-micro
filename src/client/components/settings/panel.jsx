@@ -25,9 +25,10 @@ import { MicroResetModal } from '../modals/reset.jsx'
 import { MicroRemoveModal } from '../modals/remove.jsx'
 import { MicroSaveToast } from '../toast/save.jsx'
 import { BatteryIcon } from '../common/ui.jsx'
-// 移除之后要把设置弹窗从本分区切走（我们的导航行会被藏起来，停在原地只剩一块空白内容区）。
-// 导航行怎么找只有那一个地方知道（findSectionRow/candidateLabels 也在那儿）。
-import { leaveOurSection } from '../sidebar/action.jsx'
+// 移除之后要**关掉设置弹窗回首页**：我们的导航行会被藏起来、本分区内容也 return null，
+// 停在原地只剩一块空白内容区（用户 2026-09-30 报障）。关弹窗那四条出口只有一处知道怎么走
+// （closeSettingsDialog，与 findSectionRow / candidateLabels 同在一处）。
+import { closeSettingsDialog } from '../sidebar/action.jsx'
 
 // ---------- 默认偏好 ----------
 // **值不在这里**，在 ../config/default.js（客户端默认配置的唯一声明处，用户要求「把 DSH小键盘的
@@ -397,9 +398,11 @@ export function MicroSettingsSection({ scope, t, sessions, workspaces }) {
     showSaveStatus('saving')
     Promise.resolve(dev.remove()).then((ok) => {
       showSaveStatus(ok ? 'saved' : 'error')
-      // 我们的导航行马上会被藏起来：若此刻正停在本分区，把用户送到别的分区去，
-      // 否则他面对的是一块空白内容区（看着像坏了）。失败/找不到别的行就算了。
-      if (ok) { try { leaveOurSection(tt('nav')) } catch (e) {} }
+      // 我们那一行马上会被藏起来：成功之后**关掉设置弹窗回首页**，否则用户面对的是一块
+      // 空白内容区（看着像坏了）。失败就别关 —— 留在这一页让他看到那个红色错误态。
+      // 关不掉时 closeSettingsDialog 自己会出声（并如实返回 false），这里不必再管。
+      if (!ok) return undefined
+      return Promise.resolve(closeSettingsDialog())
     })
   }
 

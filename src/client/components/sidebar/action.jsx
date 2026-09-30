@@ -152,10 +152,19 @@ const styleOf = (el) => {
   return null
 }
 
-/** 设置触发按钮：优先限定在设置槽位出口内，避免点到别处同名的 aria-haspopup="dialog"。 */
+/**
+ * 设置触发按钮：**出口在就只在出口里找**，出口压根不在（老版 DSH 没有那个 data-slot）才退到全页。
+ *
+ * ⚠ 这两档判据相反，别顺手合并成一句 `q(outlet, …) || q(root, …)`（2026-09-30 自检抓到的真缺陷）：
+ *   · 出口**在**却认不出齿轮（DSH 换了实现）→ 全页兜底会撞上页面上**别处**那 6+ 个
+ *     `aria-haspopup="dialog"`（Composer 的 ContextMeter、VoiceInput…）→ **点开别人的弹窗**，
+ *     然后把「设置弹窗里没找到分区行」报出来 —— 症状与病因隔着一整条链，极难查。
+ *   · 出口**不在**（老版 DSH）→ 那时全页兜底是唯一出路，必须留着。
+ */
 export const triggerEl = (root) => {
   const outlet = q(root, SETTINGS_OUTLET_SEL)
-  return q(outlet, SETTINGS_TRIGGER_SEL) || q(root, SETTINGS_TRIGGER_SEL)
+  if (outlet) return q(outlet, SETTINGS_TRIGGER_SEL)
+  return q(root, SETTINGS_TRIGGER_SEL)
 }
 
 const isExpanded = (trigger) => {
@@ -870,13 +879,147 @@ export const leaveOurSection = (label, roots) => {
   return false
 }
 
+// ── 「移除键盘」之后**关掉设置弹窗**（2026-09-30 用户报障）────────────────────────
+// 「移除键盘」会把设置页里我们那一行藏起来（sidebar.js 的 setNavRowHidden），本分区内容也
+// return null —— 用户就面对一块空白内容区。要他回到首页，只有一条路：**把弹窗关掉**；
+// 切到别的分区只是换个页看（老实现就是只切分区，用户明确否了）。
+//
+// 出口按「最正统 → 最兜底」排，每一步都**回读确认**（点了不等于成）：
+//   ① 齿轮 —— 设置按钮是开关，展开着再点一下就是关（最正统）；aria-expanded 说没展开就跳过
+//      （真机上确实有「弹窗已渲染、属性还没回灌」的瞬间，那时点它会把它又打开一次）；
+//   ② 弹窗自己的关闭按钮（名命中 CLOSE_LABELS 的才算，认不出就跳过）；
+//   ③ Esc（DSH 弹窗自己的键盘出口）；
+//   ④ 三条都被挡住 → 切到别的分区，但**如实返回 false**（目的没达成就不许说成功）。
+//
+// ⚠ 判据一律是「弹窗**真的**从页面上消失了没」（settingsDialogOpen 回读导航行），不是「点了什么」。
+// 这个文件已经因为「看着点了、其实没成」栽过几次（收窄设置按钮的 flex-basis 那一轮），这里不重演。
+
+/** 关闭按钮的候选文案：**极窄**（只收「关闭 / Close」）。收进「取消」这类词 = 把「关弹窗」变成「点别的东西」。 */
+export const CLOSE_LABELS = ['关闭', 'Close']
+/** 从导航容器往上找「弹窗子树」的层数上限 —— 不许一路爬到 body 去搜全页按钮。 */
+export const CLOSE_MAX_UP = 3
+/** 每条出口等「弹窗真的消失」的预算（毫秒）。自检用 opts.stepMs 调短。 */
+const CLOSE_STEP_MS = 600
+
+/**
+ * 「设置弹窗现在到底算不算开着」—— 判据 = **导航里有没有我们那一行**（弹窗真在页面上、且带导航）。
+ * 拿不到 document（SSR / 非浏览器）返回 false。
+ * @param label - 本插件分区标题（`t('nav')`）；省略时只用词典候选。
+ */
+export const settingsDialogOpen = (label) => {
+  if (typeof document === 'undefined') return false
+  const outlet = q(document, SETTINGS_OUTLET_SEL)
+  const scopes = [outlet, document].filter(Boolean)
+  return !!findSectionRow(candidateLabels(label), scopes)
+}
+
+/** 等弹窗消失（就近轮询，回读到「导航行没了」才算成）。@returns {Promise<boolean>} */
+const waitDialogGone = async (waitMs) => {
+  const deadline = Date.now() + waitMs
+  for (;;) {
+    if (!settingsDialogOpen()) return true
+    if (Date.now() >= deadline) return false
+    await sleep(POLL_MS)
+  }
+}
+
+/** 我们自己在这个弹窗里的节点（本插件分区的导航行、底部方块）—— 绝不能被当成「关闭按钮」。 */
+const isOurs = (el) => matches(el, '[data-micro-foot],[data-slot="sidebar.footer.action"]')
+
+/**
+ * 弹窗自己的「关闭」按钮：从导航容器往上**有界**地找弹窗子树（最多 CLOSE_MAX_UP 层，到 body 前止步），
+ * 在子树里找**导航之外**、不是我们的、名字命中 CLOSE_LABELS 的按钮。找不到返回 null（调用方走下一个出口）。
+ *
+ * 为什么要「往上找有界」：真机里导航根没有 role、没有稳定的槽位锚点，只能靠与导航的**祖孙关系**
+ * 认出「这个按钮和导航是同一个弹窗里的」。而上限是必须的 —— 无界上溯到底就是「全页搜关闭按钮」，
+ * 页面上任何一个「关闭」都可能被点到。
+ */
+export const closeButtonOf = (root) => {
+  const nav = navScopes(root)[0] || null
+  if (!nav) return null
+  const stop = (root && (root.body || root.documentElement)) || null
+  const inNav = (el) => { try { return nav.contains(el) } catch (e) { return false } }
+  let scope = nav
+  for (let up = 0; up < CLOSE_MAX_UP; up++) {
+    const next = scope.parentElement
+    if (!next) break
+    if (next === stop || !next.contains(nav)) break
+    scope = next
+    for (const btn of qa(scope, 'button, [role="button"]') || []) {
+      if (inNav(btn) || isOurs(btn)) continue
+      const name = textOf(btn).trim() || String((btn.getAttribute && btn.getAttribute('aria-label')) || '')
+      if (!CLOSE_LABELS.some((w) => name.includes(w))) continue
+      return btn
+    }
+  }
+  return null
+}
+
+/**
+ * 按一次 Esc。**事件必须发给弹窗子树里的节点**：DSH 的监听挂在 React 根容器上，发到 body /
+ * document 上的事件冒泡不到它（真机上就是「按了没反应」，而且没有任何报错）。
+ * 优先给当前焦点元素，拿不到就用导航容器。
+ * @returns {boolean} 事件发出去了没有（不保证奏效 —— 奏效与否由调用方回读确认）。
+ */
+const pressEscape = () => {
+  if (typeof document === 'undefined') return false
+  let ae = null
+  try { ae = document.activeElement } catch (e) { ae = null }
+  const usable = !!ae && ae !== document.body && typeof ae.dispatchEvent === 'function'
+  const target = usable ? ae : ((navScopes(document)[0]) || document.body || null)
+  if (!target || typeof target.dispatchEvent !== 'function') return false
+  try {
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    return true
+  } catch (e) { return false }
+}
+
+/**
+ * 把设置弹窗关掉（「移除键盘」成功后调用，见 components/settings/panel.jsx）。
+ * @param opts.stepMs - 每条出口等弹窗消失的预算（毫秒），自检用来调短。
+ * @returns {Promise<boolean>} 弹窗**真的**关掉了才 true；四条出口都没成 → false（不假装成功）。
+ */
+export const closeSettingsDialog = async (opts = {}) => {
+  if (typeof document === 'undefined') return false // 非浏览器：说不出「关掉了」，只能说自己没做到
+  const ms = num(opts.stepMs, CLOSE_STEP_MS)
+  if (!settingsDialogOpen()) return true // 本来就没开 = 目的已达成（幂等，一个东西都不点）
+
+  // ① 齿轮：设置按钮是开关，展开着再点一下就是关。
+  const gear = triggerEl(document)
+  if (gear && isExpanded(gear)) {
+    clickEl(gear, '设置按钮')
+    if (await waitDialogGone(ms)) return true
+  }
+
+  // ② 弹窗自己的关闭按钮。
+  const x = closeButtonOf(document)
+  if (x) {
+    clickEl(x, '设置弹窗关闭按钮')
+    if (await waitDialogGone(ms)) return true
+  }
+
+  // ③ Esc。
+  if (pressEscape() && await waitDialogGone(ms)) return true
+
+  // ④ 三条都被挡住：至少别让用户对着一块空白内容区，但**如实返回 false**。
+  if (leaveOurSection()) {
+    warn('设置弹窗关不掉（已切到别的分区；本插件已被移除，界面随即清空）')
+    return false
+  }
+  warn('设置弹窗关不掉，也找不到别的分区可切 —— 用户可能仍停在空白内容区')
+  return false
+}
+
 // 浏览器控制台 / 自检的观测点：__dshMicro.openKeyboardSettings() 可直接验证这条链路
 // （不用真的去点侧边栏那个图标）；footAction.* 是这条链路的内部零件，给自检与控制台调用。
 DSVI.openKeyboardSettings = openKeyboardSettings
 DSVI.openGeneralSettings = openGeneralSettings
 DSVI.leaveOurSection = leaveOurSection
+DSVI.closeSettingsDialog = closeSettingsDialog
+DSVI.settingsDialogOpen = settingsDialogOpen
 DSVI.footAction = {
   open: openKeyboardSettings,
+  close: closeSettingsDialog,
   place: placeFootAction,
   unpin: unpinFootAction,
   narrow: narrowGear,

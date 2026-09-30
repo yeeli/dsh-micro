@@ -7,9 +7,8 @@
 // npm run verify 里钉住。
 //
 // 放这里的门槛与 utils/ 其它文件一致：无 DOM、无 DSVI、无控制器状态。
-// （下面 import 的 agents.js / utils/keycaps.js 只取**模块级常量**，不碰任何实例。）
+// （下面 import 的 agents.js 只取**模块级常量**，不碰任何实例。）
 import { AGENT_COLOR_RGB, AGENT_STATUS } from '../agents.js'
-import { KEY_LAYOUT } from './keycaps.js'
 
 /**
  * 引导的三屏。
@@ -57,12 +56,6 @@ export const prevStep = (step) => stepAt(stepIndex(step) - 1)
  */
 export const shouldShowGuide = ({ open, seen } = {}) => seen !== true && open === true
 
-/** 设备键码 → 6 颗智能体键的视觉 id（顺序 = AG00..AG05 = 先左到右、再上到下）。 */
-export const AGENT_CODES = ['AG00', 'AG01', 'AG02', 'AG03', 'AG04', 'AG05']
-
-/** @returns {string[]} 6 颗智能体键在布局里的视觉 id（读 KEY_LAYOUT，不另写一份）。 */
-export const agentVisualIds = () => AGENT_CODES.map((code) => KEY_LAYOUT[code]).filter(Boolean)
-
 /** packed RGB 整数 → `#rrggbb`（设备灯的颜色与图例上的颜色必须是同一个数）。 */
 export const rgbHex = (n) => {
   const v = Number.isFinite(n) ? Math.max(0, Math.min(0xffffff, Math.round(n))) : 0
@@ -82,23 +75,3 @@ export const GUIDE_LEGEND = [
   { key: AGENT_STATUS.ERROR, color: AGENT_COLOR_RGB.error, labelKey: 'guide.legend.error' },
   { key: AGENT_STATUS.EMPTY, color: AGENT_COLOR_RGB.off, labelKey: 'guide.legend.empty' }
 ]
-
-/**
- * 引导里那 6 颗智能体键的**示意配色**（不是真实状态，只是把四种颜色都摆出来给用户看）。
- * 顺序对应 AG00..AG05 —— 刻意让相邻两颗不同色，一眼看出「这几颗键是靠颜色说话的」。
- */
-export const GUIDE_AGENT_SWATCH = [
-  AGENT_COLOR_RGB.working, AGENT_COLOR_RGB.idle, AGENT_COLOR_RGB.working,
-  AGENT_COLOR_RGB.off, AGENT_COLOR_RGB.error, AGENT_COLOR_RGB.idle
-]
-
-/**
- * 视觉键 id → 示意配色的表，直接喂给布局的预览模式（见 settings/keyboard-layout.jsx 的 preview）。
- * @returns {Object<string, string>} 例：{ 'r1-2': '#304ffe', ... }
- */
-export const agentSwatchByVisualId = () => {
-  const ids = agentVisualIds()
-  const out = {}
-  ids.forEach((id, i) => { if (i < GUIDE_AGENT_SWATCH.length) out[id] = rgbHex(GUIDE_AGENT_SWATCH[i]) })
-  return out
-}

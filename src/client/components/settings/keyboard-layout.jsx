@@ -109,9 +109,10 @@ const ACT_ROW_CODES = ['ACT06', 'ACT07', 'ACT08', 'ACT09']
  * @param update - 写回偏好（与设置页其它控件同一条持久化路径）。
  * @param prefs - 当前偏好快照（只看 micKey / actLabels / joystick）。
  * @param clearField - 清掉某个字段的用户层覆盖（回落 schema 默认），清空最后一颗键帽时用。
- * @param preview - **只画不响应**的预览模式（首次连接引导用）。给 `{ colors }` 时，
- *   6 颗智能体键的圆点改用 `colors[visualId]` 上色（示意键盘灯的颜色语言），
- *   并且所有键都不响应点击（不弹键帽编辑器 / 摇杆配置，也不播按压特效）。
+ * @param preview - **只画不响应**的预览模式（首次连接引导用）：所有键都不响应点击
+ *   （不弹键帽编辑器 / 摇杆配置，也不播按压特效）。
+ *   ⚠ 预览**不再给键面上色**（2026-09-30）：引导里那张键盘必须与设置页里那台**逐像素一致**，
+ *   键面配色只许有一个来源 —— 见下面 `dot` 的注释。
  *   为什么要走同一个组件：引导里那张键盘图必须是**同一份绘制代码** —— 另写一份迟早
  *   画出两台不一样的键盘（键帽换了、麦克风键拆了，引导里还是老样子）。
  * @param t - 词典取值函数（**悬停气泡的第二行**要用；entry.js → panel.jsx → 这里）。可不传：
@@ -123,7 +124,6 @@ export function MicroLayout({ update, prefs = {}, clearField, preview = null, t 
   const [joyOpen, setJoyOpen] = useState(false)
   // 预览模式：只画。信号照订（hooks 顺序不能变），但一律不反映到界面上。
   const staticShot = !!preview
-  const swatch = (preview && preview.colors) || null
   const tt = typeof t === 'function' ? t : null
   // 悬停气泡：**只认键帽**（有功能的那些键）。6 颗智能体键不是键帽（它们是会话槽位），
   // 旋钮/摇杆是连续控件 —— 都不挂气泡，`data-micro-cap` 才是「这颗键有键帽」的判据。
@@ -158,13 +158,10 @@ export function MicroLayout({ update, prefs = {}, clearField, preview = null, t 
     if (!Object.keys(next).length && typeof clearField === 'function') return clearField('actLabels')
     return update('actLabels', next)
   }
-  // 智能体键的圆点：预览模式给定的示意色优先（引导要展示「这几颗键靠颜色说话」）。
-  const dot = (visualId) => (
-    <div
-      className={'micro-key-dot' + (swatch && swatch[visualId] ? ' micro-key-dot--swatch' : '')}
-      style={swatch && swatch[visualId] ? { background: swatch[visualId] } : undefined}
-    />
-  )
+  // 智能体键的圆点：**只有一种画法**（`.micro-key-dot`），颜色一律由 CSS 决定。
+  // 这里曾按预览给定的示意色二选一地换 className / inline background —— 结果是引导里那张
+  // 键盘与设置页里那台对不上（2026-09-30 用户报障）。键面配色只许有一个来源。
+  const dot = () => <div className="micro-key-dot" />
   // 每个键挂上视觉 id（自检/探针按它定位）、键帽 id（探针据此核对「显示的是不是键帽」）
   // 与「正在按下」的 class。
   const slot = (visualId, onClick, extra = '') => ({
@@ -192,8 +189,8 @@ export function MicroLayout({ update, prefs = {}, clearField, preview = null, t 
               </div>
             </div>
           </div>
-          <Key {...slot('r1-2')}>{dot('r1-2')}</Key>
-          <Key {...slot('r1-3')}>{dot('r1-3')}</Key>
+          <Key {...slot('r1-2')}>{dot()}</Key>
+          <Key {...slot('r1-3')}>{dot()}</Key>
           {/* Row1 右一摇杆：点击弹出「模拟摇杆」方向配置；推杆时球体跟随方向偏移并回弹 */}
           <div
             className="micro-control-item micro-joy-ctrl"
@@ -213,10 +210,10 @@ export function MicroLayout({ update, prefs = {}, clearField, preview = null, t 
           </div>
 
           {/* Row2 */}
-          <Key {...slot('r2-1')}>{dot('r2-1')}</Key>
-          <Key {...slot('r2-2')}>{dot('r2-2')}</Key>
-          <Key {...slot('r2-3')}>{dot('r2-3')}</Key>
-          <Key {...slot('r2-4')}>{dot('r2-4')}</Key>
+          <Key {...slot('r2-1')}>{dot()}</Key>
+          <Key {...slot('r2-2')}>{dot()}</Key>
+          <Key {...slot('r2-3')}>{dot()}</Key>
+          <Key {...slot('r2-4')}>{dot()}</Key>
 
           {/* Row3 动作键（ACT：点击弹出「编辑按键」）。
               **画的是键帽、不是物理键码**：给 ACT07 选了 MIC，它就得长成麦克风的样子

@@ -352,9 +352,9 @@
  * 只画不响应 —— 整张插图对指针透明（连 :active 的按压回弹也不要），背景交还给外层卡片。 */
 .micro-page-wrap--preview{background:transparent}
 .micro-page-wrap--preview .micro-key{cursor:default;pointer-events:none}
-/* 示意色圆点（引导里那 6 颗智能体键）：白色/黑色在浅色键面上会看不见，
- * 统一加一圈极淡的内描边，让「灯珠」在四种颜色下都有轮廓。 */
-.micro-key-dot--swatch{box-shadow:inset 0 0 0 1px rgba(0,0,0,.18)}
+/* ⚠ 2026-09-30：`.micro-key-dot--swatch` 那条规则已撤 —— 引导里那张键盘要与设置页里那台
+ * 逐像素一致（用户报障「导览页面的按键颜色和设置页不一样」）。键面配色只许有一个来源：
+ * 上面那条 `.micro-key-dot`。别再按状态给键面另加一套颜色。 */
 
 /* ---------- 首次连接引导 ----------
  * 层级夹在本插件自己的弹窗（9999 / 二级 10002）之上、保存提示（10050）之下：
