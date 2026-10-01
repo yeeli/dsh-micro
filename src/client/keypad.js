@@ -152,7 +152,11 @@ export class KeypadController {
   notice = null
   /** 设置里的键帽（键码 → 键帽 id，也就是「这颗键要当什么用」）；由 entry.js 随偏好灌入。 */
   keyMap = {}
-  /** 独立麦克风键：打开时 Mic 的两颗开关各读各的，关闭时共用一颗宽键（取值链见 ./utils/keycaps.js）。 */
+  /**
+   * 独立麦克风键：打开时 Mic 的两颗开关各读各的，关闭时共用一颗宽键。
+   * ⚠ 那颗宽键**就是 ACT10**（键帽 / 读取 / 保存都以它为准，ACT11 在合并态不参与）——
+   * 见 utils/keycaps.js 的 MIC_MERGED_ID / capFor / actionSourceOf。
+   */
   micSplit = false
   /**
    * 诊断：最近几次真实按键「上报的键码 → 解析出的动作」（最多 8 条，最新的在后）。

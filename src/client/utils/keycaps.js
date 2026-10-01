@@ -35,8 +35,18 @@ import { FACTORY_KEY_FUNCS } from '../config/default.js'
 /** Mic 宽键下面的两个开关，数组顺序＝布局里从左到右。 */
 export const MIC_SWITCHES = ['ACT10', 'ACT11']
 
-/** 合并态下，两颗 Mic 开关共用的那颗宽键的视觉键 id（键帽取 ACT11 的）。 */
-export const MIC_MERGED_ID = 'act11'
+/**
+ * 合并态下，两颗 Mic 开关共用的那颗宽键的视觉键 id。
+ *
+ * ⚠ 2026-10-01 用户更正归属：这颗宽键**就是 ACT10 那颗键** —— 键帽、读取、保存一律以它为准，
+ *   ACT11 那格在合并态**完全不参与**（不显示、不执行）。用户原话：「打开独立麦克风键的时候，
+ *   并且 ACT11 有功能的时候，ACT10 合并 ACT11 按键，而不是 ACT11 合并 ACT10 按键」；
+ *   随后又钉了一次现象：「关闭独立麦克风键，如果 ACT11 有了按键功能，按键归了 act11 了」——
+ *   那是**要修掉的**，不是要保留的兜底。
+ *   原先这里写的是 'act11'（历史沿用：那时宽键的存档格是 `actLabels.ACT11`），后果是
+ *   「打开独立麦克风键 → 把功能设在 ACT11 那格 → 再关掉开关」时，宽键认的仍是 ACT11 那格。
+ */
+export const MIC_MERGED_ID = 'act10'
 
 /**
  * 拆分态**左开关**（ACT10）：出厂就是 MIC 键（键帽 'ACT10' = 语音）。
@@ -100,8 +110,11 @@ export const capFor = (code, prefs = {}) => {
       if (c === MIC_CUSTOM_CODE) return labels[c] || null
       return labels[c] || factoryCapOf(c)
     }
-    // 合并态：两颗开关共用同一颗宽键，键帽与功能走同一条链（ACT11 优先，历史写入口就是它）
-    return labels.ACT11 || labels.ACT10 || factoryCapOf('ACT11')
+    // 合并态：两颗开关共用同一颗宽键（＝ACT10 那颗，见 MIC_MERGED_ID），键帽与功能走同一条链。
+    // ⚠ **只读 ACT10 这一格**，ACT11 在合并态完全不参与 —— 用户 2026-10-01 的口径原话：
+    //   「关闭独立麦克风键，那颗单独键就是 act10，功能也是 act10」。
+    //   加回 ACT11 兜底会让拆分态里设在右开关上的功能在合并后顶上来（用户报的就是这个）。
+    return labels.ACT10 || factoryCapOf('ACT10')
   }
   return labels[c] || factoryCapOf(c)
 }
@@ -170,13 +183,16 @@ export const micRowKeys = (prefs = {}) => {
  * 为什么复用键帽那一格：设置里那一格就是「这颗键是什么」——键帽列表本身就是功能列表
  * （模式/归档/拒绝/批准/语音/发送…），用户改键帽时想的是「把这颗键改成发送」，
  * 只改显示不改行为会被当成「设置不反应」（见 ../keypad.js 的 resolve）。
- * Mic 两颗开关在合并态共用同一颗宽键，取值链与键帽完全一致（ACT11 优先、ACT10 兜底）。
+ * Mic 两颗开关在合并态共用同一颗宽键（＝ACT10 那颗），取值链与键帽完全一致：**只有 ACT10 一格**，
+ * ACT11 在合并态不参与（理由见 capFor 的注释）。
  * @param {string} code 设备键码（ACT06..ACT12，大小写不敏感）。
  * @param {boolean} split 是否拆分态（micKey 打开时两颗开关各自独立）。
  * @returns {string[]} 取值链；都没设过时调用方退回出厂默认。
  */
 export const actionSourceOf = (code, split) => {
   const c = String(code || '').trim().toUpperCase()
-  if (MIC_SWITCHES.includes(c)) return split ? [c] : [...MIC_SWITCHES].reverse()
+  // 合并态：两颗开关是同一颗宽键，取值一律落在 ACT10 那一格 —— 所以 ACT10 / ACT11 两个上报码
+  // 都只读 ACT10（链里就一项，别再补 ACT11 兜底：那会让右开关的设置顶到合并键上）。
+  if (MIC_SWITCHES.includes(c)) return split ? [c] : [MIC_MERGED_ID.toUpperCase()]
   return [c]
 }

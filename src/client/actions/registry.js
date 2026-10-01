@@ -100,7 +100,7 @@ const toggleVoice = (voice) => {
 //
 // 2026-09-28（用户要求）几处结构变化，读代码前先知道：
 //   ① **短名全部改成中文**，并按用户给的顺序补了 11 颗新按键（键盘设置/终端/删除/新建/上传/
-//      压缩/轨迹/推理±/文件夹/插件）—— 它们的出口都在门面（./index.js），拿不到入口时
+//      压缩/目标/推理±/文件夹/插件）—— 它们的出口都在门面（./index.js），拿不到入口时
 //      **出声**（记一行日志 + 返回 false），不许静默。
 //   ② 原来第一颗 `none`（键帽 FAST「保留」）**让位给 `mode`**：ACT06 这颗键帽从「按下什么都
 //      不做」改成「切换 Agent 模式」。`none` 这条**还在**（旋钮自定义分配里的「无」要用它），
@@ -210,13 +210,25 @@ export const ACTIONS = [
     knob: true,
     run: (c) => call(c.ops, 'openTerminal')
   },
+  // 2026-10-01 用户改口径：这一颗（capId 仍是老的 'CLEAR'，老存档不动）**改名叫「清空」、
+  //   图标换成橡皮擦**；「一次删一个字」另起了下面那颗 delete_char（用户原话：「现在删除按键的
+  //   功能是清空功能，将按键重命名为清空，图标也换成清空，增加一个按键命名为删除，功能只删除
+  //   输入一个字一个字删除」）。
   {
     id: 'clear_input',
-    name: '删除', icon: 'clear', capId: 'CLEAR',
+    name: '清空', icon: 'erase', capId: 'CLEAR',
     label: 'act.clearInput',
     desc: '清空当前输入框的内容（只清草稿，不动已经发出去的消息）',
     knob: true,
     run: (c) => call(c.ops, 'clearInput')
+  },
+  {
+    id: 'delete_char',
+    name: '删除', icon: 'clear', capId: 'DELETE',
+    label: 'act.deleteChar',
+    desc: '删除输入框里的一个字：每按一下从末尾少一个（只动草稿，不动已经发出去的消息）',
+    knob: true,
+    run: (c) => call(c.ops, 'deleteChar')
   },
   {
     id: 'new_session',
@@ -243,12 +255,24 @@ export const ACTIONS = [
     run: (c) => call(c.ops, 'compact')
   },
   {
-    id: 'trajectory',
-    name: '轨迹', icon: 'trajectory', capId: 'TRAJECTORY',
-    label: 'act.trajectory',
-    desc: '把当前对话切到「轨迹」视图（事件时间线；**要在设置里开启代码工作工具后才有这个视图**）',
+    // 2026-10-01 用户要求：「轨迹」这颗按键换成「目标」。
+    //   ⚠ 「轨迹」是**整条删掉**（不是藏起来）：键帽候选里不再有它，门面里的实现
+    //     （openTrajectory / 代码工作工具那道闸门）也一并清了 —— 见 actions/index.js。
+    //     老存档里存过 'TRAJECTORY' 的那颗键，键帽认不出来 → 回落它的**出厂功能**
+    //     （见 utils/keycaps.js 的 capFor / keypad.js 的 resolve）。
+    //   「目标」只做一件事：把命令**填进输入框**（不发送），光标停在后面等用户补内容。
+    //     命令名固定是 DSH 注册的 `/goal`（**不跟界面语言走**，见 actions/session.js 的
+    //     GOAL_COMMAND）—— 这里只说「这个键干什么」。
+    id: 'goal',
+    name: '目标', icon: 'goal', capId: 'GOAL',
+    label: 'act.goal',
+    // ⚠ 2026-10-01 用户改口径：**这颗键的动作是「在输入框添加命令」**，不是「打开目标视图」之类的
+    //   别的意思 —— 描述里第一句就要把这件事说清（原文「把 /目标 填进输入框」被用户判为没说清）。
+    // ⚠ 2026-10-01 用户报「填进去了但 DSH 不认」→ 命令名是 DSH 注册的 `/goal`，**中文界面也一样**
+    //   （菜单里显示成「目标」只是文案，不是命令名）。所以描述里不再写「/目标 」。
+    desc: '在输入框添加目标命令「/goal 」：命令写在最前面，光标停在它后面 —— 接着写你要达成的目标，再自己按发送',
     knob: true,
-    run: (c) => call(c.ops, 'openTrajectory')
+    run: (c) => call(c.ops, 'writeGoal')
   },
   // ⚠ 2026-09-29 用户改口径：这两颗键**不再打开等级菜单**，而是直接把当前会话的推理强度
   //   升/降一档（「不用打开选项, 直接加减, 没有就提示不可用」）——出口从 reasoningStep 换成

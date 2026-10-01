@@ -19,10 +19,29 @@
 .micro-capgrid{grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:12px}
 /* 一格 = 一颗键（**只有图标**）。键下面的名字 2026-09-28 撤掉了，改由悬停气泡说（见下）。
  * 格子仍然保留 flex + 内边距：鼠标落在键四周那圈空白上也算选中这颗键（老手感不变）。 */
-.micro-cap-cell{display:flex;flex-direction:column;cursor:pointer;padding:4px;border-radius:10px}
+.micro-cap-cell{display:flex;flex-direction:column;cursor:pointer;padding:4px;border-radius:22px}
 .micro-cap{background:#f7f5f1;border:1px solid rgba(255,255,255,.6)}
 .micro-cap-cell:hover .micro-cap{border-color:#93c5fd}
-.micro-cap--sel,.micro-cap--sel:hover{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.35),0 2px 6px rgba(0,0,0,.06)}
+/* 选中的那一格：**外围**那圈淡蓝底（框画在键上，见下面那条）。
+ * 圆角 22 = 键的 18 + 格子内边距 4 —— 两道圆角同心，看起来是「一个框套着那颗键」，
+ * 而不是「一个圆角方框套住一个圆角键」。 */
+.micro-cap-cell--sel{background:rgba(59,130,246,.10)}
+/* 选中态（2026-10-01 修用户报的「编辑按键时看不出选的是哪颗」）——
+ * ⚠ **不是少写了样式，是被层叠盖掉**：
+ *   原来写的是 `.micro-cap--sel{border-color;box-shadow}`（单类，本文件前段）。
+ *   本文件后半段还有一条同样单类的 `.micro-key{… border:1px solid rgba(255,255,255,.6);
+ *   box-shadow:0 2px 6px …}` —— 单类对单类比的是**出现顺序**，`.micro-key` 在后面 → 赢，
+ *   把选中态的 `border-color` 与 `box-shadow` 整条盖掉（`.micro` 候选的底色/边框本来就与
+ *   `.micro-key` 同值，所以平时看不出「被盖了」，只看到「选了跟没选一样」）。
+ *   唯一还能看见蓝边的场合是鼠标停在键上：`.micro-cap--sel:hover` 是**两个**类，压得过单类。
+ *   ⇒ 症状正好是用户说的「移开鼠标就不知道刚才选的是哪一颗」。
+ * 修法：选择器写成 `.micro-key.micro-cap--sel`（两个类）—— **不再依赖文件里的先后顺序**，
+ * 以后谁在文件后面再加一条 `.micro-key{…}` 也盖不掉它。
+ * 长相也一并加强：1px 蓝边 + 淡蓝底 + 一圈**画在键外面**的 3px 扩散环（用户要的「外框」）。
+ * 环最多伸出键 3px，而候选格子有 4px 内边距、格与格之间还有 10px 间距 → 永远不会被
+ * 候选网格的 `overflow:auto` 裁掉（这点是实测出来的：把框画在格子上才会被裁）。
+ * 回归防护在 test/verify_keycaps.js【4c】：那里是**按层叠顺序算赢家**，不是判「有没有写」。 */
+.micro-key.micro-cap--sel,.micro-key.micro-cap--sel:hover{border-color:#3b82f6;background:#eff6ff;box-shadow:0 0 0 3px rgba(59,130,246,.38),0 2px 6px rgba(0,0,0,.06)}
 
 /* ---- 悬停气泡：一颗键的「短名 / 功能名 / 说明」三行 ----
  * 布局里的键与「编辑按键」弹窗的候选共用它（见 components/common/cap-tip.jsx）。
@@ -60,7 +79,12 @@
 .micro-modal .micro-primary{background:#000;color:#fff;border:0;padding:7px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:500}
 .micro-modal .micro-primary:hover{opacity:.88}
 .micro-control-item{cursor:default}
-.micro-joy-ctrl{cursor:pointer}
+/* 摇杆那颗控件**可点**（点开「模拟摇杆」方向配置）→ 必须是手型光标。
+ * ⚠ 选择器要写成 `.micro-control-item.micro-joy-ctrl`（两个类）：本文件后半段还有一条单类的
+ *   `.micro-control-item{… cursor:default}`，单类对单类比顺序、它在后面 → 原来那条单类的
+ *   `.micro-joy-ctrl{cursor:pointer}` 一直被盖着（「能点的东西没有手型」＝用户在猜能不能点）。
+ *   与候选键选中态是**同一个病**，见上面 .micro-key.micro-cap--sel 那条的说明。 */
+.micro-control-item.micro-joy-ctrl{cursor:pointer}
 .micro-joy-body{display:flex;gap:16px;align-items:stretch;margin-top:14px}
 /* 摇杆弹窗里的方向盘底盘：与布局里那颗摇杆同形（正圆），不再是圆角方框 —— 见上面 .micro-control-base 的注释。 */
 .micro-joy-pad{flex:none;align-self:center;width:64px;height:64px;border-radius:50%;background:#eef2f6;display:grid;place-items:center}

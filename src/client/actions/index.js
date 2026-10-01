@@ -16,7 +16,7 @@
 //   effort.js     ← 推理强度（等级列表与升/降一档 —— 靠服务，不打开菜单）
 //
 // 【管什么】全是「对 DSH 发出操作」：
-//   会话 / 输入机   currentSessionId · input · send · undo · redo · writeDraft · clearInput
+//   会话 / 输入机   currentSessionId · input · send · undo · redo · writeDraft · clearInput · deleteChar · writeGoal
 //   待确认交互      respond(approve|reject) → uiSession.pendingInteractions（审批 / 计划确认）；
 //                   服务拿不到时退到面板上**按文案**点按钮（批准/允许/确认/下一步 · 拒绝/跳过）
 //   会话动作        archive           → uiWorkspace.archiveSession（退：POST /micro/archive）
@@ -24,11 +24,11 @@
 //                   newSession        → uiWorkspace.startSession（「新建」键）
 //   附件            pickUpload        → 点输入栏里那个原生 file input（上传键；无服务面可用）
 //   上下文          compact           → /compact 命令通道（「压缩」键）
+//   目标命令        writeGoal         → 把 DSH 认的「/goal 」填进草稿（「目标」键；命令名不跟语言走）
 //   Agent 预设      cycleAgentMode    → remote.agentPresets（「模式」键，原 FAST）
 //   布局            toggleSidebar     → ctx.layout（跨插件服务面）
 //   面板与视图      openPlugins       → ctx.layout.selectPanel('plugins')
 //                   openTerminal      → ctx.sidebarRight.openTab('terminal')
-//                   openTrajectory    → ctx.uiConversation.binding(sid).activate('trajectory')
 //                   openFolder        → ctx.remote.session.openWorkspacePath({ path: cwd })
 //   本插件设置页    openSettings      → components/sidebar/action.jsx 的深链（**长按旋钮**绑的就是它）
 //   DSH 通用设置    openGeneralSettings → 同一份深链的另一个落点（导航第一项「通用」）
@@ -39,7 +39,7 @@
 //   推理±（直接加减）reasoningAdjust → ctx.modelDirectories → directory.select（**不开菜单**，见 effort.js）
 //   输入框兜底      pressEnter（服务都拿不到时的最后一条路）
 //
-// ⚠ 所有「打开某个官方界面」的入口（终端 / 插件页 / 轨迹 / 文件夹 / 上传）都是**可选服务**：
+// ⚠ 所有「打开某个官方界面」的入口（终端 / 插件页 / 文件夹 / 上传）都是**可选服务**：
 //   DSH 的插件是按需装的，注册在页面上的服务面拿不到就说拿不到（**一律记一行日志**，见各自的
 //   「拿不到…」分支）—— 静默 false = 按下去没反应且查不出，这是本项目最贵的一条纪律。
 //
@@ -72,8 +72,8 @@
 
 import {
   focusCollect, highlight, clearHighlight, planChipEl, sidebarToggleEl,
-  scrollStepDir, scrollToBottomDir, dispatchEnter, dispatchUndoChord,
-  interactionPanelButtons, pickPanelButton, clickComposerFileInput
+  scrollStepDir, scrollToBottomDir, dispatchEnter, execUndoCommand, dispatchUndoChord,
+  interactionPanelButtons, pickPanelButton, clickComposerFileInput, composerDraft
 } from './dom.js'
 import { reasoningStepDir, reasoningPressOnce } from './reasoning.js'
 import {
@@ -81,6 +81,7 @@ import {
 } from './effort.js'
 import {
   planActiveOf, currentSessionIdOf, inputOf, commandChannelOf, formatDraft,
+  goalDraft,
   pendingInteractionOf, answerFor, archiveFailureText,
   sessionCwdOf, agentPresetStateOf, agentPresetsChannelOf, nextPresetOf
 } from './session.js'
@@ -183,7 +184,7 @@ export class DshOps {
   }
 
   /**
-   * 清空当前输入框（「删除」键）—— **只动草稿，不碰已经发出去的消息**。
+   * 清空当前输入框（「清空」键）—— **只动草稿，不碰已经发出去的消息**。
    *
    * 与 writeDraft 同一条取值链，只是写的是空串：composer 输入动作（槽位交给我们的那套，
    * 实机走它）优先 → 输入机自己的 `setDraft`。两条都没有就**出声**（不静默）：
@@ -194,15 +195,29 @@ export class DshOps {
    * @returns {boolean} 是否真的清掉了。
    */
   clearInput = () => {
-    const composer = this.#composer
-    if (composer && typeof composer.setDraft === 'function') {
-      try { composer.setDraft(''); return true } catch (e) {}
-    }
-    const input = this.input()
-    if (input && typeof input.setDraft === 'function') {
-      try { input.setDraft(''); return true } catch (e) {}
-    }
+    if (this.#setDraft('')) return true
     this.#deny('noInput', '清空输入框失败：既没有 composer 输入动作，输入机也不提供 setDraft')
+    return false
+  }
+
+  /**
+   * 删除当前输入框里的**一个字**（「删除」键）—— 每按一下从末尾少一个码点，连按就连删。
+   *
+   * 为什么读 DOM 草稿（`composerDraft()`）而不是读输入机：DSH 没有「读草稿」的服务面
+   * （与 writeGoal 同一条理由，见 ./dom.js）。改完仍走 `#setDraft` 写回 —— composer 是
+   * React 受控的，手改 textarea.value 只会让显示与状态分家（见 #setDraft 的注释）。
+   *
+   * 用 `Array.from` 切**码点**而不是 `slice(-1)`：后者按 UTF-16 码元切，会把 emoji（代理对）
+   * 劈成半个字符，写回去是一个乱码方块。
+   *
+   * ⚠ **幂等**：草稿本来就是空的 → 直接返回 true，什么都不做、也不弹提示（这已经是要的结果）。
+   * @returns {boolean} 是否（已经）删好了。
+   */
+  deleteChar = () => {
+    const chars = Array.from(String(composerDraft() || ''))
+    if (chars.length === 0) return true
+    if (this.#setDraft(chars.slice(0, -1).join(''))) return true
+    this.#deny('noInput', '删除失败：既没有 composer 输入动作，输入机也不提供 setDraft')
     return false
   }
 
@@ -288,16 +303,29 @@ export class DshOps {
    * 撤销 / 重做 = **composer 输入机的操作记录**（⌘Z / ⌘⇧Z 走的就是它）。
    * DSH 没有会话级的 undo，别在这里假装有：它撤销的是当前会话的**输入内容**（草稿），
    * 不是「上一条已发送的消息」。
+   *
+   * 三级链，**顺序不能换**：
+   *   ① 输入机自己的 undo()/redo() —— 官方面，有就用。⚠ **这一版 SessionInputShell 没有这两个
+   *      方法**（只有 setDraft / addAttachments / submit / notify / state），与 approve/reject
+   *      那次一样：方法不存在就当没有，别指望它；
+   *   ② execUndoCommand 走**原生编辑命令** —— textarea / input 自带的撤销栈只有这条路能驱动；
+   *      它**回读**文本，真变了才算成，成了就返回、不再往下走（否则会撤两次）；
+   *   ③ 合成 ⌘Z / ⌘⇧Z —— 只对自带历史实现的 JS 编辑器有效（见 ./dom.js 的说明）。
+   *
+   * 三条都没成时**如实回 false**：摇杆提示卡片会写「未生效」，而不是像从前那样假装成功
+   * （2026-10-01 用户报「撤销 / 重做没实现」，就是卡在「输入机没有 + 兜底空转却回 true」上）。
    */
   undo = () => {
     const input = this.input()
     if (input && typeof input.undo === 'function') { try { input.undo(); return true } catch (e) {} }
+    if (execUndoCommand(false)) return true
     return dispatchUndoChord(false)
   }
 
   redo = () => {
     const input = this.input()
     if (input && typeof input.redo === 'function') { try { input.redo(); return true } catch (e) {} }
+    if (execUndoCommand(true)) return true
     return dispatchUndoChord(true)
   }
 
@@ -320,15 +348,58 @@ export class DshOps {
   writeDraft = (before, text) => {
     const next = formatDraft(before, text)
     if (next === String(before == null ? '' : before)) return false // 没有新内容
+    if (this.#setDraft(next)) return true
+    this.#deny('noInput', '写回输入框失败：既没有 composer 输入动作，输入机也不提供 setDraft')
+    return false
+  }
+
+  /**
+   * 把整段文本写进当前 composer 草稿（**整段覆盖**；要拼什么由调用方先算好）。
+   *
+   * 取值链**只有这一处**（清空 / 语音写回 / 目标命令三条路都走它）：
+   *   ① 槽位交给我们的 composer 输入动作（对话输入区组件挂载时 bindComposer 交进来的，实机走这条）
+   *   ② 输入机自己的 `setDraft`（conversation.input.for(scope)）
+   * 两条都没有 → 返回 false，由调用方 `#deny` 说出原因（绝不静默）。
+   *
+   * ⚠ 为什么不直接改 DOM：composer 是 React 受控的，手改 textarea.value 只会让显示与状态分家
+   * （下一次渲染又变回来），与 clearInput 那条注释同一个理由。
+   * @returns {boolean} 是否真的写进去了。
+   */
+  #setDraft = (text) => {
     const composer = this.#composer
     if (composer && typeof composer.setDraft === 'function') {
-      try { composer.setDraft(next); return true } catch (e) {}
+      try { composer.setDraft(text); return true } catch (e) {}
     }
     const input = this.input()
     if (input && typeof input.setDraft === 'function') {
-      try { input.setDraft(next); return true } catch (e) {}
+      try { input.setDraft(text); return true } catch (e) {}
     }
-    this.#deny('noInput', '写回输入框失败：既没有 composer 输入动作，输入机也不提供 setDraft')
+    return false
+  }
+
+  /**
+   * 把「目标」命令填进输入框（「目标」键）—— **只填不发**，光标停在命令后面等用户补内容。
+   *
+   * 三件事各只有一个判据，别在这儿再抄一遍：
+   *   · 填什么 —— `goalDraft` 里写死的 `GOAL_COMMAND`（＝`/goal`，DSH 注册的就是这个名字；
+   *               见 ./session.js 那一大段）。**不跟界面语言走**。
+   *   · 怎么拼 —— `goalDraft(before)`：命令放**最前面**（slash 命令必须行首才被 DSH 认），
+   *               用户已经打的字接在后面、一个字都不丢；
+   *   · 里面已有什么 —— `composerDraft()`（DOM 真值，见 ./dom.js）—— DSH 没有「读草稿」的服务面。
+   *
+   * ⚠ 命令名**不跟界面语言走**：DSH 的命令名不本地化，中文界面里菜单上写着「目标」但命令仍是
+   *   `/goal`。2026-10-01 用户报障「填进去了但 DSH 不认」就是原先按语言填 `/目标` 造成的。
+   *
+   * ⚠ **幂等**：草稿已经以这条命令开头时 `goalDraft` 回 null —— 这里返回 **true**（结果态已经
+   *   是用户要的样子，不是失败），**不记 deny**。否则连按两下会弹一句「当前页面不能执行」，
+   *   而实际上一切正常。
+   * @returns {boolean} 是否（已经）填好了。
+   */
+  writeGoal = () => {
+    const next = goalDraft(composerDraft())
+    if (next === null) return true
+    if (this.#setDraft(next)) return true
+    this.#deny('noInput', '填写目标失败：既没有 composer 输入动作，输入机也不提供 setDraft')
     return false
   }
 
@@ -641,9 +712,9 @@ export class DshOps {
     }
   }
 
-  // ---------------- 官方面板与视图（终端 / 插件 / 轨迹 / 文件夹） ----------------
+  // ---------------- 官方面板与视图（终端 / 插件 / 文件夹） ----------------
   //
-  // 这四件与上面的 toggleSidebar 同源：都是「让 DSH 自己把某个界面打开」，我们只负责按对那个入口。
+  // 这几件与上面的 toggleSidebar 同源：都是「让 DSH 自己把某个界面打开」，我们只负责按对那个入口。
   // 它们是**可选服务**（对应插件没装 / 服务没注册时拿不到）→ 一律如实出声，见各自的「拿不到…」分支。
 
   /**
@@ -683,48 +754,6 @@ export class DshOps {
     }
     this.#deny('noService', '拿不到中央面板入口（ctx.layout.selectPanel），忽略')
     return false
-  }
-
-  /**
-   * 把当前对话切到「轨迹」视图（「轨迹」键）—— 事件时间线。
-   * 入口 = `ctx.uiConversation.binding(sid).activate('trajectory')`；视图 id 就是
-   * dsh-client-ui-trajectory 注册的 `target: "trajectory"`。
-   *
-   * ⚠ **这个视图有道闸门**：ui-conversation 的 viewTabs() 里写着
-   *   `if (!ctx.configForms.developerTools.enabled.getSnapshot() && entry.options.id === 'trajectory') continue`
-   * —— 没开「代码工作工具」时那个标签**压根不存在**，`activate()` 于是静默什么都不发生。
-   * 所以这里先看闸门，没开就**出声**（不假装切过去了）；闸门读不到时按「开着」放行，让 activate 去撞。
-   * @returns {boolean} 是否真的切了。
-   */
-  openTrajectory = () => {
-    const sid = this.currentSessionId()
-    if (!sid) { this.#deny('noSession', '切换轨迹视图失败：认不出当前会话'); return false }
-    if (!this.#developerToolsEnabled()) {
-      this.#deny('gateOff', '切换轨迹视图失败：DSH 设置里没有开启「代码工作工具」，轨迹标签不存在（开启后再按）')
-      return false
-    }
-    const conv = this.#service('uiConversation')
-    if (conv && typeof conv.binding === 'function') {
-      try {
-        const binding = conv.binding(sid)
-        if (binding && typeof binding.activate === 'function') { binding.activate('trajectory'); return true }
-      } catch (e) {
-        this.log(`切换轨迹视图失败：${(e && e.message) || e}`)
-        return false
-      }
-    }
-    this.#deny('noService', '拿不到轨迹视图入口（ctx.uiConversation.binding(sid).activate），忽略')
-    return false
-  }
-
-  /** 「代码工作工具」开着没（轨迹视图的闸门）。读不到时返回 true —— 让 activate 自己撞一次，比误拦好。 */
-  #developerToolsEnabled = () => {
-    try {
-      const forms = this.#service('configForms')
-      const gate = forms && forms.developerTools && forms.developerTools.enabled
-      if (gate && typeof gate.getSnapshot === 'function') return gate.getSnapshot() !== false
-    } catch (e) {}
-    return true
   }
 
   /**

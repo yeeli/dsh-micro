@@ -273,6 +273,45 @@ export const formatDraft = (before, text) => {
   return head + sep + tail
 }
 
+// ---------------- 「目标」命令：命令名与草稿拼法（纯函数，可单测） ----------------
+//
+// 「目标」键（registry 的 goal）只做一件事：把命令**填进输入框**，不发送。
+// 「填什么」只有一个判据：DSH 给这条命令注册的名字就是 `goal`（见下），这里写死它。
+
+/**
+ * 「目标」键要填的命令名 —— **DSH 注册的名字就是 `goal`，就是这一串**。
+ *
+ * 2026-10-01 用户报障「在对话框添加『目标』指令，发出去 DSH 不认」的根因就在这里：
+ * 原先这一层写成「命令名跟着界面语言走」，从词典键 `cmd.goal` 取（中文拿 `/目标`）。
+ * 但 DSH 的命令名**不本地化** —— `dsh-command-goal` 注册时写死
+ *   `name: "goal"`，`USAGE = "Usage: /goal [<objective>|clear|edit <objective>|pause|resume]"`，
+ *   也没有 aliases。中文界面里的「目标」只是**显示文案**（`dsh-client-ui-commands` 的
+ *   `label.goal` / `token.goal`），它并不是一个已注册的命令 token。
+ * 上游是拿输入框里那串**字面**去解析命令的，所以填 `/目标` 会得到一个 DSH 不认识的命令。
+ *
+ * ⚠ 所以命令名**不是文案**，不要再放回词典：`cmd.*` 那一段连同 `#t` 注入的整条间接层都已删除。
+ *   要改命令名，改的是 DSH 的注册（或者这里这一处常量），不是翻译。
+ */
+export const GOAL_COMMAND = '/goal'
+
+/**
+ * 「把目标命令填进草稿」的拼法：命令**在最前面**，用户已经打进去的字接在后面（一个字都不丢）。
+ *
+ * 为什么命令必须在最前：slash 命令只有落在**行首**才被 DSH 当命令（落在中间就是普通文本），
+ * 所以只能往前面放 —— 正好也把用户已打的字当成了「目标描述」，语义顺。
+ *
+ * ⚠ **幂等**：草稿已经以这条命令开头时返回 null（调用方什么都不做）——按两下不该叠成
+ *   `/goal /goal xxx`。返回 null 不等于失败（想表达的就是「已经是你要的样子了」）。
+ * @param {string} before - 当前草稿。
+ * @returns {string|null} 新的草稿；null = 不用动。
+ */
+export const goalDraft = (before) => {
+  const head = String(before == null ? '' : before).trim()
+  if (!head) return GOAL_COMMAND + ' '
+  if (head.startsWith(GOAL_COMMAND)) return null
+  return GOAL_COMMAND + ' ' + head
+}
+
 // ---------------- 待确认交互（批准 / 拒绝）：纯判据，可单测 ----------------
 //
 // 「批准 / 拒绝」两颗键要回答的是 DSH 的**待确认交互**。它的真源是 uiSession 服务的

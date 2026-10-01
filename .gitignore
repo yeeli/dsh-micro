@@ -9,3 +9,7 @@ test/
 # 编辑器残留（vim 交换文件：属于本机会话状态，不该进版本库）
 *.swp
 *.swo
+
+# 构建工具的临时副产物：vite 加载配置时会在项目根写 `<config>.timestamp-<ms>-<hash>.mjs`，
+# 正常在进程退出时自删；构建被中断就会残留（2026-10-01 一轮构建后留下 4 个，污染 git status）。
+*.timestamp-*.mjs

@@ -347,15 +347,59 @@ export const sidebarToggleEl = () => {
   return null
 }
 
-/** composer 输入框：优先当前聚焦的那个，其次取最后一个可见 textarea。 */
-export const composerTextarea = () => {
+// ---- composer 的编辑元素（撤销 / 重做的起手式）----
+//
+// ⚠ **名字里的旧事**：这个判据原先叫 `composerTextarea`，只 `querySelectorAll('textarea')`。
+// 「composer 用什么元素承载输入」是**上游的实现细节** —— DSH 换一版就可能从 textarea 换成
+// contenteditable 的富文本宿主。而撤销 / 重做这两条路**都从这里起步** ⇒ 上游一换写法，
+// `undo()` 就**静默恒 false**（按下去什么都没发生，摇杆卡片还写「未生效」）——
+// 2026-10-01 用户报的「撤销 / 重做没实现」正是这一族。
+// ⇒ 判据改成「**可编辑元素**」，复用 `isTextEntry`（textarea / contenteditable / 文本 input，
+//    **全项目只此一份**），不再自己抄一遍 contenteditable 的判法。
+//
+// 挑选顺序：
+//   ① **当前聚焦的那个**（撤销是编辑命令，作用在用户正在打字的元素上）；
+//   ② 否则**最后一个可见的**（composer 钉在页面底部，DOM 顺序天然最后）。
+//
+// ⚠ 选择器仍只列 `textarea, [contenteditable]`，**不列 input**：DSH 的 composer 里挂着一个
+//   `type=file` 的隐藏 input（见下面的 composerFileInput），把 input 一并拉进来徒增误选面；
+//   聚焦那一路走 `isTextEntry`，所以真的聚焦在文本 input 上时照样认得。
+/** 探针 / 控制台要能报「我用的是哪些选择器」（诊断用；判据本身在 composerEditable）。 */
+export const EDITABLE_SEL = 'textarea, [contenteditable]'
+
+/** composer 的编辑元素（textarea / contenteditable 通吃）。 */
+export const composerEditable = () => {
   if (typeof document === 'undefined') return null
-  let nodes = []
-  try { nodes = Array.from(document.querySelectorAll('textarea')) } catch (e) { return null }
-  const visible = nodes.filter(nodeVisible)
   const active = typeof document.activeElement !== 'undefined' ? document.activeElement : null
-  if (active && visible.includes(active)) return active
+  if (active && isTextEntry(active) && nodeVisible(active)) return active
+  let nodes = []
+  try { nodes = Array.from(document.querySelectorAll(EDITABLE_SEL)) } catch (e) { return null }
+  const visible = nodes.filter((el) => isTextEntry(el) && nodeVisible(el))
   return visible.length ? visible[visible.length - 1] : null
+}
+
+/**
+ * @deprecated 名字是历史遗留（最初只认 textarea）。判据与 {@link composerEditable} **同一份**，
+ * 保留这个别名只是为了不打断既有引用；新代码一律用 `composerEditable`。
+ */
+export const composerTextarea = composerEditable
+
+/**
+ * composer 里**现在**的草稿文本（「目标」键填命令前要先知道里面有什么，才不会盖掉用户打的字）。
+ *
+ * 为什么读 DOM 而不是某个服务：本项目的 DSH composer 只有 `setDraft` 这一条**写**的路
+ * （见 actions/index.js 的 writeDraft），**没有**一条「把当前草稿读给我」的服务面。
+ * 而草稿的 DOM 真值恰恰就在那个编辑元素上（textarea 的 `value` / contenteditable 的
+ * `textContent`），口径与撤销那一族**同一份**（editableTextOf，见那里的顺序说明）。
+ *
+ * ⚠ 读不到时返回**空串**（不是 null）：调用方拿它当「草稿是空的」照常写入。
+ *   代价是「看不见输入框却恰好有草稿」时会覆盖一次；但那种情况下我们也**写不进**任何东西
+ *   （setDraft 与元素互不依赖，拿不到元素通常意味着根本不在会话页），宁可按空处理 ——
+ *   传 null 回去只会让调用方到处写分支，而它十有八九还是要写。
+ */
+export const composerDraft = () => {
+  const text = editableTextOf(composerEditable())
+  return typeof text === 'string' ? text : ''
 }
 
 // ---- composer 的原生文件选择框（「上传」键）----
@@ -705,11 +749,45 @@ export const dispatchEnter = (target) => {
   try { el.dispatchEvent(new KeyboardEvent('keydown', opts)); return true } catch (e) { return false }
 }
 
-/** 兜底：在 composer 输入框上派发 ⌘Z / ⌘⇧Z（DSH 的输入机就是从这条键盘路径进来的）。 */
+/**
+ * 读 composer 编辑元素的文本：textarea / input 看 `value`，contenteditable 看 `textContent`。
+ *
+ * ⚠ **顺序不能反**：textarea 上 `textContent` 也存在，但它是**初始文本**、不随编辑走 ——
+ * 拿它做「变了没有」的回读会永远回同一个值（于是 undo 恒判失败）。
+ *
+ * 撤销那两级（`execUndoCommand` / `dispatchUndoChord`）**共用这一份回读口径**：
+ * 两条路都只看「文本真的变了没有」，不看各自的 API 返回值（一个不可信、一个没信息）。
+ */
+const editableTextOf = (el) => {
+  if (!el) return null
+  if (typeof el.value === 'string') return el.value
+  if (typeof el.textContent === 'string') return el.textContent
+  return null
+}
+
+/**
+ * 最后一条路：在 composer 输入框上派发 ⌘Z / ⌘⇧Z。
+ *
+ * ⚠ 它只对**自带历史实现**的编辑器有效（CodeMirror / ProseMirror 一类 —— 它们自己在 keydown 里
+ * 处理 Mod-Z）。对 textarea / input **自带**的撤销栈**无效**：撤销是一条编辑命令，浏览器只执行
+ * **受信任**按键的默认动作，而 dispatchEvent 造出来的是 untrusted 事件。
+ * 原生栈请走下面的 execUndoCommand。
+ *
+ * ⚠ **返回值口径与 execUndoCommand 相同：回读文本**。
+ * 曾经这里写的是 `el.dispatchEvent(...); return true` —— 那报的是「事件派发出去了」，
+ * 而 `dispatchEvent` 的返回值只说「没被 cancelable 地取消」，对「撤销生效没有」**零信息**。
+ * 于是最外层的 `undo()` 拿到 true、摇杆卡片显示成功，用户却什么都没看到 ——
+ * 这正是 2026-10-01 那次报障的**病灶**（「按下去没反应，界面还显示成功」）。
+ * ⇒ 宁可保守：没读回变化就报「未生效」（用户会再按一次），绝不报假成功。
+ *
+ * ⚠ 已知偏差：若某个编辑器**异步**更新它自己的视图层，同步回读会读到旧值而误报「未生效」。
+ * 这是刻意选的保守方向（见上）；真机上若确认存在这种编辑器，这一级要改成等一拍再复核。
+ */
 export const dispatchUndoChord = (shift) => {
   if (typeof document === 'undefined' || typeof KeyboardEvent === 'undefined') return false
-  const el = composerTextarea()
+  const el = composerEditable()
   if (!el) return false
+  const before = editableTextOf(el)
   const opts = {
     key: shift ? 'Z' : 'z',
     code: 'KeyZ',
@@ -720,5 +798,47 @@ export const dispatchUndoChord = (shift) => {
     bubbles: true,
     cancelable: true
   }
-  try { el.dispatchEvent(new KeyboardEvent('keydown', opts)); return true } catch (e) { return false }
+  try {
+    if (typeof el.focus === 'function') el.focus()
+    el.dispatchEvent(new KeyboardEvent('keydown', opts))
+  } catch (e) {
+    return false
+  }
+  return editableTextOf(el) !== before
+}
+
+/**
+ * 原生编辑命令：撤销 / 重做 composer **自带**的编辑栈。
+ *
+ * 为什么必须有这一条：`document.execCommand('undo'|'redo')` 是**唯一**能从脚本驱动原生撤销栈的
+ * 入口（该 API 早已标记废弃，但 Chromium / WebKit 至今照常支持，且没有替代品）。
+ * 命令作用在**当前聚焦**的可编辑元素上，所以先聚焦 composer。
+ *
+ * ⚠ execCommand 的返回值**不能信**（没有可撤销的东西时它照样回 true），所以这里**回读**编辑区
+ * 文本：真变了才算成 —— 与 waitDialogGone 同一条「点了不等于成」的口径。
+ *
+ * ⚠ **已知局限（回读是同步的）**：DSH 的 composer 是 **React 受控**组件，而程序化写 value 会
+ * 重置原生撤销栈。这条同步回读读到的是「命令刚执行完、React 还没重渲染」的**瞬时值**，
+ * 因此它只能证明「命令动过文本」，**不能**证明「用户看得见这次撤销」。
+ * 真机实测见 `test/probes/undo.mjs`；若现场证明被 React 改写回去，这一级要改成
+ * **等一拍再复核**，或干脆换成自建草稿历史栈。
+ *
+ * 2026-10-01 用户报「撤销 / 重做没实现」正是踩在这里：输入机没有 undo，兜底只有合成键（对原生栈
+ * 空转），返回值却还是 true —— 按下去什么都没发生，界面还显示成功。
+ * @param {boolean} shift - true = 重做（redo）；false = 撤销（undo）。
+ * @returns {boolean} 编辑区文本真的变了。
+ */
+export const execUndoCommand = (shift) => {
+  if (typeof document === 'undefined' || typeof document.execCommand !== 'function') return false
+  const el = composerEditable()
+  if (!el) return false
+  const before = editableTextOf(el)
+  if (before === null) return false
+  try {
+    if (typeof el.focus === 'function') el.focus()
+    document.execCommand(shift ? 'redo' : 'undo')
+  } catch (e) {
+    return false
+  }
+  return editableTextOf(el) !== before
 }

@@ -87,12 +87,16 @@ const locales = {
     'act.mode': '切换 Agent 模式',
     'act.terminal': '打开终端',
     'act.clearInput': '清空输入框',
+    'act.deleteChar': '删除一个字',
     'act.newSession': '新建对话',
     'act.upload': '上传文件',
     'act.compact': '压缩上下文',
-    'act.trajectory': '打开轨迹视图',
+    'act.goal': '在输入框添加目标命令',
     'act.openFolder': '打开项目文件夹',
     'act.plugins': '打开插件管理',
+    // ⚠ 2026-10-01：`cmd.*` 那一段整条删掉了。「目标」键要填的 `/goal` 是 **DSH 的命令名**，
+    //   不本地化 —— 原先按界面语言填 `/目标`，DSH 不认（用户报障「填进去了但 DSH 不认」）。
+    //   命令名现在只住一处：actions/session.js 的 GOAL_COMMAND。
     // ---------- 摇杆提示卡片（会话界面顶部，见 ../joystick-hud.js）----------
     // joyHud.*  卡片自己那几行（方向名 + 结果）
     // joyAct.*  四个内置摇杆动作的显示名 —— 键由 JOY_ACTION 计算出来（joystick-hud.js 的
@@ -137,7 +141,6 @@ const locales = {
     'notice.noInput': '当前页面没有可用的输入框',
     'notice.noUpload': '输入栏里找不到文件选择框',
     'notice.noCwd': '这条会话没有记录项目目录',
-    'notice.gateOff': '需要在 DSH 设置里开启「代码工作工具」',
     'notice.sessionBusy': '这条会话已经在跑了，新开一条再换',
     'notice.noReasoning': '当前模型未提供推理等级',
     'notice.reasoningTop': '已经是最高的推理强度了',
@@ -278,12 +281,16 @@ const locales = {
     'act.mode': 'Switch Agent mode',
     'act.terminal': 'Open a terminal',
     'act.clearInput': 'Clear the input box',
+    'act.deleteChar': 'Delete one character',
     'act.newSession': 'New conversation',
     'act.upload': 'Upload files',
     'act.compact': 'Compact the context',
-    'act.trajectory': 'Open the trajectory view',
+    'act.goal': 'Add the goal command to the input box',
     'act.openFolder': 'Open the project folder',
     'act.plugins': 'Open the plugin manager',
+    // The cmd.* block was removed 2026-10-01: the Goal key types `/goal`, which is DSH's own
+    // command name and is NOT localized (typing `/目标` made DSH reject it). The name lives in
+    // exactly one place now: GOAL_COMMAND in actions/session.js.
     // ---------- Joystick hint card (top of the conversation view, see ../joystick-hud.js) ----------
     'joyHud.up': 'Up',
     'joyHud.right': 'Right',
@@ -324,7 +331,6 @@ const locales = {
     'notice.noInput': 'No usable input box on this page',
     'notice.noUpload': 'No file picker found in the input bar',
     'notice.noCwd': 'This session has no project folder recorded',
-    'notice.gateOff': 'Turn on “Code work tools” in DSH settings first',
     'notice.sessionBusy': 'This session is already running — start a new one to switch',
     'notice.noReasoning': 'This model provides no reasoning effort levels',
     'notice.reasoningTop': 'Already at the highest reasoning effort',

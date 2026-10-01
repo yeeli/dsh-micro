@@ -15,7 +15,7 @@ import { MicroNotice, NOTICE_REASON, NOTICE_TEXT_FALLBACK, NOTICE_MS, NOTICE_COA
 import { HidBridge } from './hid-bridge.js'
 import { GuideController } from './guide.js'
 import { DeviceController } from './device.js'
-import { DshOps, levelRows, parseLevelFromLabel, currentLevelIndex, openReasoningLevels, closeReasoningLevels, ringTo, commitLevel, findReasoningTrigger, scrollStepSize, findScrollContainer, scrollToBottomDir, focusCollect, isTextEntry, interactionPanelRoot, panelAnswerOf, pickPanelButton, ACTIONS, runAction, keycapActions, knobActions } from './actions/index.js'
+import { DshOps, levelRows, parseLevelFromLabel, currentLevelIndex, openReasoningLevels, closeReasoningLevels, ringTo, commitLevel, findReasoningTrigger, scrollStepSize, findScrollContainer, scrollToBottomDir, focusCollect, isTextEntry, interactionPanelRoot, panelAnswerOf, pickPanelButton, ACTIONS, runAction, keycapActions, knobActions, composerEditable, execUndoCommand, dispatchUndoChord, EDITABLE_SEL } from './actions/index.js'
 import { MicroSettingsSection } from './components/settings/panel.jsx'
 import { VoiceInputButton } from './components/common/voice-button.jsx'
 import { MicroSidebarAction, FOOT_ACTION_ID, FOOT_ACTION_SLOT, openKeyboardSettings, openGeneralSettings } from './components/sidebar/action.jsx'
@@ -80,6 +80,9 @@ DSVI.apply = (ctx) => {
       // 「设置」走它，与「键盘设置」共用点击顺序，不会一处能开一处打不开。
       openSettings: () => openKeyboardSettings(),
       openGeneralSettings: () => openGeneralSettings()
+      // ⚠ 2026-10-01 起**不再注入 t**：「目标」键填的命令名是 DSH 注册的 `/goal`，不跟界面语言走
+      //   （见 actions/session.js 的 GOAL_COMMAND 那一大段）。往这里塞词典就是那次
+      //   「填进去了但 DSH 不认」报障的根因，不要再加回来。
     });
     keypad = new KeypadController({ voice, ops, notice: notice ? notice.showKey : null });
     knob = new KnobController({ voice, ops });
@@ -114,6 +117,12 @@ DSVI.apply = (ctx) => {
     // （`__dshMicro.noticeTools.NOTICE_REASON` 的键就是可以丢给 notice.showKey 的 id）。
     // 与 knobTools 同一条理由：判据只有一份，探针/控制台里不许再抄一份 id 清单。
     DSVI.noticeTools = { NOTICE_REASON, NOTICE_TEXT_FALLBACK, NOTICE_MS, NOTICE_COALESCE_MS };
+    // 撤销 / 重做这一族的失效**天生静默**（按下去没反应，摇杆卡片还写「未生效」，控制台一个字没有），
+    // 所以判据必须能在真机上直接读到 —— 与 knobTools 同一条理由：
+    //   __dshMicro.undoTools.composer()  → 起手式选中了哪个元素（**null = 一个都没选中**，这一族最常见的死法）
+    //   __dshMicro.undoTools.sel         → 候选选择器（上游换了承载元素时看这里）
+    //   __dshMicro.undoTools.exec(false) → 原生命令那一级的真实返回值
+    DSVI.undoTools = { composer: composerEditable, sel: EDITABLE_SEL, exec: execUndoCommand, chord: dispatchUndoChord };
     try { if (typeof window !== 'undefined') window.__dshMicro = DSVI } catch (e) {}
   } catch (e) { err('controllers', e) }
 

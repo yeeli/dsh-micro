@@ -66,8 +66,6 @@ export const NOTICE_REASON = {
   noUpload: 'notice.noUpload',
   /** 会话快照上没有项目目录（cwd），打开位置无从谈起。 */
   noCwd: 'notice.noCwd',
-  /** 轨迹视图的闸门（DSH 设置里的「代码工作工具」）没开。 */
-  gateOff: 'notice.gateOff',
   /** 只有在空会话（blank）上才允许换 Agent 预设。 */
   sessionBusy: 'notice.sessionBusy',
   /** 「推理±」：这个模型没有可调的推理等级（与 DSH 菜单那句「当前模型未提供推理等级」同一句）。 */
@@ -99,7 +97,6 @@ export const NOTICE_TEXT_FALLBACK = {
   'notice.noInput': '当前页面没有可用的输入框',
   'notice.noUpload': '输入栏里找不到文件选择框',
   'notice.noCwd': '这条会话没有记录项目目录',
-  'notice.gateOff': '需要在 DSH 设置里开启「代码工作工具」',
   'notice.sessionBusy': '这条会话已经在跑了，新开一条再换',
   'notice.noReasoning': '当前模型未提供推理等级',
   'notice.reasoningTop': '已经是最高的推理强度了',

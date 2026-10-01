@@ -112,7 +112,8 @@
     "verify:statesock": "node test/verify_state_socket.js",
     "probe:offline": "node test/ui_probe.mjs test/probes/offline.mjs",
     "probe:sim": "node test/ui_probe.mjs test/probes/sim.mjs",
-    "probe:knobdot": "node test/ui_probe.mjs test/probes/knob-dot.mjs"
+    "probe:knobdot": "node test/ui_probe.mjs test/probes/knob-dot.mjs",
+    "probe:undo": "node test/ui_probe.mjs test/probes/undo.mjs"
   },
   "devDependencies": {
     "vite": "^5.4.0"
