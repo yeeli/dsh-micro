@@ -1,8 +1,8 @@
 // dsh-micro · server/index.js
 //
-// 「宿主与 webserver 通信」的唯一入口。所有 /micro/* 路由（7 条）都在这里汇总注册，
+// 「宿主与 webserver 通信」的唯一入口。所有 /micro/* 路由（8 条）都在这里汇总注册，
 // 由 server/ 下按功能域拆分的三个模块各自认领：
-//   device.js  —— state / config / reconnect（与设备直接相关）
+//   device.js  —— state / config / status / reconnect（与设备直接相关）
 //   agents.js  —— agents（灯态，最重的一条）
 //   system.js  —— monitor / open-privacy / archive（系统与宿主能力）
 // 另有一条**不是 HTTP 路由**的挂点：
@@ -23,11 +23,11 @@ import { registerSystemRoutes } from './system.js'
 import { registerStateSocket } from './state-socket.js'
 
 /**
- * 汇总注册全部 7 条 /micro/* 路由。
+ * 汇总注册全部 8 条 /micro/* 路由。
  *
  * @param {object} ctx - 宿主插件上下文（有 inject / get）。
  * @param {object} deps
- * @param {object} deps.ble - BLE 读取器门面（snapshot / state / applyAgents / applyConfig / reconnect）。
+ * @param {object} deps.ble - BLE 读取器门面（snapshot / state / requestStatus / applyAgents / applyConfig / reconnect）。
  * @param {object} deps.monitor - 带缓存的输入监控检测器（read(force)）。
  * @param {(pane: string) => Promise<boolean>} deps.openPrivacy - 打开隐私面板。
  * @param {{ warn: (msg: string) => void, info?: (msg: string) => void }} [deps.logger]

@@ -178,9 +178,9 @@ export function apply(ctx, config) {
     timer.unref?.()
   }
 
-  // ---- 全部 /micro/* 路由（7 条）都交给 server/ 汇总注册 ----
+  // ---- 全部 /micro/* 路由（8 条）都交给 server/ 汇总注册 ----
   // server/index.js 是「宿主与 webserver 通信」的唯一入口：它负责在 ctx.inject(['webServer'])
-  // 的上下文里把 state/config/reconnect/agents/monitor/open-privacy/archive 七条路由挂上去，
+  // 的上下文里把 state/config/status/reconnect/agents/monitor/open-privacy/archive 八条路由挂上去，
   // **外加** ws `/micro/state` 那条状态推送（与 GET 同路径、占 upgrades 表），
   // 并返回一个统一 disposer。业务体（灯态、归档、权限检测）仍在各自模块里，这里只递材料。
   // 输入监控检测器要在 apply 期间建一次（带缓存），路由与后续调用共用同一个实例。

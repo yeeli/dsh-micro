@@ -1,7 +1,7 @@
 // dsh-micro · server/agents.js
 //
 // POST /micro/agents —— 浏览器把「Agent 键 LED 配置 + 当前会话 + 结果态」上报给宿主。
-// 这是 7 条路由里最重的一条：它的业务体（期望灯态解析、结果态搬家、当前会话判据）都还在
+// 这是 8 条路由里最重的一条：它的业务体（期望灯态解析、结果态搬家、当前会话判据）都还在
 // ble.js 的 applyAgents() 里，这里只做「读 body → 调 applyAgents → 回 state」的薄壳。
 //
 // 与业务的分界：server/ 只管「怎么从 HTTP 进来、怎么回 JSON」；「这条报文该把灯改成什么样」

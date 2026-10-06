@@ -11,9 +11,11 @@
 // 首字节可能是 report id(0x06)。JSON 行以 '\n' 结尾，可能跨多帧，需累计重组。
 //
 // 本模块负责：打开目标设备、按分帧拆包成「一行 JSON」交给上层解析（#onLine）、
-// 把 JSON-RPC 分帧写回设备（writeRpc）、设备断开后每 30 秒重连、以及两处**时机**：
+// 把 JSON-RPC 分帧写回设备（writeRpc）、设备断开后每 30 秒重连、以及**问设备状态**的三个时机：
 //   · 「设备已连接」的判据 = 收到设备的第一帧数据（#markConnected），到那时才问一次电量；
-//     另有兜底：句柄开着但 #probeMs 内一声不吭，才主动问一次（见 #armProbe）。
+//     另有兜底：句柄开着但 #probeMs 内一声不吭，才主动问一次（见 #armProbe）；
+//   · 以及**用户驱动**的那一路（公有 requestStatus）：客户端打开键盘设置页看电量时
+//     `POST /micro/status` 打进来，问一次当前读数（2026-10-06 用户要求）。
 //   · 退出安全网（见 ./guard.js）：句柄会持有事件循环引用，握上它之后要保证 Ctrl+C
 //     依然能把进程带走 —— 但**只有真的打开了设备才 install()**（没句柄就完全不碰进程信号）。
 //
@@ -274,6 +276,20 @@ export class HidTransport {
   writeRpc = (method, params) => this.#sendRpc(method, params)
 
   /**
+   * 「主动向设备要一次状态」的公有落点 —— 供上层把它开给客户端（`POST /micro/status`）。
+   *
+   * 为什么客户端需要它（用户 2026-10-06 要求）：设备**不会**自己定时推，宿主手上那份读数
+   * 只是「上次被问时」的值。用户打开键盘设置页看电量时，屏幕上那份可能已经是几分钟前的，
+   * 而界面完全看不出来 —— 打开页面就问一次，看到的才是**当前**读数。
+   *
+   * 与另外两个触发点（第一帧 / 一声不吭的兜底探活）的区别只有**谁决定要不要问**：
+   * 那两处是宿主自己的时机判断，这一处是用户在界面上「正在看电量」这个事实。
+   * 自带守卫（没连上时 `#sendRpc` 直接拒掉并留一行 warn），所以调用方不必先判连接。
+   * @returns {boolean} 是否真的写给了设备（没连上时为 false，不抛错）。
+   */
+  requestStatus = () => this.#requestStatus()
+
+  /**
    * 检测到设备已连接时：停掉兜底、必要时问一次电量。
    *
    * 由 `#onData` 在收到**第一帧**时调用，而且必须排在**解析之前** —— 「设备在链路上说话」这件事
@@ -322,13 +338,27 @@ export class HidTransport {
    *   · 正常路径 —— 收到设备的第一帧（#markConnected，且手上还没读数）；
    *   · 兜底路径 —— 句柄开着但 `#probeMs` 内一声不吭（#armProbe）。
    * 启动那一刻蓝牙链路往往还没建立，那时候问就是白发一条（设备收不到、也没人会报错）。
+   *
+   * 第三个触发点是**用户驱动**的（2026-10-06 用户要求）：在设置页里看电量时，由客户端
+   * `POST /micro/status` 打进来（见上面的公有 requestStatus 与 server/device.js）。
+   * 那时候链路早就通了，问一次拿到的才是当前读数。
+   * ⚠ 它走**公有包装**进来，不是又加一处 `this.#requestStatus()` 调用 —— 自检把「全源码
+   *   `this.#requestStatus()` 恰好 3 处（第一帧 / 兜底 / 这条包装）」当行程开关（verify_device §6）。
+   *
    * params 给空对象 —— 这是「把你的状态告诉我」的查询，不带参数。
    *
    * 设备怎么回都能收：通知形状（`{method:'device.status',params:{...}}`）或应答形状
    * （`{id,result:{...}}`）都由 parseDeviceStatus 认，见那里的注释。
    * @returns {boolean} 是否真的写给了设备（没连上时为 false，不抛错）。
    */
-  #requestStatus = () => this.#sendRpc(STATUS_METHOD, {})
+  #requestStatus = () => {
+    // 「我们问过」这件事也记一笔（诊断面：/micro/state 的 statusReqAt）—— 三个触发点都汇到这一处，
+    // 不会出现「某一路上问了却没人记得」。记的是**发起**时刻，设备到底收到没有看同一条快照里的
+    // `open`（未连接时 #sendRpc 的守卫会拒掉这次写，只留一行 warn）：不连也记是有意的，
+    // 真机探针要在手边没设备的机器上也能证明「打开设置页 → 真的发起了一次询问」。
+    this.#state.statusReqAt = Date.now()
+    return this.#sendRpc(STATUS_METHOD, {})
+  }
 
   #onData = (buf) => {
     if (!buf || buf.length < 3) return

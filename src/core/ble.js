@@ -9,7 +9,7 @@
 //                    窗口三道防线，亮度与空闲自动调暗。
 //   · ./input.js     **输入翻译**：一行 JSON → 状态快照里的按键/旋钮/摇杆/电量事实。
 //
-// 本文件保留**对外门面不变**（`BleController` 的公有落点 + `createBleReader` 的 13 个字段），
+// 本文件保留**对外门面不变**（`BleController` 的公有落点 + `createBleReader` 的 14 个字段），
 // 并把 protocol.js 的全部符号**再导出**（`export *`）—— 自检与其它模块照旧 `from './ble.js'` 取
 // HID_ACT / parseDeviceStatus / AGENT_ST / BLACKOUT_SLOTS 等，一个字都不用改。
 //
@@ -44,9 +44,12 @@ export class BleController {
   //   down / keyAct       **当前按住的键** + 本次事件的边沿（见 protocol.js 的 HID_ACT）。
   //   battery / charging  设备的**电平型**状态（device.status 上报，见 protocol.js 的
   //                       parseDeviceStatus）。故意**不给它配计数器**：断开时清成 null/false。
+  //   statusReqAt         「最近一次向设备要状态」的时刻（ms，0 = 从没问过）—— 纯诊断面：
+  //                       它住在任何模块都能写的共享快照上（这里声明初值），由 transport.js 记账。
+  //                       排查「电量怎么老不刷新」时，`curl /micro/state` 一眼就能看出我们问没问。
   // 这份字面量**原样搬自拆分前的 ble.js**，三个模块共用同一个对象（各持引用），
   // 谁写哪几个字段的分工见各模块顶部的说明。
-  #state = { t: 0, open: false, product: null, battery: null, charging: false, brightness: 0.9, autoDim: 0, key: null, keyAct: null, down: [], agent: -1, act: null, enc: 0, encPress: 0, encLong: 0, knobPress: 0, knobLong: 0, joy: null, joyA: null, joyD: 0, joyT: 0, joyPush: 0, joyDir: null, agents: [], outcomes: [], idle: null, agentsCurrent: null, agentsCurrentKnown: false, keyT: {} }
+  #state = { t: 0, open: false, product: null, battery: null, charging: false, statusReqAt: 0, brightness: 0.9, autoDim: 0, key: null, keyAct: null, down: [], agent: -1, act: null, enc: 0, encPress: 0, encLong: 0, knobPress: 0, knobLong: 0, joy: null, joyA: null, joyD: 0, joyT: 0, joyPush: 0, joyDir: null, agents: [], outcomes: [], idle: null, agentsCurrent: null, agentsCurrentKnown: false, keyT: {} }
   #logger
   #diagnostics = null
   #leds = null
@@ -175,6 +178,20 @@ export class BleController {
    */
   blackout = () => this.#transport.blackout()
 
+  /**
+   * 主动向设备要一次状态（电量 / 是否在充电）—— **公开给 server/**：`POST /micro/status`
+   * 的 handler 调它（见 server/device.js）。
+   *
+   * 这是用户 2026-10-06 要求的那一路：**打开键盘设置页就问一次**，因为设备不会自己定时推，
+   * 宿主手上那份读数可能已经是几分钟前的（充电中则由客户端每 10 分钟再问一次，见
+   * client/utils/device.js 的 CHARGE_POLL_MS）。
+   *
+   * 这里**不动任何态、也不广播**：这次调用改变的只有设备侧，读数要等设备答回来才进 #state
+   * （走 input.js 那条解析），到那时才轮到 onChange 通知订阅者。返回值只是「有没有写出去」。
+   * @returns {boolean} 是否真的写给了设备（没连上时为 false，不抛错）。
+   */
+  requestStatus = () => this.#transport.requestStatus()
+
   // 应用来自设置面板的配置补丁（公开给 server/：POST /micro/config）。
   // 六个门面方法的返回值一律**原样透传**（index.js 会读 reportError / clearOutcome 的布尔），
   // 通知只是捎带的一步。
@@ -223,6 +240,9 @@ export const createBleReader = ({ logger, diagnostics } = {}) => {
     open: ctl.open,
     close: ctl.close,
     reconnect: ctl.reconnect,
+    // 主动问一次设备状态（公开给 server/：POST /micro/status）。与 reconnect 同档：
+    // 都是「客户端点了什么 → 宿主对设备做一件事」，不是状态读取。
+    requestStatus: ctl.requestStatus,
     setPrefs: ctl.setPrefs,
     applyAgents: ctl.applyAgents,
     applyConfig: ctl.applyConfig,

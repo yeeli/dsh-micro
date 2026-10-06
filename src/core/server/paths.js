@@ -1,6 +1,6 @@
 // dsh-micro · HTTP 路由路径唯一真源
 //
-// 宿主侧对外暴露的 7 条 /micro/* 路由，路径只在这里声明一次。其余模块（server/ 下的
+// 宿主侧对外暴露的 8 条 /micro/* 路由，路径只在这里声明一次。其余模块（server/ 下的
 // 各 handler、以及需要断言路径的自检）一律 import 这里，绝不各自写死字符串 ——
 // 否则「改一条路径要改 N 处」，改漏了就变成「浏览器打新地址、宿主还挂在旧地址上」的
 // 静默断连。
@@ -20,6 +20,14 @@ export const PATHS = Object.freeze({
   state: '/micro/state',
   /** 配置写回（POST）：亮度 / 自动调暗。 */
   config: '/micro/config',
+  /**
+   * **向设备要一次状态**（POST）：宿主发一条 `device.status`，设备回一条 battery / is_charging。
+   * ⚠ 与上面的 `state` **不是一回事**，别看名字像就合并：`state` 读的是**宿主手上**那份快照
+   *   （被动的、只读的），这一条是**主动去问设备**（真的写一条 RPC 出去）。
+   *   设备的电量不会自己定时推，不问就没有新读数 —— 客户端在打开键盘设置页时调它
+   *   （充电中每 10 分钟再调一次，见 client/utils/device.js 的 CHARGE_POLL_MS）。
+   */
+  status: '/micro/status',
   /** 手动重连（任意）：关句柄再 open。 */
   reconnect: '/micro/reconnect',
   /** 灯态上报（POST）：Agent 键 LED 配置 + 当前会话 + 结果态。 */

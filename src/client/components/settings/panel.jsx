@@ -12,7 +12,7 @@ import { DSVI, archivedIdsOf, visibleSessions } from '../../core.js'
 import { MONITOR_URL, PRIVACY_URL, monitorDot, monitorNeedsSettings, monitorVisible } from '../../utils/monitor.js'
 // 「写入算不算成功」的判据与重试策略只有一份（utils/device.js）——设置页与控制器的
 // 所有落盘都按同一口径判（DSH 的 scope.set() 失败时 promise 照样 resolve）。
-import { SCOPE_RETRY, batteryView, isDeviceHidden, readbackOk, sameJson } from '../../utils/device.js'
+import { CHARGE_POLL_MS, DEVICE_STATUS_URL, SCOPE_RETRY, batteryView, isDeviceHidden, readbackOk, sameJson } from '../../utils/device.js'
 // 旋钮自定义分配的选项来自功能总表（与键帽候选、按下分派同一份，见 actions/registry.js）
 import { knobActions, actionById } from '../../actions/registry.js'
 // 默认配置（偏好默认值 + 第三方插件清单）只在 config/default.js 里写一份 —— 见下面的
@@ -350,6 +350,36 @@ export function MicroSettingsSection({ scope, t, sessions, workspaces }) {
     const timer = setInterval(poll, 1000)
     return () => clearInterval(timer)
   }, [])
+
+  /**
+   * 让宿主**主动向设备要一次状态**（电量 / 是否在充电）—— 用户 2026-10-06 要求。
+   *
+   * 为什么必须要这一句：设备**不会**自己定时推状态（见 src/core/transport.js 的 #requestStatus），
+   * 上面那个 1s 轮询读到的只是**宿主手上**那份快照 —— 它是「上次被问时」的值，可能是几分钟前的，
+   * 而界面上完全看不出来它旧。所以打开这一页就先问一次，看到的是当前读数。
+   *
+   * 这里只发「请把状态报给我」这一条（宿主转成一条 HID RPC 写出去），**不做任何乐观猜测**：
+   * 读数要等设备答回来才进宿主快照，再由上面的轮询 / WS 推送刷到界面上。
+   * 宿主没连设备时会忽略这次询问（只在日志里留一行），所以调用方不必先判连接 —— 刚挂载时
+   * 我们也不知道连没连上（第一拍轮询还没回来）。
+   */
+  const askDeviceStatus = () => {
+    if (typeof fetch !== 'function') return
+    fetch(DEVICE_STATUS_URL, { method: 'POST' }).catch(() => {})
+  }
+
+  // 打开本页 → 立刻要一次。
+  useEffect(() => { askDeviceStatus() }, [])
+
+  // 充电中 → 每 10 分钟再要一次（间隔见 utils/device.js 的 CHARGE_POLL_MS）。
+  // 依赖是那个**布尔边沿**而不是每秒都在变的 conn 对象：不充电就一条都不发（插上电才开始），
+  // 拔掉电源后那串定时器自己停。卸载（关掉这一页）即停 —— 「要不要问设备」取决于用户
+  // 正看着这一页；页面关了就不该再周期性打扰设备。
+  useEffect(() => {
+    if (!conn.charging) return undefined
+    const timer = setInterval(askDeviceStatus, CHARGE_POLL_MS)
+    return () => clearInterval(timer)
+  }, [conn.charging])
 
   const reconnect = () => {
     if (typeof fetch === 'function') fetch('/micro/reconnect', { method: 'POST' }).catch(() => {})
