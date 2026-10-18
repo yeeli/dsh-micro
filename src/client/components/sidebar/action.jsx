@@ -31,11 +31,23 @@
 //
 // ── 「直接打开设置里的某一页」怎么实现 ────────────────────────────────
 // 设置弹窗没有 `openSettings(sectionId)` 之类的接口，只能：点触发按钮开弹窗 → 点掉导航里文字匹配的
-// 那一行。前提都是真实应用里验过的：触发按钮是
-// `[data-slot="sidebar.settings"]` 里的 `button[aria-haspopup="dialog"]` 且带 `aria-expanded`
-// ——**已经开着时不能再点**（一点就关了）；弹窗挂在 `shell.overlay`、不在槽位出口里，所以导航行要按
-// 「在 `nav` 或 `[role="dialog"]` 里的按钮」查，不能只认 `role=dialog`（有的版本弹窗根没有它）。
-// 一律只认 data-slot / aria / 结构关系，**不猜哈希 class**；找不到就 `warn` 并返回 false。
+// 那一行。前提都是真实应用里验过的：触发按钮在 `[data-slot="sidebar.settings"]` 里、带
+// `aria-expanded` ——**已经开着时不能再点**（一点就关了）；弹窗挂在 `shell.overlay`、不在槽位出口里，
+// 所以导航行要按「在 `nav` 或 `[role="dialog"]` 里的按钮」查，不能只认 `role=dialog`（有的版本弹窗根
+// 没有它）。一律只认 data-slot / aria / 结构关系，**不猜哈希 class**；找不到就 `warn` 并返回 false。
+//
+// ⚠ **0.2.1-rc 起那颗按钮换人了**（2026-10-19 用户报「图标被挤上去、按下没反应」）：
+//   `settings.launcher` 这个槽位被 `dsh-client-ui-settings-account` 的 `AccountMenu` 接管，
+//   渲染成 **账号菜单开关** —— `button[aria-haspopup="menu"]`（未登录时是「…」+「更多」，登录后
+//   是头像 + 用户名的**账号菜单**），点它打开的是 `Menu`（**portal 到 body**），菜单里第一项
+//   才是「设置」。于是：
+//     · 旧判据只认 `aria-haspopup="dialog"` → 找不到入口 → 深链**一声不响地不干活**；
+//     · 摆放那条更早一步就断了：`findFootHosts` 认不出触发按钮 → 退回文档流 → 图标孤零零
+//       跑到账号行上方（就是用户截图里「被挤上去」）。
+//   现在的口径：① 触发器两种形态都认（`launcherKind`）；② menu 形态要走「点开关 → 菜单里点设置」
+//   两步；③ 「那一行」的判据不再假设触发器的父节点就是行 —— 账号菜单在中间多包了一层
+//   `div.root`（`flex:1;min-width:0`），所以行改成「从触发器上溯到 settingsArea 之前的第一个
+//   **有盒子**的祖先」（`gearRowOf(gear, area)`，见 findFootHosts 返回的 area）。
 //
 // 2026-09-28 起有**两个**落地目标，共用 `openSection` 一份实现（只有候选文字不同）：
 //   * `openKeyboardSettings` → 本插件分区（候选 = 词典里各语言的 `nav`）；
@@ -65,10 +77,29 @@ export const FOOT_ACTION_ID = 'micro-keyboard'
 
 /** 设置 UI 所在的槽位出口（renderer 给每个槽位加 data-slot 锚点）。 */
 export const SETTINGS_OUTLET_SEL = '[data-slot="sidebar.settings"]'
-/** 设置触发按钮：槽位出口里的 aria-haspopup="dialog"。 */
-export const SETTINGS_TRIGGER_SEL = 'button[aria-haspopup="dialog"]'
+/**
+ * 设置行的触发按钮。
+ *
+ * 两种形态都是真机见过的：
+ *   · `dialog` —— 老版/未接账号菜单时的**齿轮**（点开设置弹窗）；
+ *   · `menu`   —— 0.2.1-rc 起的**账号菜单**（「更多」/头像，点开一个菜单，菜单里才有「设置」）。
+ * 两个候选写在同一个字符串里，调用方就不必各自记得「还有另一版」；
+ * 打开路径的差别集中在 `openSection`（`launcherKind` 分叉）。
+ */
+export const SETTINGS_TRIGGER_SEL = 'button[aria-haspopup="dialog"], button[aria-haspopup="menu"]'
 /** 设置弹窗里的导航容器：nav 或 role=dialog（不同版本弹窗根不同，只要求行在其中一个里）。 */
 export const NAV_SCOPE_SEL = 'nav, [role="dialog"]'
+
+/**
+ * 账号菜单里「设置」那一项的文案（照抄 `dsh-client-ui-settings-account` 的 `settings` 键，
+ * 中/英各一）。**只用于菜单项**，与上面分区标题的候选是两回事，别混用。
+ */
+export const SETTINGS_MENU_LABELS = ['设置', 'Settings']
+/**
+ * 菜单项的稳定标记：primitives 的 `Menu` 把每一项渲染成 `button[role="menuitem"]`
+ * （里面是一个 `span` 文字）。`[role="menuitem"]` 不带 tag 兜住将来换成 `a` 的实现。
+ */
+export const MENU_ITEM_SEL = '[role="menuitem"]'
 
 /** 方形按钮边长：与收起态齿轮（36）同规格。 */
 export const BUTTON_SIZE = 36
@@ -165,6 +196,45 @@ export const triggerEl = (root) => {
   const outlet = q(root, SETTINGS_OUTLET_SEL)
   if (outlet) return q(outlet, SETTINGS_TRIGGER_SEL)
   return q(root, SETTINGS_TRIGGER_SEL)
+}
+
+/**
+ * 这颗触发器是**哪种**：`dialog`（点开设置弹窗）还是 `menu`（点开账号菜单，菜单里才有设置）。
+ * @returns {'dialog'|'menu'|null} 认不出（没有这个属性 / 不是元素）→ null。
+ *
+ * ARIA 把 `aria-haspopup="true"` 定义为等价于 `menu`，所以它也算 menu。
+ * **判据只有这一处**：`openSection` 的点击顺序、`closeSettingsDialog` 的第①条出口都按它分叉 ——
+ * 复制第二份判据的代价是「一处按 dialog 点、一处按 menu 点」（这类分裂症状本项目踩过多次）。
+ */
+export const launcherKind = (el) => {
+  if (!el) return null
+  let v = null
+  try { v = el.getAttribute('aria-haspopup') } catch (e) { return null }
+  if (v === null || v === undefined || v === '') return null
+  return (v === 'menu' || v === 'true') ? 'menu' : 'dialog'
+}
+
+/**
+ * 账号菜单里那一项「设置」（精确匹配优先，退化为包含匹配）。
+ *
+ * 菜单是 `portal: true` 的 —— 它渲染在 `document.body` 下，**不在**侧边栏那个槽位出口里，
+ * 所以只能在整页范围查。查不到返回 null（调用方据此出声，绝不假装成功）。
+ * @param labels - 候选文案，默认 `SETTINGS_MENU_LABELS`。
+ */
+export const findMenuItem = (labels = SETTINGS_MENU_LABELS) => {
+  if (typeof document === 'undefined') return null
+  const items = qa(document, MENU_ITEM_SEL) || []
+  if (!items.length) return null
+  const wants = (labels || []).filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim())
+  for (const want of wants) {
+    const hit = items.find((el) => textOf(el).trim() === want)
+    if (hit) return hit
+  }
+  for (const want of wants) {
+    const hit = items.find((el) => textOf(el).includes(want))
+    if (hit) return hit
+  }
+  return null
 }
 
 const isExpanded = (trigger) => {
@@ -278,21 +348,41 @@ const openSection = async (labels, waitMs, what) => {
 
   const trigger = triggerEl(document)
   if (!trigger) {
-    warn(`找不到侧边栏设置按钮（[data-slot="sidebar.settings"] button[aria-haspopup="dialog"]），无法打开${what}`)
+    warn('找不到侧边栏设置按钮（[data-slot="sidebar.settings"] 里 aria-haspopup="dialog" 或 "menu"），'
+      + `无法打开${what}`)
     return false
   }
-  // 弹窗已开着（只是导航还没渲染 / 行还没出现）时再点一次会把它关掉。
-  if (!isExpanded(trigger) && !clickEl(trigger, '设置按钮')) return false
 
+  // 一个截止时间贯穿两段等待（开菜单 / 等导航行），免得「菜单等了 1.2s + 导航再等 1.2s」翻倍。
   const deadline = Date.now() + waitMs
-  for (;;) {
-    const row = findSectionRow(labels, scopes)
-    if (row) {
-      if (isActiveRow(row)) return true
-      return clickEl(row, '分区导航行')
+  const waitUntil = async (fn) => {
+    for (;;) {
+      const v = fn()
+      if (v) return v
+      if (Date.now() >= deadline) return null
+      await sleep(POLL_MS)
     }
-    if (Date.now() >= deadline) break
-    await sleep(POLL_MS)
+  }
+
+  if (launcherKind(trigger) === 'menu') {
+    // 0.2.1-rc 形态：底部那颗是**账号菜单**（「…」+「更多」/ 头像 + 名字）。
+    // 菜单已经开着就别再点（再点会把它关掉）；然后从菜单里点「设置」，弹窗才会出来。
+    if (!isExpanded(trigger) && !clickEl(trigger, '账号菜单')) return false
+    const item = await waitUntil(() => findMenuItem())
+    if (!item) {
+      warn(`账号菜单里没找到「设置」项（要打开：${what}）—— 底部入口的形态可能又变了`)
+      return false
+    }
+    if (!clickEl(item, '菜单里的设置项')) return false
+  } else if (!isExpanded(trigger) && !clickEl(trigger, '设置按钮')) {
+    // 老形态：齿轮本身就是设置弹窗的开关。弹窗已开着（只是导航还没渲染）时再点一次会把它关掉。
+    return false
+  }
+
+  const row = await waitUntil(() => findSectionRow(labels, scopes))
+  if (row) {
+    if (isActiveRow(row)) return true
+    return clickEl(row, '分区导航行')
   }
   warn(`设置弹窗里没找到分区行（要打开：${what}；候选标题：${labels.join(' / ') || '无'}）`)
   return false
@@ -412,8 +502,31 @@ export const positionedAncestor = (el) => {
  *
  * 改用 `layoutParent`（跳过 display:contents）：拿到的是 triggerRow，与 `markGearTip` 打行标记
  * 用的**同一个元素** —— 两处判据一致，这类「一半对一半错」的分裂症状才不会再来。
+ *
+ * ⚠ 0.2.1-rc 又加了一层（2026-10-19）：`settings.launcher` 被账号菜单接管后，出口里多了一个
+ * `div.root`（`flex:1;min-width:0`）包着触发按钮 —— 于是 `layoutParent` 停在 `div.root` 上，
+ * 而不是 triggerRow。所以**默认判据改成「从触发器上溯到 settingsArea 之前的最后一个有盒子的祖先」**
+ * （传 `area` 进来；不传才退回 layoutParent）。area 由 `findFootHosts` 提供，它本来就是
+ * 「我按钮所在行的下一个兄弟」，结构上不会漂。
  */
-export const gearRowOf = (gear) => (gear ? layoutParent(gear) : null)
+export const gearRowOf = (gear, area) => {
+  if (!gear) return null
+  // 没给 area（控制台里只拿着一颗按钮时）→ 沿用老判据：跳过 display:contents 的那一层。
+  const scope = area && typeof area.contains === 'function' && area.contains(gear) ? area : null
+  if (!scope) return layoutParent(gear)
+  // 从触发器往上走到 area 之前，记下**最后一个有盒子**的祖先 —— 那就是布局意义上的那一行。
+  // 为什么要这么绕（而不是 layoutParent）：0.2.1-rc 的账号菜单在 `settings.launcher` 出口里
+  // 还多包了一层 `div.root`（`flex:1;min-width:0`，见 dsh-client-ui-settings-account 的
+  // AccountMenu），layoutParent 会停在那一层上 —— 拿它当「行」的话：
+  //   · 邻居判据看不到同一行里的连接指示器（气泡不再出现、指示器也不会被藏）；
+  //   · 摆放的右端基准变成那个包裹层的右端（恰好还是整行宽，看不出问题，但语义已经错了）。
+  // 这里用「area 是设置区」这个**结构事实**当锚点，不认任何 class / 层级数。
+  let last = null
+  for (let el = gear; el && el !== scope; el = el.parentElement) {
+    if (!isContents(el)) last = el
+  }
+  return last || layoutParent(gear)
+}
 
 /**
  * 浮动层判据：`position` 为 fixed / absolute 的元素**不参与**所在行的布局 ——
@@ -494,8 +607,8 @@ export const noticePhaseOf = (el) => {
 }
 
 /** 那一行里认得出的连接指示器（**不管它现在可不可见** —— 可能正被我们自己藏着）。 */
-export const connNoticeOf = (gear) => {
-  const row = gearRowOf(gear)
+export const connNoticeOf = (gear, area) => {
+  const row = gearRowOf(gear, area)
   return row ? q(row, CONN_NOTICE_SEL) : null
 }
 
@@ -596,8 +709,8 @@ export const gearTipOf = (gear) => {
  *     MutationObserver 会叫醒 place() 再进来打一次。
  * @returns {boolean} 行标记是否写成功。
  */
-export const markGearTip = (gear) => {
-  const row = gearRowOf(gear)
+export const markGearTip = (gear, area) => {
+  const row = gearRowOf(gear, area)
   if (!row || typeof row.setAttribute !== 'function') return false
   try { row.setAttribute(GEAR_ROW_ATTR, '1') } catch (e) { return false }
   try {
@@ -616,8 +729,8 @@ export const markGearTip = (gear) => {
  * 摘掉行上的标记（退回文档流 / 收起成导轨时）。提示节点是 React 的：
  * 悬停一结束整个被摘掉，GEAR_TIP_ATTR 随节点消失，不用专门清。
  */
-export const unmarkGearTip = (gear) => {
-  const row = gearRowOf(gear)
+export const unmarkGearTip = (gear, area) => {
+  const row = gearRowOf(gear, area)
   if (!row) return
   try { row.removeAttribute(GEAR_ROW_ATTR) } catch (e) {}
   try {
@@ -665,7 +778,7 @@ export const placeFootAction = (button, opts = {}) => {
   // 先「放出来」再量天然几何 —— 上一轮很可能正是我们把它藏起来的，而藏起来的元素宽高为 0，
   // 直接量就会把「我们自己造成的不可见」当成「本来就没有邻居」，然后一直贴着（气泡没了、
   // 指示器也被永久藏了）。同 narrowGear 的「先恢复再量」一个道理。
-  const row = gearRowOf(hosts.gear)
+  const row = gearRowOf(hosts.gear, hosts.area)
   for (const el of noticeCandidates(row)) setNoticeHidden(el, false)
   const sibling = visibleSiblingOf(row, hosts.gear)
   const notice = sibling && noticePhaseOf(sibling) ? sibling : null
@@ -714,7 +827,7 @@ export const placeFootAction = (button, opts = {}) => {
   // 「设置」的悬停提示挪到行上方（打标记，CSS 见 assets/settings.css 的 [data-micro-gear-tip]）。
   // 提示是悬停才出现的：此刻不在 DOM 也照样打行标记，等它出现时 MutationObserver 叫醒
   // place() 再补打。收窄没生效/没做都不影响这一步 —— 两件事独立。
-  markGearTip(hosts.gear)
+  markGearTip(hosts.gear, hosts.area)
   // notice 带出去：组件据此决定气泡显不显示、显示哪一句（null = 没有提示）。
   return { ...pos, notice }
 }
@@ -724,9 +837,10 @@ export const unpinFootAction = (button) => {
   if (!button || !button.style) return
   // 退回文档流之后那一行又归 DSH 安排了，不再有重叠风险：把可能被我们藏起来的连接指示器放回去。
   const hosts0 = findFootHosts(button)
-  for (const el of noticeCandidates(hosts0 ? gearRowOf(hosts0.gear) : null)) setNoticeHidden(el, false)
+  const area0 = hosts0 && hosts0.area
+  for (const el of noticeCandidates(hosts0 ? gearRowOf(hosts0.gear, area0) : null)) setNoticeHidden(el, false)
   // 行标记也摘掉：提示回 DSH 默认的位置（side:right）——我们不再管那一行，就别再改它的东西。
-  unmarkGearTip(button.__microGear || (hosts0 && hosts0.gear))
+  unmarkGearTip(button.__microGear || (hosts0 && hosts0.gear), area0)
   setClass(button, 'micro-foot-action--pinned', false)
   for (const k of ['position', 'top', 'right', 'left']) {
     try { button.style[k] = '' } catch (e) {}
@@ -984,9 +1098,11 @@ export const closeSettingsDialog = async (opts = {}) => {
   const ms = num(opts.stepMs, CLOSE_STEP_MS)
   if (!settingsDialogOpen()) return true // 本来就没开 = 目的已达成（幂等，一个东西都不点）
 
-  // ① 齿轮：设置按钮是开关，展开着再点一下就是关。
+  // ① 齿轮（老形态）：设置按钮是开关，展开着再点一下就是关。
+  //    ⚠ menu 形态（0.2.1-rc 的账号菜单）**不走这条**：它的 `aria-expanded` 说的是账号菜单开没开，
+  //    点它只会弹出菜单、设置弹窗还在原处 —— 「点了没成」在这里是完全静默的，所以先按形态分叉。
   const gear = triggerEl(document)
-  if (gear && isExpanded(gear)) {
+  if (gear && launcherKind(gear) === 'dialog' && isExpanded(gear)) {
     clickEl(gear, '设置按钮')
     if (await waitDialogGone(ms)) return true
   }
@@ -1033,6 +1149,11 @@ DSVI.footAction = {
   // 「设置」那一行里已就位的邻居（连接指示器）——控制台/自检用它回答「现在方块为什么不在右端」。
   gearRow: gearRowOf,
   sibling: visibleSiblingOf,
+  // 触发按钮的形态（dialog = 齿轮 / menu = 0.2.1-rc 的账号菜单）与菜单里那一项「设置」。
+  // 真机排查「点了没反应」时先看 launcherKind(triggerEl(document)) —— 认不出来就是锚点又变了。
+  launcher: launcherKind,
+  menuItem: findMenuItem,
+  menuLabels: SETTINGS_MENU_LABELS,
   // 连接指示器那条线：认相位、藏/放、以及替代它的气泡（控制台可
   // `__dshMicro.footAction.tipNode()` 看那颗气泡节点长什么样）。
   notice: connNoticeOf,
@@ -1104,7 +1225,7 @@ export function MicroSidebarAction({ wide, t }) {
   const onNoticeClick = () => {
     const btn = ref.current
     const hosts = btn ? findFootHosts(btn) : null
-    const el = hosts ? connNoticeOf(hosts.gear) : null
+    const el = hosts ? connNoticeOf(hosts.gear, hosts.area) : null
     if (!el) return
     try { el.click() } catch (e) { warn('点连接指示器失败：' + ((e && e.message) || e)) }
   }
@@ -1149,7 +1270,7 @@ export function MicroSidebarAction({ wide, t }) {
     try {
       if (typeof MutationObserver === 'function') {
         const hosts = findFootHosts(btn)
-        const gRow = hosts && gearRowOf(hosts.gear)
+        const gRow = hosts && gearRowOf(hosts.gear, hosts.area)
         if (gRow) {
           mo = new MutationObserver((records) => {
             const gearNow = (findFootHosts(btn) || {}).gear

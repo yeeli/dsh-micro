@@ -12,14 +12,14 @@
 // ⚠ **官方启用时这个按钮整个让位**（2026-09-26）：
 // 官方那套（@deepseek-ai/dsh-experimental-voice-input-bundle）自己的麦克风就在同一行走廊里
 // （模型选择器与发送按钮之间），两个麦克风只会让人犯迷糊。判据是 actions/dom.js 的
-// officialVoiceReady()（出口在、麦克风在、没灰），**不是**我们自己的状态 —— 官方 Bundle
+// officialVoicePresent()（出口在，且里面有麦克风或一条录音/反馈栏），**不是**我们自己的状态 —— 官方 Bundle
 // 是**运行时**在插件管理页启停的、页面不会刷新，所以这里低频探一下（组件卸载即停）。
 // 让位只是不渲染那颗按钮：下面所有 hook 与副作用都排在它**之前**，bindComposer / setCommit
 // 照旧绑上 —— 否则官方一旦被停用，写草稿的链路会突然缺一环。
 import { useCallback, useEffect, useState } from 'react'
 import { DSVI, MicIcon } from '../../core.js'
 import { formatDraft } from '../../actions/session.js'
-import { officialVoiceReady } from '../../actions/dom.js'
+import { officialVoicePresent } from '../../actions/dom.js'
 
 /** 官方语音可用性的探测间隔：Bundle 启停是低频事件，每次只读一个 DOM 属性。 */
 const OFFICIAL_POLL_MS = 1200
@@ -30,7 +30,7 @@ export const VoiceInputButton = ({ input, inputActions }) => {
     listening: !!(controller && controller.listening),
     unsupported: !!(controller && controller.unsupported)
   })
-  const [official, setOfficial] = useState(() => officialVoiceReady())
+  const [official, setOfficial] = useState(() => officialVoicePresent())
 
   useEffect(() => {
     if (!controller) return undefined
@@ -40,10 +40,12 @@ export const VoiceInputButton = ({ input, inputActions }) => {
   }, [controller])
 
   // 官方在不在，只有 DOM 知道（它的 Bundle 可以在页面不刷新的情况下被启用/停用）。
+  // 判据用 **present** 而不是 ready：转写中 / 报错时官方在场但「开始不了」，
+  // 那种时候我们仍然要让位，否则输入区会同时出现两个麦克风。
   useEffect(() => {
     if (typeof document === 'undefined') return undefined
-    setOfficial(officialVoiceReady())
-    const id = setInterval(() => setOfficial(officialVoiceReady()), OFFICIAL_POLL_MS)
+    setOfficial(officialVoicePresent())
+    const id = setInterval(() => setOfficial(officialVoicePresent()), OFFICIAL_POLL_MS)
     return () => clearInterval(id)
   }, [])
 

@@ -105,6 +105,11 @@ const restoreRow = () => {
  * 只有**开关明确自报 `aria-expanded="false"`**、且页面上连一个 `<nav>`/dialog 都没有时才返回 false ——
  * 那两个信号同时说「弹窗关着」，才是真的可以跳过。
  *
+ * ⚠ 0.2.1-rc 起那颗开关换成了**账号菜单**（`aria-haspopup="menu"`）：它的 `aria-expanded`
+ * 说的是「账号菜单开没开」，**不再**等于「设置弹窗开没开」。这里不额外分叉 ——
+ * `exp === 'false'` 时仍然去问 `navOnPage()`（设置弹窗开着就一定有导航），两条信号一起用；
+ * 认不出就放行，最坏只是多跑一次补图标。
+ *
  * @returns {boolean} true = 照跑（含所有拿不准的情形）；false = 确认弹窗关着，可跳过。
  */
 const sideHostPresent = () => {

@@ -497,6 +497,9 @@ export const officialVoiceOutlet = () => {
 /**
  * 官方录音栏当前阶段；**折叠态（未录音）返回 null**（那时那个 div 根本没渲染）。
  * 取值就是官方自己写在 `data-voice-activity` 上的东西：requesting / recording / transcribing / feedback。
+ * ⚠ `feedback` 是**已经不在录**的那一态（识别结果 / 失败信息的反馈栏）—— 栏还挂着，但没有
+ * 「停止并识别」也没有折叠态的麦克风。用户看到的那条「识别错误」就住在这里，要收掉它得点
+ * `officialVoiceDismissButton()`（见下）。
  * @returns {string|null}
  */
 export const officialVoicePhase = () => {
@@ -516,6 +519,8 @@ const officialVoiceButtons = (outlet) => {
 // 官方 aria-label 的两套文案（DSH 界面语言目前是中/英；其余语言由下面的结构判据兜底）。
 const VOICE_START_RE = /^(开始录音|开始听写|start recording)$/i
 const VOICE_STOP_RE = /^(停止并识别|停止转写|stop and transcribe)$/i
+/** 「关掉这条录音栏」的两套文案（中/英）—— 结构兜底时也要先把它摘出去（见 officialVoiceStartButton）。 */
+const VOICE_DISMISS_RE = /^(取消|cancel|关闭|关闭提示|取消录音|close|dismiss|discard)$/i
 
 /**
  * 官方那颗麦克风按钮（折叠态的「开始录音」）。找不到返回 null。
@@ -529,6 +534,12 @@ export const officialVoiceStartButton = () => {
   if (!btns.length) return null
   const byLabel = btns.find((b) => VOICE_START_RE.test(ariaOf(b)))
   if (byLabel) return byLabel
+  // ⚠ 结构兜底**只对折叠态**成立：录音栏一旦挂着（任何 phase），那颗「唯一」的按钮是「取消」，
+  // 把它当麦克风就是「想开始录音反而把栏关掉」；录音态里剩下的那颗是「停止」。
+  // 有录音栏就如实返回 null（HISTORY §8.4：判据层不许假装成功）。
+  let row = null
+  try { row = outlet.querySelector('[data-voice-activity]') } catch (e) { return null }
+  if (row) return null
   if (btns.length === 1) return btns[0]
   return btns.find((b) => {
     const cls = typeof b.className === 'string' ? b.className : ''
@@ -553,6 +564,41 @@ export const officialVoiceStopButton = () => {
 }
 
 /**
+ * 官方录音栏里的「关闭 / 取消」按钮 —— 用来把**还挂着的那条录音栏**收掉。
+ *
+ * 为什么需要它（2026-10-19 用户报「语音识别出错后，再按什么都不动」）：
+ * 识别失败后官方会把录音栏留在 `data-voice-activity="feedback"` 上（错误信息就挂在那条栏里），
+ * 而那个阶段**既没有折叠态的麦克风、也没有「停止并识别」**（后者只在 recording 有）。
+ * 于是再按语音键时，调用方看到的是一条「还在的」录音栏 —— 不先关掉它，就没有地方能点开始。
+ *
+ * 判据：先按 aria 文案认（中/英）；认不到再按结构兜底 —— 录音栏里**第一颗按钮**就是取消
+ * （官方的顺序是 [取消, 波形, 停止]，见技能 §8.3 量出来的契约）。
+ * ⚠ 兜底**只在那条录音栏里**做：折叠态出口里那颗是麦克风，把它当「关闭」点下去会把录音点起来。
+ * @returns {object|null} 按钮元素；没有录音栏 / 栏里一颗按钮都没有时返回 null。
+ */
+export const officialVoiceDismissButton = () => {
+  const outlet = officialVoiceOutlet()
+  if (!outlet) return null
+  const btns = officialVoiceButtons(outlet)
+  if (!btns.length) return null
+  const byLabel = btns.find((b) => VOICE_DISMISS_RE.test(ariaOf(b)))
+  if (byLabel) return byLabel
+  let row = null
+  try { row = outlet.querySelector('[data-voice-activity]') } catch (e) { return null }
+  if (!row) return null
+  let inRow = []
+  try { inRow = Array.from(row.querySelectorAll('button')) } catch (e) { inRow = [] }
+  return inRow[0] || null
+}
+
+/** 点一下录音栏的「关闭 / 取消」。真点到了返回 true（没有可点的返回 false，不假装）。 */
+export const clickOfficialVoiceDismiss = () => {
+  const btn = officialVoiceDismissButton()
+  if (!btn) return false
+  try { btn.click(); return true } catch (e) { return false }
+}
+
+/**
  * 官方语音此刻**能不能用**：出口在 + 麦克风按钮在 + 没被禁用。
  * 「按钮灰着」在官方那边就等于「模型还没准备好」，对用户而言同样是「没开启」，
  * 所以这里一并算作不可用 —— 让 voice.js 顶上，比让按键按下去没反应强。
@@ -565,6 +611,20 @@ export const officialVoiceReady = () => {
     if (btn.getAttribute('aria-disabled') === 'true') return false
   } catch (e) { return false }
   return true
+}
+
+/**
+ * 官方那半边**在场**吗（折叠态的麦克风，或者一条录音 / 转写 / 反馈栏）—— 界面据此让位。
+ *
+ * 与 `officialVoiceReady()` 的分工：ready 回答「现在能不能开始」，present 回答「这块地方
+ * 是不是官方在管」。转写中、报错时官方**在场但开始不了**；那时仍然必须让位，
+ * 否则输入区会同时出现两个麦克风（这正是让位那条设计要避免的）。
+ */
+export const officialVoicePresent = () => {
+  const outlet = officialVoiceOutlet()
+  if (!outlet) return false
+  if (officialVoiceButtons(outlet).length) return true
+  try { return !!outlet.querySelector('[data-voice-activity]') } catch (e) { return false }
 }
 
 /** 点一下官方麦克风开始录音。真点到了返回 true（权限、录音、转写全归官方管）。 */
