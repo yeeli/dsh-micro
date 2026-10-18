@@ -1,6 +1,6 @@
 {
   "name": "dsh-micro",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DeepSeek Harness 蓝牙 HID 小键盘（DSH Micro / DSH小键盘）插件：宿主端用 node-hid 读取 DSH Micro 设备（name=DSH Micro & manufacturer=OMKB LAB），浏览器端经 WebSocket 状态推送（宿主没带 ws 时退回 HTTP 轮询）桥接切换语音输入。",
   "type": "module",
   "dependencies": {
