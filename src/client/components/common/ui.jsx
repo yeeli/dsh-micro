@@ -30,6 +30,29 @@ export const Key = ({ children, onClick, className = '', ...rest }) => {
 }
 
 /**
+ * 设置页的下拉框：`<select>` + 一层定位壳 + 自绘箭头。
+ *
+ * 为什么要包一层（2026-10-19，用户报「Tauri 下选择框样式都不对」）：
+ * WebKit（Tauri 的 WKWebView）在**原生外观**下不认 `<select>` 的 padding / border-radius，
+ * 真机上量到的是 21px 高、5px 圆角、padding 0；Chrome 是 30px / 8px / 5px 8px ——
+ * 同一份 CSS 在两台机器上不是同一个控件。
+ * `appearance:none` 能让这些属性生效，但会把原生下拉箭头一起关掉，所以箭头由这里用 SVG 画：
+ * 颜色吃 `currentColor`（跟随 DSH 主题），`pointer-events:none` 不挡点击。
+ * 弹层仍是系统原生菜单（键盘、朗读、触控行为都不变），我们只接管**收起态**的外观。
+ * ⚠ 探针按 `select.micro-select` 定位，class 名字不能改。
+ */
+export const MicroSelect = ({ className = '', children, ...rest }) => {
+  return (
+    <span className="micro-select-wrap">
+      <select className={`micro-select ${className}`.trim()} {...rest}>{children}</select>
+      <svg className="micro-select-arrow" viewBox="0 0 12 12" aria-hidden="true">
+        <path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </span>
+  )
+}
+
+/**
  * 电量图标（设置页「电池」那一行用）：外壳 + 右端电极 + **按电量比例画的实心条**。
  * 条长就是电量本身（不是装饰性闪烁），空读数是空壳 —— 宁可看着空，也不要画一条假电量。
  * @param props.pct - 0..100；null/越界 = 没有读数（只画外壳）。

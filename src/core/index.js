@@ -56,7 +56,12 @@ export function apply(ctx, config) {
   // 「整个 dsh 卡死杀不掉」）。所以顺序必须是：先挂清理，再握资源。
   // 连带地，这些 dispose* 变量都得先声明 —— 否则 dispose 提前触发会在闭包里踩 TDZ。
   let disposeRoute = null
-  ctx.on('dispose', () => {
+  // ⚠ 必须用 **ctx.effect 的清理函数**（`() => () => …`）注册，不能用 `ctx.on('dispose')`。
+  //   Cordis 没有名为 `dispose` 的宿主事件：以前那样写，插件卸载 / 热重载时这段清理
+  //   **一次都不会执行** —— 旧实例的 HID 句柄不关，新实例 open() 被独占挡下（open=false），
+  //   而 HTTP 路由仍指向旧实例、agent/* 事件却只送到新实例（它没有槽位）→
+  //   「成功/失败状态永远不触发」。2026-10-19 真机上就是这么坏的。
+  ctx.effect(() => () => {
     // 原来是一句裸的 `console.log('dispose')`（连 [micro] 前缀都没有）：走日志出口，
     // 正式版才不至于在插件卸载时往终端漏一行。
     logSink.info('dispose')
@@ -67,7 +72,7 @@ export function apply(ctx, config) {
     // （宿主可能来不及走到这里），见 ./guard.js 顶部「退出前必须灭灯」。
     ble.dispose()
     if (disposeRoute) { try { disposeRoute() } catch (e) {} }
-  })
+  }, 'micro: dispose → 灭灯、关句柄、注销路由')
 
   ble.open()
 
@@ -82,6 +87,7 @@ export function apply(ctx, config) {
   ctx.effect(() => ctx.on('agent/error', ({ agent, error }) => {
     try {
       const id = agent && agent.id
+      ble.setAgentActivity(id, false) // 失败也是「这一轮结束」：自动调暗护栏放行
       if (!ble.reportError(id)) {
         logger.info(`[micro] 会话 ${id} 运行失败，但它当前没有占键（不在侧边栏），不亮灯`)
       }
@@ -100,7 +106,9 @@ export function apply(ctx, config) {
   // 返回 false（该会话没占键，比如后台跑的）是常事，不告警、也不刷日志。
   ctx.effect(() => ctx.on('agent/turn-stopping', ({ agent }) => {
     try {
-      ble.reportSuccess(agent && agent.id)
+      const id = agent && agent.id
+      ble.setAgentActivity(id, false) // 跑完一轮 → 该会话不再算「运行中」
+      ble.reportSuccess(id)
     } catch (e) {
       logger.warn('[micro] 成功状态下发异常:', e && e.message ? e.message : e)
     }
@@ -119,18 +127,37 @@ export function apply(ctx, config) {
   //   现在 `clearOutcome` 只把结论从内部表里撤掉（红灯交由浏览器下一次推送重算时自然消失），
   //   设备画面由**浏览器那条推送**更正 —— 一场重试因此只剩一条。
   //
-  // 只认 `running`：**idle 那一跳不发**（用户明确要求）。它是相位回落，紧跟在本轮的
-  // turn-stopping/error 之后，刚写过的那份内容已经是最新的；再写一条只会让设备收到重复内容。
-  // 只在真收掉了东西时打日志：多数 agent/status 与灯无关，不该刷屏。
+  // 只认 `running` 去**收结果灯**：idle 那一跳不再写设备（用户明确要求）。它是相位回落，
+  // 紧跟在本轮的 turn-stopping/error 之后，刚写过的那份内容已经是最新的；再写一条只会让设备
+  // 收到重复内容。只在真收掉了东西时打日志：多数 agent/status 与灯无关，不该刷屏。
+  //
+  // ⚠ 2026-10-19：这一跳现在还负责**自动调暗的独立护栏**（见 leds.js 的 #runningSessions）。
+  //   `running` → 记进集合；`idle` → 移出集合。浏览器那份 allIdle 可能晚一拍或漏推，
+  //   宿主总线不能漏 —— 只要这里还有在跑的会话，`#autoDimCheck` 就绝不关灯。
   ctx.effect(() => ctx.on('agent/status', ({ agent, status }) => {
     try {
-      if (status !== 'running') return
       const id = agent && agent.id
-      if (ble.clearOutcome(id)) logger.info(`[micro] 会话 ${id} 重新开始运行 → 收掉结果灯（红/成功，不额外发报文）`)
+      if (status === 'running') {
+        ble.setAgentActivity(id, true)
+        if (ble.clearOutcome(id)) logger.info(`[micro] 会话 ${id} 重新开始运行 → 收掉结果灯（红/成功，不额外发报文）`)
+      } else if (status === 'idle') {
+        ble.setAgentActivity(id, false)
+      }
     } catch (e) {
       logger.warn('[micro] 结果灯收尾异常:', e && e.message ? e.message : e)
     }
   }), 'micro: agent running → clear outcome LED')
+
+  // ---- 会话销毁 → 从「运行中」集合里摘掉 ----
+  // 没有这一条，被销毁的 agent 会让 #runningSessions 永久留一个 id，自动调暗再也关不掉。
+  // `agent/disposed` 的载荷同样是 `{ agent }`（见 dsh-agent 的 registry）。
+  ctx.effect(() => ctx.on('agent/disposed', ({ agent }) => {
+    try {
+      ble.setAgentActivity(agent && agent.id, false)
+    } catch (e) {
+      logger.warn('[micro] 会话销毁收尾异常:', e && e.message ? e.message : e)
+    }
+  }), 'micro: agent disposed → 清运行态')
 
   // ---- 设置持久化 ----
   // 命名空间与 schema 由本模块导出的 Config 承载（导出即注册，没有 installSection 可调）。

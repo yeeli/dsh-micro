@@ -161,9 +161,16 @@ export class AgentController {
     this.#slots = slots
     // 「所有会话都空闲」也要一起报给宿主：自动调暗（关灯）按它计时，而不是按按键活动
     // ——会话在跑说明还有活干，不该关灯；全空闲才是真正的「没事了」。
-    // 没有任何可见会话时也算全空闲（灯本来就是空的，关不关都一样）。
-    const all = this.listSessions(snapshot)
-    const allIdle = !all.some((s) => s && s.running)
+    //
+    // ⚠ 判据必须是**快照里的全部会话**，不能只用 `listSessions()` 那 6 个可见槽位：
+    //   子代理 / 已归档 / 当前不在侧边栏的会话同样可能在跑；只看可见会话会得出
+    //   「可见的都空闲」→ allIdle=true → 宿主把灯全关了，而实际上还有活没干完
+    //   （用户 2026-10-19 报的「还在会话中就把其它键的灯关了」）。
+    //   没有任何会话时才算全空闲（灯本来就是空的，关不关都一样）。
+    const allSessions = snapshot
+      ? (snapshot.byId ? Object.values(snapshot.byId) : this.listSessions(snapshot))
+      : []
+    const allIdle = !allSessions.some((s) => s && s.running)
     this.#allIdle = allIdle
     // 「谁是当前会话」= 主视图正在看的那一条（DSH 官方判据 `retainedBy.mainView > 0`，
     // 见 utils/session-list.js）。**只有浏览器算得出来**，所以必须随灯态一起报给宿主 ——

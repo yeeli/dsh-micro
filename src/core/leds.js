@@ -237,6 +237,16 @@ export class LedEngine {
    */
   #allIdle = null
   #idleSince = 0 // 进入「全空闲」的时刻（0 = 未知）
+  /**
+   * **宿主自己**看到的「正在跑的会话 id」集合 —— 自动调暗的第二条独立判据。
+   *
+   * 为什么不能只信浏览器的 `allIdle`：浏览器那份快照可能晚一拍 / 漏推（`refresh` 没被
+   * 触发），宿主就会拿着上一拍的 `allIdle=true` 在会话运行中关灯。宿主总线上的
+   * `agent/status` / `agent/turn-stopping` / `agent/error` / `agent/disposed` 是即时的，
+   * 由 index.js 直接喂进来；只要这里还有 id，就绝不自动调暗。
+   * ⚠ 集合按**会话 id**记，不是按槽位：子代理 / 未占键的会话同样可能在跑。
+   */
+  #runningSessions = new Set()
   #dimTimer = null
 
   /** @param {{logger?: any, state: object}} [options] */
@@ -267,6 +277,26 @@ export class LedEngine {
   // ---------- 电源：亮度 / 自动调暗 ----------
   /** 有输入活动（input.js 每次入站都报）—— 自动调暗的计时基准。 */
   markActivity = (now = Date.now()) => { this.#lastActivity = now }
+
+  /**
+   * 宿主总线告诉我们的「某个会话开始 / 结束运行」—— 自动调暗的独立护栏（见 `#runningSessions`）。
+   *
+   * 由 index.js 在 `agent/status`（running/idle）、`agent/turn-stopping`、`agent/error`、
+   * `agent/disposed` 上调用。返回「这个会话的运行态是否真的变了」，只用于日志/自检。
+   * 开始运行且当前正暗着 → 立刻 `wake()`（不等下一次浏览器推送）。
+   * @param sessionId - 会话/agent id（两者在 DSH 里是同一个值）。
+   * @param running - true = 开始运行；false = 结束（成功/失败/被销毁都算结束）。
+   * @returns {boolean} 状态是否变化。
+   */
+  setAgentActivity = (sessionId, running) => {
+    if (typeof sessionId !== 'string' || !sessionId) return false
+    const was = this.#runningSessions.has(sessionId)
+    if (running) this.#runningSessions.add(sessionId)
+    else this.#runningSessions.delete(sessionId)
+    this.#state.runningAgents = this.#runningSessions.size
+    if (running && this.#dimmed) this.wake()
+    return was !== !!running
+  }
 
   /**
    * 从「空闲调暗」状态恢复亮度。两处会调用：按下任意键（input.js #bump）、会话重新开始运行（applyAgents）。
@@ -344,22 +374,29 @@ export class LedEngine {
     return changed
   }
 
-  // 空闲自动调暗：autoDim(秒) 到了就关灯（亮度 0 = ambient 与键灯一起熄）。
+  // 空闲自动调暗：**所有会话都空闲**达到 autoDim 秒才关灯（亮度 0 = ambient 与键灯一起熄）。
   //
-  // 计时基准有两条路：
-  //   * 浏览器报过 allIdle（新客户端）→ 用「进入全空闲的时刻」与「最后一次按键」里较晚的那个
-  //     起算。会话在跑 = 有活干，直接不关；刚敲过键盘也不关——否则会出现
-  //     「到点关灯 → 一按键又亮 → 1 秒后又关」的闪烁。
-  //   * 还没这份信息（老客户端 / 从未上报）→ 退回原来的「无按键活动」判据，行为与以前完全一致。
+  // 判据只有一条：浏览器明确报过 `allIdle === true`；且宿主手里的灯态里没有 running 槽。
+  //   * `allIdle === false` → 有会话在跑，绝对不关（用户 2026-10-19 报的「还在会话中就把
+  //     其它键的灯关了」就是这条被绕过）；
+  //   * `allIdle === null` → **还不知道**（老客户端 / 浏览器还没推 / 刚重连）。
+  //     以前这里退回「无按键活动」判据：只要 30 秒没碰键盘就关灯，完全不看会话是否在跑 ——
+  //     正是「人在会话里、灯却灭了」的来源。现在**不知道就不关**，等浏览器报来明确结论。
+  //   * 计时基准：`#idleSince`（进入全空闲）与 `#lastActivity`（最后一次按键）取较晚者，
+  //     避免「到点关灯 → 一按键又亮 → 1 秒后又关」的闪烁。
   #autoDimCheck = () => {
     if (this.#state.autoDim <= 0 || this.#dimmed || !this.#state.open) return
-    if (this.#allIdle === false) return // 有会话在运行：不关灯
+    if (this.#runningSessions.size > 0) return // 宿主自己看到还有会话在跑：绝不关灯
+    if (this.#allIdle !== true) return // 没确认「所有会话空闲」：不关灯
+    // 第二道保险：即使浏览器这一拍报了 allIdle=true，只要还有任一槽是 running（st=1），
+    // 就不是真的全空闲 —— 不拿一条自相矛盾的报文去关灯。
+    if (this.#desiredAgents.some((s) => s && s.st === AGENT_ST.RUNNING)) return
     const ref = Math.max(this.#lastActivity, this.#idleSince)
     if (Date.now() - ref < this.#state.autoDim * 1000) return
     this.#dimmed = true
     this.#sendBrightness(0)
     this.#renderAgents({ from: '空闲自动调暗' }) // 灯态也要跟着压灭（否则下一次 thstatus 又把灯点亮）
-    this.#log(`空闲自动调暗：关闭灯光（${this.#allIdle === true ? '所有会话空闲' : '无按键活动'} ${this.#state.autoDim}s）`)
+    this.#log(`空闲自动调暗：关闭灯光（所有会话空闲 ${this.#state.autoDim}s）`)
   }
 
   #clampRgb = (v) => Math.max(0, Math.min(0xffffff, Math.round(Number(v) || 0)))

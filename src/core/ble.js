@@ -49,7 +49,7 @@ export class BleController {
   //                       排查「电量怎么老不刷新」时，`curl /micro/state` 一眼就能看出我们问没问。
   // 这份字面量**原样搬自拆分前的 ble.js**，三个模块共用同一个对象（各持引用），
   // 谁写哪几个字段的分工见各模块顶部的说明。
-  #state = { t: 0, open: false, product: null, battery: null, charging: false, statusReqAt: 0, brightness: 0.9, autoDim: 0, key: null, keyAct: null, down: [], agent: -1, act: null, enc: 0, encPress: 0, encLong: 0, knobPress: 0, knobLong: 0, joy: null, joyA: null, joyD: 0, joyT: 0, joyPush: 0, joyDir: null, agents: [], outcomes: [], idle: null, agentsCurrent: null, agentsCurrentKnown: false, keyT: {} }
+  #state = { t: 0, open: false, product: null, battery: null, charging: false, statusReqAt: 0, brightness: 0.9, autoDim: 0, key: null, keyAct: null, down: [], agent: -1, act: null, enc: 0, encPress: 0, encLong: 0, knobPress: 0, knobLong: 0, joy: null, joyA: null, joyD: 0, joyT: 0, joyPush: 0, joyDir: null, agents: [], outcomes: [], idle: null, runningAgents: 0, agentsCurrent: null, agentsCurrentKnown: false, keyT: {} }
   #logger
   #diagnostics = null
   #leds = null
@@ -203,6 +203,10 @@ export class BleController {
   // 来自设置面板的 Agent 键 LED 配置（公开给 server/：POST /micro/agents）。
   applyAgents = (payload) => { const r = this.#leds.applyAgents(payload); this.#notify(); return r }
 
+  // 宿主总线上的会话运行态（agent/status、turn-stopping、error、disposed）→ 自动调暗护栏。
+  // 与「结果灯」是两条独立的线：这里只回答「现在还有没有会话在跑」。
+  setAgentActivity = (sessionId, running) => { const r = this.#leds.setAgentActivity(sessionId, running); this.#notify(); return r }
+
   // 结果态：某个会话失败（红）/ 跑完一轮（成功）/ 重新开始运行（收掉）。由宿主总线驱动。
   reportError = (sessionId) => { const r = this.#leds.reportError(sessionId); this.#notify(); return r }
 
@@ -249,6 +253,7 @@ export const createBleReader = ({ logger, diagnostics } = {}) => {
     reportError: ctl.reportError,
     reportSuccess: ctl.reportSuccess,
     clearOutcome: ctl.clearOutcome,
+    setAgentActivity: ctl.setAgentActivity,
     // 测试注入（自检脚本用它喂摇杆帧，见 feedLine）；宿主运行时不用。
     feedLine: ctl.feedLine,
     // 状态推送的挂点（见 ./server/state-socket.js）：回调不带参数，自己去 snapshot() 取最新一份。

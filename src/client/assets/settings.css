@@ -148,7 +148,14 @@
 .micro-batt__val{font-size:13px;font-weight:600;color:var(--dsw-alias-label-secondary);min-width:34px;text-align:right}
 .micro-batt__val--low{color:var(--dsw-alias-state-error-primary)}
 .micro-batt__tag{font-size:11px;color:var(--dsw-alias-label-tertiary);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:1px 6px}
-.micro-select{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:5px 8px;font-size:13px}
+/* 下拉框（2026-10-19）：WebKit 在原生外观下不认 padding / border-radius（Tauri 里量到
+   21px 高、5px 圆角、padding 0；Chrome 是 30px / 8px）。这里统一成 appearance:none 的自绘壳，
+   箭头由 .micro-select-wrap 里的 SVG 画（颜色 currentColor，跟随主题）。见 common/ui.jsx 的 MicroSelect。 */
+.micro-select-wrap{position:relative;display:inline-flex;align-items:center;max-width:100%}
+.micro-select{appearance:none;-webkit-appearance:none;background-color:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:0 26px 0 8px;font-size:13px;line-height:1.4;height:30px;box-sizing:border-box;max-width:100%;cursor:pointer}
+.micro-select-arrow{position:absolute;right:8px;top:50%;width:10px;height:10px;transform:translateY(-50%);pointer-events:none;color:var(--dsw-alias-label-tertiary)}
+/* appearance:none 会连原生焦点环一起带走；键盘用户必须还能看见焦点。 */
+.micro-select:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
 .micro-switch{position:relative;width:38px;height:22px;border-radius:999px;border:none;background:var(--dsw-alias-label-tertiary);cursor:pointer;transition:background .15s}
 .micro-switch[data-on]{background:var(--dsw-alias-brand-primary)}
 .micro-switch::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:999px;background:#fff;transition:transform .15s}
@@ -327,12 +334,21 @@
   height: 32px;
 }
 
+/* ⚠ 底行的行高**不能**靠 `align-items:stretch` 让子项自己长出来：
+   2026-10-19 用户报「Tauri（WKWebView）里最下面一行按键特别小，原生网页正常」。
+   量出来的原因：WebKit 在 stretch 下不把子项的 `aspect-ratio` 算进 grid 行的 intrinsic
+   height —— 整行塌到旋钮面板的 70px，发送键被压成 70×70、宽 Mic 键变成 202×70；
+   Chrome 会按 aspect-ratio 算出 93px。
+   修法：**start** 让发送键按 1:1 从列宽得到高度（这一颗就定住了整行），
+   宽 Mic 键（没有 aspect-ratio）与旋钮面板再显式 stretch 填满这一行。
+   ⚠ 两个 `align-self:stretch` 缺一不可：摘掉宽 Mic 那条它会缩成图标高（34px），
+   摘掉旋钮面板那条它的内容会比整行高出一截、看着「浮」在上面。 */
 .micro-bottom-row {
   margin-top: 16px;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
-  align-items: stretch;
+  align-items: start;
 }
 
 .micro-knob-panel {
@@ -341,6 +357,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
+  align-self: stretch;
 }
 
 .micro-knob-lights {
@@ -370,6 +387,8 @@
 .micro-key-mic {
   grid-column: span 2;
   aspect-ratio: unset;
+  /* 见上面 .micro-bottom-row 的说明：行高由发送键定，这颗宽键要显式填满整行。 */
+  align-self: stretch;
 }
 
 /* 预览模式（首次连接引导里的键盘插图，见 components/modals/guide.jsx）：

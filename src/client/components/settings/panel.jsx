@@ -24,7 +24,7 @@ import { MicroLayout } from './keyboard-layout.jsx'
 import { MicroResetModal } from '../modals/reset.jsx'
 import { MicroRemoveModal } from '../modals/remove.jsx'
 import { MicroSaveToast } from '../toast/save.jsx'
-import { BatteryIcon } from '../common/ui.jsx'
+import { BatteryIcon, MicroSelect } from '../common/ui.jsx'
 // 移除之后要**关掉设置弹窗回首页**：我们的导航行会被藏起来、本分区内容也 return null，
 // 停在原地只剩一块空白内容区（用户 2026-09-30 报障）。关弹窗那四条出口只有一处知道怎么走
 // （closeSettingsDialog，与 findSectionRow / candidateLabels 同在一处）。
@@ -606,8 +606,7 @@ export function MicroSettingsSection({ scope, t, sessions, workspaces }) {
             <div className="micro-row__desc">{tt('autoDim.desc')}</div>
           </div>
           <div className="micro-row__ctrl">
-            <select
-              className="micro-select"
+            <MicroSelect
               value={String(autoDim)}
               aria-label={tt('autoDim.title')}
               onChange={(e) => setAutoDim(Number(e.target.value))}
@@ -615,7 +614,7 @@ export function MicroSettingsSection({ scope, t, sessions, workspaces }) {
               {AUTO_DIM_OPTIONS.map(([v, key]) => (
                 <option value={String(v)} key={String(v)}>{tt(key)}</option>
               ))}
-            </select>
+            </MicroSelect>
           </div>
         </div>
       </div>
@@ -660,8 +659,7 @@ export function MicroSettingsSection({ scope, t, sessions, workspaces }) {
             <div className="micro-row__desc">{tt('opts.agentKeyDesc')}</div>
           </div>
           <div className="micro-row__ctrl">
-            <select
-              className="micro-select"
+            <MicroSelect
               value={agentKey}
               aria-label={tt('opts.agentKey')}
               onChange={(e) => update('agentKey', e.target.value)}
@@ -670,7 +668,7 @@ export function MicroSettingsSection({ scope, t, sessions, workspaces }) {
               <option value="recent">{tt('opts.agentKey.recent')}</option>
               <option value="priority">{tt('opts.agentKey.priority')}</option>
               <option value="custom">{tt('opts.agentKey.custom')}</option>
-            </select>
+            </MicroSelect>
           </div>
         </div>
         {agentKey === 'custom' ? [0, 1, 2, 3, 4, 5].map((n) => (
@@ -679,8 +677,7 @@ export function MicroSettingsSection({ scope, t, sessions, workspaces }) {
               <div className="micro-row__title">{tt('opts.agentAssign.slot') + ' ' + (n + 1)}</div>
             </div>
             <div className="micro-row__ctrl">
-              <select
-                className="micro-select"
+              <MicroSelect
                 value={String(((prefs.agentAssign || {})[n]) || '')}
                 aria-label={tt('opts.agentAssign.slot') + ' ' + (n + 1)}
                 onChange={(e) => {
@@ -694,7 +691,7 @@ export function MicroSettingsSection({ scope, t, sessions, workspaces }) {
                 {sessionsList.map((s) => (
                   <option value={s.id} key={s.id}>{s.displayTitle || s.id}</option>
                 ))}
-              </select>
+              </MicroSelect>
             </div>
           </div>
         )) : null}
@@ -704,8 +701,7 @@ export function MicroSettingsSection({ scope, t, sessions, workspaces }) {
             <div className="micro-row__desc">{tt('opts.knob.' + knob + '.desc')}</div>
           </div>
           <div className="micro-row__ctrl">
-            <select
-              className="micro-select"
+            <MicroSelect
               value={knob}
               aria-label={tt('opts.knob')}
               onChange={(e) => update('knob', e.target.value)}
@@ -714,7 +710,7 @@ export function MicroSettingsSection({ scope, t, sessions, workspaces }) {
               <option value="reasoning">{tt('opts.knob.reasoning')}</option>
               <option value="scroll">{tt('opts.knob.scroll')}</option>
               <option value="custom">{tt('opts.knob.custom')}</option>
-            </select>
+            </MicroSelect>
           </div>
         </div>
         {/* 长按是**与模式无关**的固定手势 → 提示单独一行，四种模式下都看得见
@@ -738,8 +734,7 @@ export function MicroSettingsSection({ scope, t, sessions, workspaces }) {
               <div className="micro-row__title">{tt(labelKey)}</div>
             </div>
             <div className="micro-row__ctrl">
-              <select
-                className="micro-select"
+              <MicroSelect
                 value={String(knobCustom[g] || 'none')}
                 aria-label={tt(labelKey)}
                 onChange={(e) => update('knobCustom', { ...knobCustom, [g]: e.target.value })}
@@ -747,7 +742,7 @@ export function MicroSettingsSection({ scope, t, sessions, workspaces }) {
                 {KNOB_ACTION_OPTIONS.map(([v, key]) => (
                   <option value={v} key={v}>{tt(key)}</option>
                 ))}
-              </select>
+              </MicroSelect>
             </div>
           </div>
         )) : null}
